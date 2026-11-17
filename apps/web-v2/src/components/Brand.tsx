@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { cx } from './ui';
 
 /** Colors of the mark: lamp amber for the blade, a shade darker for the gold and the note. */
@@ -40,6 +41,32 @@ export function Mark({ size = 28, className }: { size?: number; className?: stri
         <ellipse cx="49.67" cy="50.56" rx="6.8" ry="4.9" transform="rotate(-24 49.67 50.56)" />
       </g>
     </svg>
+  );
+}
+
+/** The version of the web app, from its package.json. */
+export const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '';
+
+/** The app name and version, and who made it, with a link to the author's site. */
+export function Credit({ className }: { className?: string }) {
+  const { t } = useI18n();
+  return (
+    <div className={cx('flex flex-col gap-1 text-[12px] leading-4 text-ink-3', className)}>
+      <p>
+        {t('app.name')} <span className="font-mono tabular-nums text-[#d98a26]">v{APP_VERSION}</span>
+      </p>
+      <p>
+        {t('profile.credit')}{' '}
+        <a
+          href="https://tommywalkie.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors duration-150 hover:text-ink"
+        >
+          Tom&nbsp;Bazarnik
+        </a>
+      </p>
+    </div>
   );
 }
 

@@ -26,6 +26,7 @@ export function ScenesPage({ me }: { me: Me }) {
   return (
     <Page
       title={t('scenes.title')}
+      description={t('scenes.description')}
       meta={scenes.data ? String(all.length) : undefined}
       action={
         <Button variant="primary" icon={Plus} onClick={() => setEditingId('new')}>

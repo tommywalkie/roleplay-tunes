@@ -147,6 +147,18 @@ describe('App', () => {
     expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Administration/ })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Storage, limits and language/ })).toBeInTheDocument();
+    expect(screen.getAllByText('v1.0.0').length).toBeGreaterThan(0);
+    for (const credit of screen.getAllByRole('link', { name: 'Tom Bazarnik' })) {
+      expect(credit).toHaveAttribute('href', 'https://tommywalkie.com/');
+    }
+
+    await user.click(screen.getByRole('button', { name: /Install the app/ }));
+    expect(screen.getByRole('dialog', { name: 'Install the app' })).toBeInTheDocument();
+    expect(screen.getByText('Android, in Chrome')).toBeInTheDocument();
+    expect(screen.getByText('iPhone and iPad, in Safari or Chrome')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Got it' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
   });

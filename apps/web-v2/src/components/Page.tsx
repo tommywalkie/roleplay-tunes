@@ -11,6 +11,7 @@ import { Button, EmptyState, ErrorNote, Icon, SearchField, Spinner } from './ui'
 export function Page({
   title,
   meta,
+  description,
   action,
   backTo,
   search,
@@ -19,6 +20,8 @@ export function Page({
   title: string;
   /** Quiet count next to the title. */
   meta?: string;
+  /** One line under the title on what the page holds. */
+  description?: string;
   action?: ReactNode;
   backTo?: string;
   search?: { value: string; onChange: (value: string) => void };
@@ -46,6 +49,9 @@ export function Page({
           )}
           <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div>
         </div>
+        {description && (
+          <p className="-mt-2 max-w-[60ch] text-[14px] leading-5 text-ink-2">{description}</p>
+        )}
         {search && (
           <SearchField
             value={search.value}

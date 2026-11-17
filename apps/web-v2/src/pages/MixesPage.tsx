@@ -26,6 +26,7 @@ export function MixesPage({ me }: { me: Me }) {
   return (
     <Page
       title={t('mixes.title')}
+      description={t('mixes.description')}
       meta={mixes.data ? String(all.length) : undefined}
       action={
         <Button variant="primary" icon={Plus} onClick={() => setEditingId('new')}>

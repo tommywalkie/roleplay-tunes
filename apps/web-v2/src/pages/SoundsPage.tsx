@@ -31,6 +31,7 @@ export function SoundsPage({ me }: { me: Me }) {
   return (
     <Page
       title={t('sounds.title')}
+      description={t('sounds.description')}
       meta={sounds.data ? String(all.length) : undefined}
       action={uploadButton}
       search={{ value: query, onChange: setQuery }}

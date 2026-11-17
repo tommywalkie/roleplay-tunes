@@ -105,8 +105,13 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
           >
             <span className="hidden md:inline">{t(paused ? 'player.resume' : 'player.pause')}</span>
           </Button>
-          <Button icon={Square} onClick={player.stopAll} className="px-3 md:flex-1">
-            {t('player.stopAll')}
+          <Button
+            icon={Square}
+            aria-label={t('player.stopAll')}
+            onClick={player.stopAll}
+            className="w-11 px-0 md:w-auto md:flex-1 md:px-3"
+          >
+            <span className="hidden md:inline">{t('player.stopAll')}</span>
           </Button>
         </div>
       </div>

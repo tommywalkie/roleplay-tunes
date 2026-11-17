@@ -29,6 +29,7 @@ export function LibraryPage() {
   return (
     <Page
       title={t('library.title')}
+      description={t('library.description')}
       meta={library.data ? String(sounds.length + mixes.length) : undefined}
       search={{ value: query, onChange: setQuery }}
     >

@@ -2,7 +2,7 @@ import { Beer, CloudRain, DoorOpen, Flame, Trees, Users, type LucideIcon } from 
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { usePublicSettings, useSignIn, useSignUp } from '../api/hooks';
-import { Mark, Wordmark } from '../components/Brand';
+import { Credit, Mark, Wordmark } from '../components/Brand';
 import { Button, cx, ErrorNote, Field, Lamp, TextInput } from '../components/ui';
 import { useI18n, type Locale } from '../i18n';
 
@@ -74,7 +74,8 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
-      <main className="flex flex-col justify-center gap-8 px-6 py-10 md:px-12">
+      <main className="flex flex-col px-6 py-10 md:px-12">
+        <div className="my-auto flex flex-col gap-8">
         <div className="flex flex-col gap-2">
           <span className="flex items-center gap-2.5 text-ink-2">
             <Mark size={24} />
@@ -141,6 +142,8 @@ export function LoginPage() {
             </button>
           )}
         </form>
+        </div>
+        <Credit className="pt-10" />
       </main>
 
       <div className="hidden items-center justify-center border-l border-line bg-deep p-12 lg:flex">

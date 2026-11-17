@@ -2,6 +2,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import pkg from './package.json' with { type: 'json' };
+
+// Shown next to the product name: read in the app as import.meta.env.VITE_APP_VERSION.
+process.env.VITE_APP_VERSION = pkg.version;
 
 // The API server trusts http://localhost:5173 by default (TRUSTED_ORIGINS), and the session
 // cookie is same-origin through this proxy, so the port is fixed.

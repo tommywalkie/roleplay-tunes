@@ -13,7 +13,7 @@ import { useMemo } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useLibrary, useSounds } from '../api/hooks';
 import { PlayerProvider } from '../audio/player';
-import { Mark, Wordmark } from '../components/Brand';
+import { Credit, Mark, Wordmark } from '../components/Brand';
 import { StorageMeter } from '../components/StorageMeter';
 import { cx, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
@@ -104,6 +104,8 @@ export function AppShell({ me }: { me: Me }) {
             <NavLink to="/settings" className="block rounded-[10px]" aria-label={t('settings.storage')}>
               <StorageMeter me={me} compact />
             </NavLink>
+            <hr className="my-5 border-line" />
+            <Credit className='gap-2.5 items-center text-center' />
           </div>
         </nav>
 
