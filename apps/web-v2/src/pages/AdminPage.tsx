@@ -1,0 +1,263 @@
+import type { Limits, Me } from '@dnd/shared';
+import { ChevronRight } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import {
+  useAdminSettings,
+  useAdminUsage,
+  useAdminUsers,
+  useSetDefaultLimits,
+  useSetSignups,
+  type AdminUser,
+  type DiskSplit,
+} from '../api/admin';
+import { fromLimitInputs, LimitFields, toLimitInputs } from '../components/LimitFields';
+import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { Button, cx, ErrorNote, Icon, SearchField, Segmented } from '../components/ui';
+import { UserDialog } from '../editors/UserDialog';
+import { useI18n } from '../i18n';
+import type { MessageKey } from '../i18n/en';
+
+function Card({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-[16px] border border-line bg-card p-5">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-[13px] leading-5 text-ink-2">{title}</h2>
+        {hint && <p className="text-[13px] leading-5 text-ink-3">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const DISK_PARTS: { key: keyof DiskSplit; label: MessageKey; tone: string }[] = [
+  { key: 'audioBytes', label: 'admin.disk.audio', tone: 'bg-ink' },
+  { key: 'imageBytes', label: 'admin.disk.images', tone: 'bg-ink-2' },
+  { key: 'databaseBytes', label: 'admin.disk.database', tone: 'bg-ink-3' },
+  { key: 'freeBytes', label: 'admin.disk.free', tone: 'bg-line-strong' },
+];
+
+/** The server's disk as one stacked bar: what the app stores, and what is left. */
+function DiskCard({ disk }: { disk: DiskSplit }) {
+  const { t, bytes } = useI18n();
+  const used = disk.audioBytes + disk.imageBytes + disk.databaseBytes;
+  const total = used + disk.freeBytes;
+  return (
+    <Card title={t('admin.disk')}>
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="font-mono text-[28px] leading-8 font-medium tabular-nums">{bytes(used)}</span>
+        <span className="text-[13px] leading-5 text-ink-3 tabular-nums">
+          {t('storage.left', { left: bytes(disk.freeBytes) })}
+        </span>
+      </div>
+      <div className="flex h-2 gap-0.5 overflow-hidden rounded-[4px]" aria-hidden>
+        {DISK_PARTS.map(({ key, tone }) =>
+          disk[key] > 0 ? (
+            <span
+              key={key}
+              className={cx('h-full min-w-1', tone)}
+              style={{ flexGrow: total > 0 ? disk[key] / total : 0, flexBasis: 0 }}
+            />
+          ) : null,
+        )}
+      </div>
+      <dl className="flex flex-col gap-2">
+        {DISK_PARTS.map(({ key, label, tone }) => (
+          <div
+            key={key}
+            className="flex min-h-9 items-center gap-3 border-t border-line pt-2 first:border-t-0 first:pt-0"
+          >
+            <span className={cx('size-2 shrink-0 rounded-full', tone)} aria-hidden />
+            <dt className="flex-1 text-[14px] leading-5 text-ink-2">{t(label)}</dt>
+            <dd className="text-[14px] leading-5 tabular-nums">{bytes(disk[key])}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
+  );
+}
+
+function SignupsCard({ open }: { open: boolean }) {
+  const { t, errorText } = useI18n();
+  const setSignups = useSetSignups();
+  // Show the choice at once; the query catches up after the request.
+  const shown = setSignups.isPending ? setSignups.variables : open;
+  return (
+    <Card title={t('admin.signups')} hint={t('admin.signups.hint')}>
+      {setSignups.error && <ErrorNote>{errorText(setSignups.error)}</ErrorNote>}
+      <Segmented
+        label={t('admin.signups')}
+        value={shown ? 'open' : 'closed'}
+        onChange={(v) => setSignups.mutate(v === 'open')}
+        options={[
+          { value: 'open', label: t('admin.signups.open') },
+          { value: 'closed', label: t('admin.signups.closed') },
+        ]}
+      />
+    </Card>
+  );
+}
+
+function DefaultsCard({ defaults }: { defaults: Limits }) {
+  const { t, errorText } = useI18n();
+  const save = useSetDefaultLimits();
+  const [inputs, setInputs] = useState(() => toLimitInputs(defaults));
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = fromLimitInputs(inputs);
+    // A default cannot be "none": an emptied field keeps its current value.
+    const limits = { ...defaults };
+    for (const key of Object.keys(limits) as (keyof Limits)[]) limits[key] = parsed[key] ?? defaults[key];
+    setInputs(toLimitInputs(limits));
+    save.mutate(limits);
+  };
+
+  return (
+    <Card title={t('admin.defaults')} hint={t('admin.defaults.hint')}>
+      <form onSubmit={submit} noValidate className="flex flex-col gap-4">
+        {save.error && <ErrorNote>{errorText(save.error)}</ErrorNote>}
+        <LimitFields value={inputs} onChange={setInputs} />
+        <div className="flex items-center gap-3">
+          <Button type="submit" variant="primary" busy={save.isPending}>
+            {t('common.save')}
+          </Button>
+          <span className="text-[13px] leading-5 text-ink-3" role="status">
+            {save.isSuccess && t('admin.defaults.saved')}
+          </span>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+function UserRow({
+  user,
+  defaults,
+  isSelf,
+  onOpen,
+}: {
+  user: AdminUser;
+  defaults: Limits;
+  isSelf: boolean;
+  onOpen: () => void;
+}) {
+  const { t, tn, bytes, locale } = useI18n();
+  const limit = user.limitStorageBytes ?? defaults.storageBytes;
+  const facts = [
+    t(user.role === 'admin' ? 'settings.role.admin' : 'settings.role.user'),
+    user.banned ? t('admin.user.disabled') : null,
+    user.lastActiveAt
+      ? t('admin.user.lastActive', {
+          date: new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
+            new Date(user.lastActiveAt),
+          ),
+        })
+      : t('admin.user.noActivity'),
+  ].filter(Boolean);
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-16 w-full items-center gap-4 rounded-[10px] px-3 py-2 text-left transition-colors duration-150 hover:bg-raised"
+      >
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-baseline gap-2">
+            <span className={cx('truncate text-[15px] leading-5 font-medium', user.banned && 'text-ink-3')}>
+              {user.name}
+            </span>
+            {isSelf && <span className="shrink-0 text-[12px] leading-4 text-ink-3">{t('admin.user.you')}</span>}
+          </span>
+          <span className="truncate text-[13px] leading-5 text-ink-2">{user.email}</span>
+          <span className="truncate text-[12px] leading-4 text-ink-3">{facts.join(' · ')}</span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end">
+          <span className="text-[14px] leading-5 tabular-nums">
+            {bytes(user.usage.storageBytes)} / {bytes(limit)}
+          </span>
+          <span className="hidden text-[12px] leading-4 text-ink-3 tabular-nums sm:block">
+            {tn('count.sounds', user.usage.sounds)} · {tn('count.mixes', user.usage.mixes)} ·{' '}
+            {tn('count.scenes', user.usage.scenes)}
+          </span>
+        </span>
+        <Icon icon={ChevronRight} className="text-ink-3" />
+      </button>
+    </li>
+  );
+}
+
+export function AdminPage({ me }: { me: Me }) {
+  const { t } = useI18n();
+  const settings = useAdminSettings();
+  const users = useAdminUsers();
+  const usage = useAdminUsage();
+  const [query, setQuery] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const all = users.data ?? [];
+  const shown = all.filter((u) => matches(`${u.name} ${u.email}`, query));
+  const opened = all.find((u) => u.id === openId);
+
+  return (
+    <Page title={t('admin.title')}>
+      <QueryGate
+        loading={settings.isLoading || users.isLoading || usage.isLoading}
+        error={settings.error ?? users.error ?? usage.error}
+        onRetry={() => void Promise.all([settings.refetch(), users.refetch(), usage.refetch()])}
+      >
+        {settings.data && usage.data && (
+          <div className="flex max-w-[960px] flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <div className="flex flex-col gap-4">
+                <DiskCard disk={usage.data.current} />
+                <SignupsCard open={settings.data.signupsOpen} />
+              </div>
+              <DefaultsCard defaults={settings.data.defaults} />
+            </div>
+
+            <section className="flex flex-col gap-3 rounded-[16px] border border-line bg-card p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
+                  {t('admin.users')}
+                  <span className="font-mono text-[12px] text-ink-3 tabular-nums">{all.length}</span>
+                </h2>
+                <SearchField
+                  value={query}
+                  onChange={setQuery}
+                  label={t('common.search')}
+                  className="w-full sm:w-[280px]"
+                />
+              </div>
+              {shown.length === 0 ? (
+                <NoMatch query={query.trim()} />
+              ) : (
+                <ul className="-mx-3 flex flex-col gap-0.5">
+                  {shown.map((user) => (
+                    <UserRow
+                      key={user.id}
+                      user={user}
+                      defaults={settings.data.defaults}
+                      isSelf={user.id === me.id}
+                      onOpen={() => setOpenId(user.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        )}
+      </QueryGate>
+
+      {opened && settings.data && (
+        <UserDialog
+          key={opened.id}
+          user={opened}
+          defaults={settings.data.defaults}
+          isSelf={opened.id === me.id}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+    </Page>
+  );
+}

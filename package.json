@@ -1,0 +1,39 @@
+{
+  "name": "dnd-ambiance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.4.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "pnpm --filter @dnd/server dev",
+    "dev:web": "pnpm --filter @dnd/web-v2 dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@material-symbols/svg-400": "^0.49.0",
+    "@playwright/test": "^1.65.1",
+    "@tabler/icons": "^3.34.0",
+    "@types/node": "^20.11.0",
+    "concurrently": "^10.0.7",
+    "eslint": "^10.12.0",
+    "healthicons": "^3.1.0",
+    "lucide-static": "^0.511.0",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

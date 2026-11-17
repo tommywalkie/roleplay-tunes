@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The workflow only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      # The server tests use an in-memory database and a throwaway folder. If any test wrote
+      # to the development data folder instead, fail here rather than pollute a real database.
+      - name: Tests left the development data untouched
+        run: test ! -e tmp/dev-data
+      - run: pnpm build
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t dnd-ambiance .
+      - name: The web app and the icon libraries are in the image
+        run: |
+          docker run --rm --entrypoint sh dnd-ambiance -c '
+            for f in index.html icons/index.json icons/lucide.json icons/tabler.json icons/material.json icons/healthicons.json; do
+              test -s "/app/web/$f" || { echo "missing /app/web/$f"; exit 1; }
+            done'
+      - name: Start the container and check it answers
+        run: |
+          docker run -d --name app -p 3000:3000 \
+            -e AUTH_SECRET=ci-only-secret-with-at-least-32-characters \
+            dnd-ambiance
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health; then break; fi
+            if [ "$i" = 30 ]; then docker logs app; exit 1; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:3000/ | grep -q '<div id="root">'
+          curl -fsS http://localhost:3000/icons/index.json > /dev/null
+          curl -fsS http://localhost:3000/api/settings/public
+      - name: Container logs
+        if: failure()
+        run: docker logs app

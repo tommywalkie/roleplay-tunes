@@ -1,0 +1,169 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/cinzel';
+
+/*
+ * Direction: a mixing desk on a dim game table.
+ * One warm, very low-saturation neutral ramp; one accent (lamp amber) reserved for
+ * "this is producing sound right now" and the primary action. Everything else stays quiet.
+ */
+@theme {
+  --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  /* Inscriptional Roman caps, only for the product name. Never body or labels. */
+  --font-display: 'Cinzel Variable', ui-serif, Georgia, 'Times New Roman', serif;
+
+  --color-deep: #12110f;
+  --color-page: #161513;
+  --color-card: #1c1a18;
+  --color-raised: #262421;
+  --color-raised-hover: #2e2b27;
+  --color-line: rgb(239 233 222 / 0.08);
+  --color-line-strong: rgb(239 233 222 / 0.16);
+
+  --color-ink: #efe9de;
+  --color-ink-2: #aaa398;
+  --color-ink-3: #8a847a;
+
+  --color-lamp: #f0a23b;
+  --color-lamp-ink: #1f1608;
+  --color-lamp-soft: rgb(240 162 59 / 0.14);
+  --color-danger: #e5484d;
+  --color-ok: #4cc38a;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-enter: enter 320ms var(--ease-out) both;
+  --animate-sheet: sheet 320ms var(--ease-out) both;
+  --animate-fade: fade 200ms var(--ease-out) both;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes sheet {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  /* One-shot progress: the bar fills over the sound's own duration. */
+  @keyframes fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Tiles and transport are tapped fast, mid-game: no double-tap zoom, no text selection. */
+button,
+[role='slider'],
+input[type='range'] {
+  touch-action: manipulation;
+}
+button {
+  cursor: pointer;
+  user-select: none;
+}
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-lamp);
+  outline-offset: 2px;
+}
+
+/* Fader: a thin track with a solid cap, filled up to the value through --v (0..1). */
+input[type='range'].fader {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range'].fader::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--fader-fill, var(--color-ink-2)) calc(var(--v, 0) * 100%),
+    var(--color-line-strong) calc(var(--v, 0) * 100%)
+  );
+}
+input[type='range'].fader::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-line-strong);
+}
+input[type='range'].fader::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fader-fill, var(--color-ink-2));
+}
+input[type='range'].fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 8px;
+  background: var(--color-ink);
+  border: none;
+}
+input[type='range'].fader::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--color-ink);
+  border: none;
+}
+
+/* Icons that come from the server as SVG markup fill their box. */
+.svg-fill > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

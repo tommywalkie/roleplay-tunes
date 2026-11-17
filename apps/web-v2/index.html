@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <title>DnD Ambiance</title>
+    <meta
+      name="description"
+      content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
+    />
+    <meta name="application-name" content="DnD Ambiance" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#12110f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DnD Ambiance" />
+
+    <!-- Icons come from scripts/build-brand-assets.mjs: the same three bars as the in-app mark. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+
+    <!-- Open Graph without an image for now: og:image must be an absolute URL, and there is
+         no public origin yet. public/og-image.png is ready; add
+         <meta property="og:image" content="PUBLIC_URL/og-image.png" /> (plus width/height/alt)
+         and switch twitter:card to summary_large_image once the domain exists. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DnD Ambiance" />
+    <meta property="og:title" content="DnD Ambiance" />
+    <meta
+      property="og:description"
+      content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
+    />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="DnD Ambiance" />
+    <meta
+      name="twitter:description"
+      content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
