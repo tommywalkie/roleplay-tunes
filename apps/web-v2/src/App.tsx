@@ -4,7 +4,9 @@ import { Button, ErrorNote, Spinner } from './components/ui';
 import { useI18n } from './i18n';
 import { AppShell } from './layout/AppShell';
 import { AdminPage } from './pages/AdminPage';
+import { LibraryPage } from './pages/LibraryPage';
 import { LoginPage } from './pages/LoginPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MixesPage } from './pages/MixesPage';
 import { ScenePage } from './pages/ScenePage';
@@ -54,6 +56,8 @@ export function App() {
         <Route path="/scenes/:id" element={<ScenePage me={user} />} />
         <Route path="/mixes" element={<MixesPage me={user} />} />
         <Route path="/sounds" element={<SoundsPage me={user} />} />
+        <Route path="/library" element={<LibraryPage />} />
+        <Route path="/profile" element={<ProfilePage me={user} />} />
         <Route path="/settings" element={<SettingsPage me={user} />} />
         <Route path="*" element={<Navigate to="/scenes" replace />} />
       </Route>

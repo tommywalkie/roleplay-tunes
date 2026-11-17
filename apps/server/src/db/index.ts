@@ -27,8 +27,24 @@ export function ensureSchema(): Promise<void> {
     const { statementsToExecute } = await pushSQLiteSchema(schema, db as never);
     // Run the statements ourselves: drizzle-kit's own apply() assumes the LibSQL driver.
     for (const statement of statementsToExecute) sqlite.exec(statement);
+    registerExistingImages();
   })();
   return ready;
+}
+
+/**
+ * Records in `images` every uploaded image that items reference but that has no row yet,
+ * owned by the account of the item. Databases created before the `images` table only
+ * kept the image on the item itself. Runs at every start and does nothing once done.
+ */
+export function registerExistingImages() {
+  for (const table of ['sounds', 'mixes', 'scenes']) {
+    sqlite.exec(
+      `INSERT OR IGNORE INTO images (key, ownerId, bytes, createdAt)
+       SELECT imageKey, ownerId, imageBytes, createdAt FROM ${table}
+       WHERE imageKey IS NOT NULL`,
+    );
+  }
 }
 
 /**
@@ -39,6 +55,7 @@ export function migrate(): Promise<void> {
     // Relative to the working directory, like `DATA_DIR`: dev, tests and the bundled
     // `dist/index.js` are all run from the `apps/server` folder.
     migrateDb(db, { migrationsFolder: resolve('drizzle') });
+    registerExistingImages();
   });
   return ready;
 }

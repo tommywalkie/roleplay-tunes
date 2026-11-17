@@ -89,20 +89,56 @@ export const illustrationSchema = z.discriminatedUnion('type', [
 export type Illustration = z.infer<typeof illustrationSchema>;
 
 /**
- * What a client may send to set an illustration. Images are set through the dedicated
- * upload route; SVG markup is never accepted from a client.
+ * What a client may send to set an illustration. A new image is set through the dedicated
+ * upload route; `image` reuses an image already shown on an item the user can see, by its
+ * key. SVG markup is never accepted from a client.
  */
 export const illustrationInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
   z.object({ type: z.literal('icon'), iconId: iconIdSchema }),
+  z.object({ type: z.literal('image'), imageKey: z.string().uuid() }),
 ]);
 export type IllustrationInput = z.infer<typeof illustrationInputSchema>;
+
+/** An image the user can put on their own items, from `GET /api/images`. */
+export const reusableImageSchema = z.object({
+  key: z.string(),
+  url: z.string(),
+});
+export type ReusableImage = z.infer<typeof reusableImageSchema>;
+
+// Sharing
+
+/**
+ * How the caller relates to a sound or mix: they own it, they added it from the public
+ * library, or it is public and not added yet (library listing only).
+ */
+export const ACCESS_KINDS = ['owner', 'added', 'available'] as const;
+export const accessSchema = z.enum(ACCESS_KINDS);
+export type Access = z.infer<typeof accessSchema>;
+
+export const DESCRIPTION_MAX = 500;
+export const LICENSE_MAX = 200;
+
+/** Optional free text: trimmed, an empty string is stored as no value. */
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable();
 
 // Sounds
 
 export const soundSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().nullable(),
+  license: z.string().nullable(),
+  isPublic: z.boolean(),
+  access: accessSchema,
+  ownerName: z.string(),
   audioUrl: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number(),
@@ -129,9 +165,16 @@ export const uploadSoundFieldsSchema = z.object({
 });
 export type UploadSoundFields = z.infer<typeof uploadSoundFieldsSchema>;
 
+/**
+ * A sound's owner may send every field. A user who added the sound from the library may
+ * send `defaultVolume` (kept as their own volume) and `sceneIds` (their own scenes) only.
+ */
 export const updateSoundSchema = z
   .object({
     name: nameSchema,
+    description: optionalText(DESCRIPTION_MAX),
+    license: optionalText(LICENSE_MAX),
+    isPublic: z.boolean(),
     defaultMode: playModeSchema,
     defaultVolume: volumeSchema,
     loopStartSec: z.number().min(0).nullable(),
@@ -175,6 +218,10 @@ export type MixItemInput = z.infer<typeof mixItemInputSchema>;
 export const mixSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().nullable(),
+  isPublic: z.boolean(),
+  access: accessSchema,
+  ownerName: z.string(),
   illustration: illustrationSchema,
   items: z.array(mixItemSchema),
   sceneIds: z.array(z.string()),
@@ -186,6 +233,8 @@ export type Mix = z.infer<typeof mixSchema>;
 const mixBody = z
   .object({
     name: nameSchema,
+    description: optionalText(DESCRIPTION_MAX),
+    isPublic: z.boolean(),
     illustration: illustrationInputSchema,
     /** Order of the array is the order of the items. A sound may appear once per mix. */
     items: z.array(mixItemInputSchema).max(MAX_LIMITS.mixItems),
@@ -198,6 +247,24 @@ export type CreateMixRequest = z.infer<typeof createMixSchema>;
 
 export const updateMixSchema = mixBody.partial();
 export type UpdateMixRequest = z.infer<typeof updateMixSchema>;
+
+/**
+ * The caller's own volume for sounds of a mix they added from the library, by sound id.
+ * Replaces every volume they set before for that mix.
+ */
+export const mixVolumesSchema = z
+  .object({ volumes: z.record(idSchema, volumeSchema) })
+  .strict();
+export type MixVolumesRequest = z.infer<typeof mixVolumesSchema>;
+
+// Library
+
+/** Every public sound and mix, from any account, with the caller's access to each. */
+export const librarySchema = z.object({
+  sounds: z.array(soundSchema),
+  mixes: z.array(mixSchema),
+});
+export type Library = z.infer<typeof librarySchema>;
 
 // Scenes
 
@@ -274,6 +341,7 @@ export const ERROR_CODES = [
   'quota_exceeded',
   'mix_items_limit',
   'signups_closed',
+  'conflict',
   'rate_limited',
   'internal',
 ] as const;

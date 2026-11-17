@@ -169,7 +169,7 @@ function getSharedEngine(): AudioEngine {
       const sound = lookup(id);
       return sound ? toDescriptor(sound) : undefined;
     },
-    mediaSession: { artist: 'Ambiance' },
+    mediaSession: { artist: 'Roleplay Tunes' },
   });
   return sharedEngine;
 }

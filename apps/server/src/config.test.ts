@@ -80,7 +80,7 @@ describe('loadConfig', () => {
         port: 3000,
         publicUrl: 'http://localhost:3000',
         trustedOrigins: ['http://localhost:5173'],
-        adminEmail: 'admin@dnd-ambiance.local',
+        adminEmail: 'admin@roleplay-tunes.local',
         webDist: undefined,
         trustProxy: false,
         rateLimit: true,

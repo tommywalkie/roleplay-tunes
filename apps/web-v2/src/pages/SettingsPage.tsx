@@ -1,10 +1,8 @@
 import type { Me } from '@dnd/shared';
-import { LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useSignOut } from '../api/hooks';
 import { Page } from '../components/Page';
 import { StorageMeter } from '../components/StorageMeter';
-import { Button, ErrorNote, Segmented } from '../components/ui';
+import { Segmented } from '../components/ui';
 import { LOCALE_NAMES, LOCALES, useI18n } from '../i18n';
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
@@ -26,8 +24,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function SettingsPage({ me }: { me: Me }) {
-  const { t, tn, bytes, locale, setLocale, errorText } = useI18n();
-  const signOut = useSignOut();
+  const { t, tn, bytes, locale, setLocale } = useI18n();
 
   return (
     <Page title={t('settings.title')}>
@@ -61,15 +58,6 @@ export function SettingsPage({ me }: { me: Me }) {
               {t(me.role === 'admin' ? 'settings.role.admin' : 'settings.role.user')}
             </span>
           </div>
-          {signOut.error && <ErrorNote>{errorText(signOut.error)}</ErrorNote>}
-          <Button
-            icon={LogOut}
-            busy={signOut.isPending}
-            onClick={() => signOut.mutate()}
-            className="self-start"
-          >
-            {t('settings.signOut')}
-          </Button>
         </Card>
 
         <Card title={t('settings.language')}>

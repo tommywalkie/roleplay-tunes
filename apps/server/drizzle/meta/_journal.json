@@ -8,6 +8,13 @@
       "when": 1794796326024,
       "tag": "0000_bored_wasp",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794910845409,
+      "tag": "0001_public_library",
+      "breakpoints": true
     }
   ]
 }

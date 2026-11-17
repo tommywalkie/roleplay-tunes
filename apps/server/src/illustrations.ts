@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Illustration, IllustrationInput } from '@dnd/shared';
 import { config } from './config.js';
 import { invalid } from './errors.js';
+import { reusableImage } from './sharing.js';
 
 /** The illustration columns every illustrated table has. */
 export interface IllustrationColumns {
@@ -54,11 +55,21 @@ export function toIllustration(row: IllustrationColumns): Illustration {
 }
 
 /**
- * Column values for an illustration a client asked for. The caller deletes the previous
- * image file, if any, since an icon or "none" replaces it.
+ * Column values for an illustration a client asked for. The caller releases the previous
+ * image, if any, once the change is saved.
  */
-export function illustrationValues(input: IllustrationInput): IllustrationColumns {
+export function illustrationValues(input: IllustrationInput, userId: string): IllustrationColumns {
   const cleared = { imageKey: null, imageBytes: 0 };
+  if (input.type === 'image') {
+    const image = reusableImage(userId, input.imageKey);
+    return {
+      illustrationType: 'image',
+      iconId: null,
+      iconSvg: null,
+      imageKey: image.key,
+      imageBytes: image.bytes,
+    };
+  }
   if (input.type === 'icon') {
     return {
       illustrationType: 'icon',

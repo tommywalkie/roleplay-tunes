@@ -13,6 +13,8 @@ export function EditorFooter({
   saving,
   deleting,
   canSave = true,
+  deleteLabel,
+  confirmLabel,
 }: {
   onCancel: () => void;
   /** Omit for an item that does not exist yet. */
@@ -20,6 +22,9 @@ export function EditorFooter({
   saving: boolean;
   deleting?: boolean;
   canSave?: boolean;
+  /** Labels of the delete button and of its second tap, when it does something else. */
+  deleteLabel?: string;
+  confirmLabel?: string;
 }) {
   const { t } = useI18n();
   const [armed, setArmed] = useState(false);
@@ -41,7 +46,7 @@ export function EditorFooter({
           onClick={() => (armed ? onDelete() : setArmed(true))}
           className="-ml-2 px-3"
         >
-          {armed ? t('common.confirmDelete') : t('common.delete')}
+          {armed ? (confirmLabel ?? t('common.confirmDelete')) : (deleteLabel ?? t('common.delete'))}
         </Button>
       )}
       <div className="ml-auto flex items-center gap-2">

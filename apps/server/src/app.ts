@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { join } from 'node:path';
 import helmet from '@fastify/helmet';
@@ -15,6 +15,7 @@ import { registerErrorHandling } from './errors.js';
 import { accountRoutes } from './routes/account.js';
 import { adminRoutes } from './routes/admin.js';
 import { imagesRoutes } from './routes/images.js';
+import { libraryRoutes } from './routes/library.js';
 import { mixesRoutes } from './routes/mixes.js';
 import { scenesRoutes } from './routes/scenes.js';
 import { soundsRoutes } from './routes/sounds.js';
@@ -74,8 +75,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     openapi: {
       openapi: '3.0.0',
       info: {
-        title: 'D&D Ambiance API',
-        description: 'API for the D&D Ambiance soundboard application',
+        title: 'Roleplay Tunes API',
+        description: 'API for the Roleplay Tunes soundboard application',
         version: '0.0.0',
       },
       servers: [{ url: config.publicUrl, description: 'Server' }],
@@ -133,6 +134,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   accountRoutes(app);
   adminRoutes(app);
   imagesRoutes(app);
+  libraryRoutes(app);
   soundsRoutes(app);
   mixesRoutes(app);
   scenesRoutes(app);
@@ -142,16 +144,54 @@ export async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-/** Serves the built web app and falls back to its index page for client-side routes. */
+/** The app's icons and social preview, which other sites may show. */
+const BRAND_FILES = new Set([
+  '/favicon.svg',
+  '/favicon-32.png',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png',
+  '/og-image.png',
+  '/manifest.webmanifest',
+]);
+
+/**
+ * Lets any other site, such as a self-hosted dashboard, show or fetch the app's icons.
+ * Uploaded images of sounds, mixes and scenes are not part of this.
+ */
+function shareBrandFiles(app: FastifyInstance) {
+  app.addHook('onSend', async (request, reply, payload) => {
+    const path = request.url.split('?')[0];
+    if (!BRAND_FILES.has(path)) return payload;
+    reply.header('cross-origin-resource-policy', 'cross-origin');
+    reply.header('access-control-allow-origin', '*');
+    return payload;
+  });
+}
+
+/**
+ * Serves the built web app and falls back to its index page for client-side routes. The
+ * index page carries the absolute addresses crawlers need (`og:image`, `og:url`), filled
+ * in from PUBLIC_URL.
+ */
 function serveWebApp(app: FastifyInstance) {
   const root = config.webDist;
   if (!root || !existsSync(join(root, 'index.html'))) return;
+  const indexHtml = readFileSync(join(root, 'index.html'), 'utf8').replaceAll(
+    '__PUBLIC_URL__',
+    config.publicUrl,
+  );
+
+  shareBrandFiles(app);
 
   app.register(fastifyStatic, {
     root,
     prefix: '/',
     decorateReply: false,
     wildcard: false,
+    index: false,
+    globIgnore: ['index.html'],
     setHeaders(res, path) {
       // Hashed build assets never change; the index page must always be re-checked.
       res.header(
@@ -164,6 +204,6 @@ function serveWebApp(app: FastifyInstance) {
   app.get('/*', (request, reply) => {
     if (request.url.startsWith('/api/')) return reply.callNotFound();
     reply.header('cache-control', 'no-cache');
-    return reply.sendFile('index.html', root);
+    return reply.type('text/html; charset=utf-8').send(indexHtml);
   });
 }

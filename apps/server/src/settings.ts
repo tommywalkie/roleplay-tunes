@@ -5,7 +5,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { DEFAULT_LIMITS, LIMIT_KEYS, type LimitKey, type Limits, type Usage } from '@dnd/shared';
 import { db } from './db/index.js';
-import { appSettings, mixes, scenes, sounds, users } from './db/schema.js';
+import { appSettings, images, mixes, scenes, sounds, users } from './db/schema.js';
 
 type UserRow = typeof users.$inferSelect;
 
@@ -74,19 +74,24 @@ export function effectiveLimits(user: UserRow): Limits {
   return limits;
 }
 
-/** Bytes of audio and images stored for one user. */
+/**
+ * Bytes of audio and images the user uploaded. Each image counts once, however many items
+ * show it; sounds and images added from other accounts count for their uploader only.
+ */
 export function storageUsed(userId: string): number {
-  const bytes = (table: typeof sounds | typeof mixes | typeof scenes, withAudio: boolean) =>
+  const audio =
     db
-      .select({
-        total: withAudio
-          ? sql<number>`coalesce(sum(${sounds.sizeBytes} + ${sounds.imageBytes}), 0)`
-          : sql<number>`coalesce(sum(${table.imageBytes}), 0)`,
-      })
-      .from(table)
-      .where(eq(table.ownerId, userId))
+      .select({ total: sql<number>`coalesce(sum(${sounds.sizeBytes}), 0)` })
+      .from(sounds)
+      .where(eq(sounds.ownerId, userId))
       .get()?.total ?? 0;
-  return bytes(sounds, true) + bytes(mixes, false) + bytes(scenes, false);
+  const imageBytes =
+    db
+      .select({ total: sql<number>`coalesce(sum(${images.bytes}), 0)` })
+      .from(images)
+      .where(eq(images.ownerId, userId))
+      .get()?.total ?? 0;
+  return audio + imageBytes;
 }
 
 export function usageOf(userId: string): Usage {

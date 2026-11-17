@@ -1,70 +1,178 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   createMixSchema,
+  mixVolumesSchema,
   updateMixSchema,
+  type Access,
   type Mix,
   type MixItem,
   type MixItemInput,
 } from '@dnd/shared';
 import { requireUser, type UserRow } from '../auth.js';
 import { db } from '../db/index.js';
-import { mixItems, mixes, scenes, sounds } from '../db/schema.js';
-import { AppError, invalid, notFound, parse } from '../errors.js';
+import { mixItems, mixVolumes, mixes, scenes, sounds } from '../db/schema.js';
+import { AppError, forbidden, invalid, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
 import { effectiveLimits } from '../settings.js';
-import { imagePath, removeFile } from '../storage.js';
+import {
+  addedMixIds,
+  assertAllPublic,
+  assertUsableSounds,
+  mixVolumesOf,
+  ownerNames,
+  prune,
+  releaseImages,
+  soundVolumesOf,
+  usableMix,
+} from '../sharing.js';
 import { assertOwned, sceneIdsByMix, setMixScenes } from './common.js';
 
 type MixRow = typeof mixes.$inferSelect;
 type ItemRow = typeof mixItems.$inferSelect;
 
-function toItem(row: ItemRow): MixItem {
+const itemResponse = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    soundId: { type: 'string' },
+    mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
+    volume: { type: 'number' },
+    intervalMinSec: { type: 'number' },
+    intervalMaxSec: { type: 'number' },
+    volumeVariation: { type: 'number' },
+  },
+} as const;
+
+/** Response shape of one mix, for the API documentation and the serializer. */
+export const mixResponse = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    description: { type: 'string', nullable: true },
+    isPublic: { type: 'boolean' },
+    access: { type: 'string', enum: ['owner', 'added', 'available'] },
+    ownerName: { type: 'string' },
+    illustration: { type: 'object', additionalProperties: true },
+    items: { type: 'array', items: itemResponse },
+    sceneIds: { type: 'array', items: { type: 'string' } },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+} as const;
+
+const itemBody = {
+  type: 'object',
+  properties: {
+    soundId: { type: 'string' },
+    mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
+    volume: { type: 'number', minimum: 0, maximum: 1 },
+    intervalMinSec: { type: 'number', minimum: 1, maximum: 3600 },
+    intervalMaxSec: { type: 'number', minimum: 1, maximum: 3600 },
+    volumeVariation: { type: 'number', minimum: 0, maximum: 1 },
+  },
+} as const;
+
+const mixBody = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    description: { type: 'string', nullable: true, maxLength: 500 },
+    isPublic: { type: 'boolean' },
+    illustration: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['none', 'icon', 'image'] },
+        iconId: { type: 'string' },
+        imageKey: { type: 'string' },
+      },
+    },
+    items: { type: 'array', items: itemBody },
+    sceneIds: { type: 'array', items: { type: 'string' } },
+  },
+} as const;
+
+const idParams = {
+  type: 'object',
+  required: ['id'],
+  properties: {
+    id: { type: 'string', description: 'Mix ID' },
+  },
+} as const;
+
+export interface MixView {
+  access: Access;
+  ownerName: string;
+  sceneIds: string[];
+  /** The viewer's own volumes by sound id, for a mix they did not create. */
+  volumes?: Map<string, number>;
+}
+
+function toItem(row: ItemRow, volume: number | undefined): MixItem {
   return {
     id: row.id,
     soundId: row.soundId,
     mode: row.mode,
-    volume: row.volume,
+    volume: volume ?? row.volume,
     intervalMinSec: row.intervalMinSec,
     intervalMaxSec: row.intervalMaxSec,
     volumeVariation: row.volumeVariation,
   };
 }
 
-function toMix(row: MixRow, items: ItemRow[], sceneIds: string[]): Mix {
+export function toMix(row: MixRow, items: ItemRow[], view: MixView): Mix {
   return {
     id: row.id,
     name: row.name,
+    description: row.description,
+    isPublic: row.isPublic,
+    access: view.access,
+    ownerName: view.ownerName,
     illustration: toIllustration(row),
-    items: items.map(toItem),
-    sceneIds,
+    items: items.map((item) => toItem(item, view.volumes?.get(item.soundId))),
+    sceneIds: view.sceneIds,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
-}
-
-function ownMix(userId: string, id: string): MixRow {
-  const row = db
-    .select()
-    .from(mixes)
-    .where(and(eq(mixes.id, id), eq(mixes.ownerId, userId)))
-    .get();
-  if (!row) throw notFound('Mix');
-  return row;
 }
 
 function itemsOf(mixId: string): ItemRow[] {
   return db.select().from(mixItems).where(eq(mixItems.mixId, mixId)).orderBy(mixItems.position).all();
 }
 
-function oneMix(userId: string, row: MixRow): Mix {
-  return toMix(row, itemsOf(row.id), sceneIdsByMix(userId).get(row.id) ?? []);
+/** Items of several mixes, grouped by mix, in order. */
+export function itemsByMix(mixIds: string[]): Map<string, ItemRow[]> {
+  const map = new Map<string, ItemRow[]>();
+  if (mixIds.length === 0) return map;
+  const rows = db
+    .select()
+    .from(mixItems)
+    .where(inArray(mixItems.mixId, mixIds))
+    .orderBy(mixItems.position)
+    .all();
+  for (const item of rows) {
+    const list = map.get(item.mixId);
+    if (list) list.push(item);
+    else map.set(item.mixId, [item]);
+  }
+  return map;
+}
+
+/** One mix as the user sees it. */
+function mixFor(userId: string, row: MixRow, access: Access): Mix {
+  return toMix(row, itemsOf(row.id), {
+    access,
+    ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
+    sceneIds: sceneIdsByMix(userId).get(row.id) ?? [],
+    volumes: access === 'owner' ? undefined : mixVolumesOf(userId).get(row.id),
+  });
 }
 
 /**
- * Turns the items of a request into rows: checks the limit, that each sound is the
- * user's and appears once, and fills missing settings from the sound's defaults.
+ * Turns the items of a request into rows: checks the limit, that the user can use each
+ * sound and that it appears once, and fills missing settings from the sound's defaults.
  */
 function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemRow[] {
   const limit = effectiveLimits(user).mixItems;
@@ -75,7 +183,7 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
   if (new Set(soundIds).size !== soundIds.length) {
     throw invalid('Invalid request', { items: 'A sound can appear only once in a mix' });
   }
-  assertOwned(sounds, user.id, soundIds, 'items');
+  assertUsableSounds(user.id, soundIds, 'items');
   const bySoundId = new Map(
     soundIds.length === 0
       ? []
@@ -86,6 +194,8 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
           .all()
           .map((sound) => [sound.id, sound]),
   );
+
+  const ownVolumes = soundVolumesOf(user.id);
 
   return inputs.map((input, position) => {
     const sound = bySoundId.get(input.soundId)!;
@@ -102,7 +212,7 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
       soundId: sound.id,
       position,
       mode: input.mode ?? sound.defaultMode,
-      volume: input.volume ?? sound.defaultVolume,
+      volume: input.volume ?? ownVolumes.get(sound.id) ?? sound.defaultVolume,
       intervalMinSec,
       intervalMaxSec,
       volumeVariation: input.volumeVariation ?? sound.volumeVariation,
@@ -120,290 +230,202 @@ export function mixesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['mixes'],
       summary: 'List mixes',
-      description: 'Returns all mixes owned by the authenticated user.',
+      description: 'Returns the mixes the user owns and the public mixes they added from the library.',
       response: {
-        200: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string' },
-              name: { type: 'string' },
-              illustration: { type: 'object', additionalProperties: true },
-              items: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    soundId: { type: 'string' },
-                    mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                    volume: { type: 'number' },
-                    intervalMinSec: { type: 'number' },
-                    intervalMaxSec: { type: 'number' },
-                    volumeVariation: { type: 'number' },
-                  },
-                },
-              },
-              sceneIds: { type: 'array', items: { type: 'string' } },
-              createdAt: { type: 'string', format: 'date-time' },
-              updatedAt: { type: 'string', format: 'date-time' },
-            },
-          },
-        },
+        200: { type: 'array', items: mixResponse },
       },
     },
   }, async (request) => {
     const user = await requireUser(request);
-    const rows = db.select().from(mixes).where(eq(mixes.ownerId, user.id)).orderBy(mixes.name).all();
-    const items = db
-      .select({ item: mixItems })
-      .from(mixItems)
-      .innerJoin(mixes, eq(mixes.id, mixItems.mixId))
-      .where(eq(mixes.ownerId, user.id))
-      .orderBy(mixItems.position)
+    const added = addedMixIds(user.id);
+    const rows = db
+      .select()
+      .from(mixes)
+      .where(or(eq(mixes.ownerId, user.id), inArray(mixes.id, [...added])))
+      .orderBy(mixes.name)
       .all();
-    const itemsByMix = new Map<string, ItemRow[]>();
-    for (const { item } of items) {
-      const list = itemsByMix.get(item.mixId);
-      if (list) list.push(item);
-      else itemsByMix.set(item.mixId, [item]);
-    }
+    const items = itemsByMix(rows.map((r) => r.id));
     const sceneIds = sceneIdsByMix(user.id);
-    return rows.map((row) => toMix(row, itemsByMix.get(row.id) ?? [], sceneIds.get(row.id) ?? []));
+    const names = ownerNames(rows.map((r) => r.ownerId));
+    const volumes = mixVolumesOf(user.id);
+    return rows.map((row) => {
+      const access: Access = row.ownerId === user.id ? 'owner' : 'added';
+      return toMix(row, items.get(row.id) ?? [], {
+        access,
+        ownerName: names.get(row.ownerId) ?? '',
+        sceneIds: sceneIds.get(row.id) ?? [],
+        volumes: access === 'owner' ? undefined : volumes.get(row.id),
+      });
+    });
   });
 
   app.get('/api/mixes/:id', {
     schema: {
       tags: ['mixes'],
       summary: 'Get mix',
-      description: 'Returns a single mix by ID.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: {
-          id: { type: 'string', description: 'Mix ID' },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            illustration: { type: 'object', additionalProperties: true },
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' },
-                  soundId: { type: 'string' },
-                  mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                  volume: { type: 'number' },
-                  intervalMinSec: { type: 'number' },
-                  intervalMaxSec: { type: 'number' },
-                  volumeVariation: { type: 'number' },
-                },
-              },
-            },
-            sceneIds: { type: 'array', items: { type: 'string' } },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-      },
+      description: 'Returns a single mix the user owns or added, with its items.',
+      params: idParams,
+      response: { 200: mixResponse },
     },
   }, async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
-    return oneMix(user.id, ownMix(user.id, id));
+    const { row, access } = usableMix(user.id, id);
+    return mixFor(user.id, row, access);
   });
 
   app.post('/api/mixes', {
     schema: {
       tags: ['mixes'],
       summary: 'Create mix',
-      description: 'Creates a new mix with an ordered list of sound items.',
-      body: {
-        type: 'object',
-        required: ['name'],
-        properties: {
-          name: { type: 'string' },
-          illustration: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'icon'] }, iconId: { type: 'string' } } },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                soundId: { type: 'string' },
-                mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                volume: { type: 'number' },
-                intervalMinSec: { type: 'number' },
-                intervalMaxSec: { type: 'number' },
-                volumeVariation: { type: 'number' },
-              },
-            },
-          },
-          sceneIds: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      response: {
-        201: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            illustration: { type: 'object', additionalProperties: true },
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' },
-                  soundId: { type: 'string' },
-                  mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                  volume: { type: 'number' },
-                  intervalMinSec: { type: 'number' },
-                  intervalMaxSec: { type: 'number' },
-                  volumeVariation: { type: 'number' },
-                },
-              },
-            },
-            sceneIds: { type: 'array', items: { type: 'string' } },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-      },
+      description:
+        'Creates a mix. Its sounds may be the user\'s own or added from the library; a public mix may only hold public sounds.',
+      body: { ...mixBody, required: ['name'] },
+      response: { 201: mixResponse },
     },
   }, async (request, reply) => {
     const user = await requireUser(request);
     const body = parse(createMixSchema, request.body);
     const id = randomUUID();
     const items = buildItems(user, id, body.items ?? []);
+    if (body.isPublic) assertAllPublic(items.map((i) => i.soundId), 'items');
     if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
-    const illustration = body.illustration ? illustrationValues(body.illustration) : undefined;
+    const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const now = new Date();
     const row = db.transaction(() => {
       const inserted = db
         .insert(mixes)
-        .values({ id, ownerId: user.id, name: body.name, ...illustration, createdAt: now, updatedAt: now })
+        .values({
+          id,
+          ownerId: user.id,
+          name: body.name,
+          description: body.description ?? null,
+          isPublic: body.isPublic ?? false,
+          ...illustration,
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning()
         .get();
       replaceItems(id, items);
       if (body.sceneIds) setMixScenes(id, body.sceneIds);
       return inserted;
     });
-    return reply.code(201).send(oneMix(user.id, row));
+    return reply.code(201).send(mixFor(user.id, row, 'owner'));
   });
 
-  /** `items`, when present, replaces the whole list. */
+  /**
+   * `items`, when present, replaces the whole list. A user who added the mix from the
+   * library may only send `sceneIds`.
+   */
   app.patch('/api/mixes/:id', {
     schema: {
       tags: ['mixes'],
       summary: 'Update mix',
-      description: 'Updates a mix. When `items` is present, replaces the entire item list.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: {
-          id: { type: 'string', description: 'Mix ID' },
-        },
-      },
-      body: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          illustration: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['none', 'icon'] },
-              iconId: { type: 'string' },
-            },
-          },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                soundId: { type: 'string' },
-                mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                volume: { type: 'number', minimum: 0, maximum: 1 },
-                intervalMinSec: { type: 'number', minimum: 1, maximum: 3600 },
-                intervalMaxSec: { type: 'number', minimum: 1, maximum: 3600 },
-                volumeVariation: { type: 'number', minimum: 0, maximum: 1 },
-              },
-            },
-          },
-          sceneIds: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            illustration: { type: 'object', additionalProperties: true },
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' },
-                  soundId: { type: 'string' },
-                  mode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
-                  volume: { type: 'number' },
-                  intervalMinSec: { type: 'number' },
-                  intervalMaxSec: { type: 'number' },
-                  volumeVariation: { type: 'number' },
-                },
-              },
-            },
-            sceneIds: { type: 'array', items: { type: 'string' } },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-      },
+      description:
+        'Updates a mix. The owner may change every field; `items` replaces the whole list. A user who added the mix from the library may only change `sceneIds` (their own scenes).',
+      params: idParams,
+      body: mixBody,
+      response: { 200: mixResponse },
     },
   }, async (request) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
-    const current = ownMix(user.id, id);
+    const { row: current, access } = usableMix(user.id, id);
     const body = parse(updateMixSchema, request.body);
+
+    if (access !== 'owner') {
+      const sent = Object.keys(request.body as object);
+      if (sent.some((key) => key !== 'sceneIds')) {
+        throw forbidden('Only the owner of this mix can change it');
+      }
+      if (body.sceneIds) {
+        assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
+        setMixScenes(current.id, body.sceneIds);
+      }
+      return mixFor(user.id, current, access);
+    }
+
     const items = body.items ? buildItems(user, current.id, body.items) : undefined;
+    const willBePublic = body.isPublic ?? current.isPublic;
+    if (willBePublic) {
+      assertAllPublic((items ?? itemsOf(current.id)).map((i) => i.soundId), 'items');
+    }
     if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
-    const illustration = body.illustration ? illustrationValues(body.illustration) : undefined;
+    const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
       if (items) replaceItems(current.id, items);
       if (body.sceneIds) setMixScenes(current.id, body.sceneIds);
       return db
         .update(mixes)
-        .set({ ...(body.name ? { name: body.name } : {}), ...illustration, updatedAt: new Date() })
+        .set({
+          ...(body.name ? { name: body.name } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}),
+          ...illustration,
+          updatedAt: new Date(),
+        })
         .where(eq(mixes.id, current.id))
         .returning()
         .get();
     });
-    if (illustration && current.imageKey) await removeFile(imagePath(user.id, current.imageKey));
-    return oneMix(user.id, row);
+    // Unpublishing, or dropping sounds that others only reached through this mix.
+    if ((current.isPublic && !row.isPublic) || items) prune();
+    if (illustration && current.imageKey !== row.imageKey) await releaseImages([current.imageKey]);
+    return mixFor(user.id, row, 'owner');
   });
 
+  app.put('/api/mixes/:id/volumes', {
+    schema: {
+      tags: ['mixes'],
+      summary: 'Set my volumes in a mix',
+      description:
+        "For a mix added from the library: the user's own volume of each of its sounds, by sound id. The owner's volumes are kept. Replaces the volumes set before.",
+      params: idParams,
+      body: {
+        type: 'object',
+        required: ['volumes'],
+        properties: {
+          volumes: { type: 'object', additionalProperties: { type: 'number', minimum: 0, maximum: 1 } },
+        },
+      },
+      response: { 200: mixResponse },
+    },
+  }, async (request) => {
+    const user = await requireUser(request);
+    const { id } = request.params as { id: string };
+    const { row, access } = usableMix(user.id, id);
+    if (access === 'owner') throw invalid('The owner sets volumes on the mix itself');
+    const { volumes } = parse(mixVolumesSchema, request.body);
+    const inMix = new Set(itemsOf(row.id).map((i) => i.soundId));
+    const unknown = Object.keys(volumes).filter((soundId) => !inMix.has(soundId));
+    if (unknown.length > 0) {
+      throw invalid('Unknown id', { volumes: 'Contains a sound that is not in this mix' });
+    }
+    db.transaction(() => {
+      db.delete(mixVolumes)
+        .where(and(eq(mixVolumes.userId, user.id), eq(mixVolumes.mixId, row.id)))
+        .run();
+      const values = Object.entries(volumes).map(([soundId, volume]) => ({
+        userId: user.id,
+        mixId: row.id,
+        soundId,
+        volume,
+      }));
+      if (values.length > 0) db.insert(mixVolumes).values(values).run();
+    });
+    return mixFor(user.id, row, access);
+  });
+
+  /** Deletes the mix. A public mix is also taken out of every library that added it. */
   app.delete('/api/mixes/:id', {
     schema: {
       tags: ['mixes'],
       summary: 'Delete mix',
-      description: 'Permanently deletes a mix.',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: {
-          id: { type: 'string', description: 'Mix ID' },
-        },
-      },
+      description: 'Permanently deletes a mix. Its sounds are kept. Only its owner can.',
+      params: idParams,
       response: {
         204: { type: 'null', description: 'Mix deleted' },
       },
@@ -411,9 +433,11 @@ export function mixesRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
-    const row = ownMix(user.id, id);
+    const { row, access } = usableMix(user.id, id);
+    if (access !== 'owner') throw forbidden('Only the owner of this mix can delete it');
     db.delete(mixes).where(eq(mixes.id, row.id)).run();
-    if (row.imageKey) await removeFile(imagePath(user.id, row.imageKey));
+    prune();
+    await releaseImages([row.imageKey]);
     return reply.code(204).send();
   });
 }

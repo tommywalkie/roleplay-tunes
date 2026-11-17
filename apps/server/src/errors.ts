@@ -18,6 +18,8 @@ export const unauthorized = () => new AppError(401, 'unauthorized', 'Sign in req
 export const forbidden = (message = 'Not allowed') => new AppError(403, 'forbidden', message);
 /** Also used for resources owned by someone else: their existence is not revealed. */
 export const notFound = (what = 'Resource') => new AppError(404, 'not_found', `${what} not found`);
+export const conflict = (message: string, fields?: Record<string, string>) =>
+  new AppError(409, 'conflict', message, fields);
 export const invalid = (message: string, fields?: Record<string, string>) =>
   new AppError(400, 'validation', message, fields);
 

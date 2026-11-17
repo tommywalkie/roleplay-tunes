@@ -41,10 +41,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the image
-        run: docker build -t dnd-ambiance .
+        run: docker build -t roleplay-tunes .
       - name: The web app and the icon libraries are in the image
         run: |
-          docker run --rm --entrypoint sh dnd-ambiance -c '
+          docker run --rm --entrypoint sh roleplay-tunes -c '
             for f in index.html icons/index.json icons/lucide.json icons/tabler.json icons/material.json icons/healthicons.json; do
               test -s "/app/web/$f" || { echo "missing /app/web/$f"; exit 1; }
             done'
@@ -52,7 +52,7 @@ jobs:
         run: |
           docker run -d --name app -p 3000:3000 \
             -e AUTH_SECRET=ci-only-secret-with-at-least-32-characters \
-            dnd-ambiance
+            roleplay-tunes
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:3000/api/health; then break; fi
             if [ "$i" = 30 ]; then docker logs app; exit 1; fi

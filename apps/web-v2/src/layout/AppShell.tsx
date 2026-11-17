@@ -1,7 +1,17 @@
-import type { Me } from '@dnd/shared';
-import { AudioLines, Layers, Map as MapIcon, Settings, ShieldCheck, type LucideIcon } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router';
-import { useSounds } from '../api/hooks';
+import type { Me, Sound } from '@dnd/shared';
+import {
+  AudioLines,
+  CircleUserRound,
+  Layers,
+  LibraryBig,
+  Map as MapIcon,
+  Settings,
+  ShieldCheck,
+  type LucideIcon,
+} from 'lucide-react';
+import { useMemo } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router';
+import { useLibrary, useSounds } from '../api/hooks';
 import { PlayerProvider } from '../audio/player';
 import { Mark, Wordmark } from '../components/Brand';
 import { StorageMeter } from '../components/StorageMeter';
@@ -10,14 +20,31 @@ import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { PlayerPanel } from '../player/PlayerPanel';
 
-const NAV: { to: string; label: MessageKey; icon: LucideIcon }[] = [
+interface NavItem {
+  to: string;
+  label: MessageKey;
+  icon: LucideIcon;
+  /** Other addresses under which this item shows as the current one. */
+  also?: string[];
+}
+
+/** The tab bar on phones: five places, Settings and Admin are reached from Profile. */
+const TABS: NavItem[] = [
   { to: '/scenes', label: 'nav.scenes', icon: MapIcon },
   { to: '/mixes', label: 'nav.mixes', icon: Layers },
   { to: '/sounds', label: 'nav.sounds', icon: AudioLines },
-  { to: '/settings', label: 'nav.settings', icon: Settings },
+  { to: '/library', label: 'nav.library', icon: LibraryBig },
+  { to: '/profile', label: 'nav.profile', icon: CircleUserRound, also: ['/settings', '/admin'] },
 ];
-/** Shown to administrators only. */
-const ADMIN_NAV = { to: '/admin', label: 'nav.admin', icon: ShieldCheck } as const;
+/** The rail on wider screens has room for Settings and, for administrators, Admin. */
+const RAIL_EXTRA: NavItem[] = [{ to: '/settings', label: 'nav.settings', icon: Settings }];
+const ADMIN_NAV: NavItem = { to: '/admin', label: 'nav.admin', icon: ShieldCheck };
+
+/** Sounds the player can play: the user's own and added ones, and the public ones to preview. */
+function playableSounds(own: Sound[], library: Sound[]): Sound[] {
+  const ids = new Set(own.map((s) => s.id));
+  return [...own, ...library.filter((s) => !ids.has(s.id))];
+}
 
 /**
  * The signed-in frame: navigation, the page, and the player, which is always on screen.
@@ -26,8 +53,17 @@ const ADMIN_NAV = { to: '/admin', label: 'nav.admin', icon: ShieldCheck } as con
  */
 export function AppShell({ me }: { me: Me }) {
   const { t } = useI18n();
-  const sounds = useSounds().data ?? [];
-  const nav = me.role === 'admin' ? [...NAV, ADMIN_NAV] : NAV;
+  const { pathname } = useLocation();
+  const own = useSounds().data;
+  const library = useLibrary().data?.sounds;
+  const sounds = useMemo(() => playableSounds(own ?? [], library ?? []), [own, library]);
+  const rail = [
+    ...TABS.map((item) => ({ ...item, also: undefined })),
+    ...RAIL_EXTRA,
+    ...(me.role === 'admin' ? [ADMIN_NAV] : []),
+  ];
+  const isCurrent = (item: NavItem, active: boolean) =>
+    active || (item.also?.some((path) => pathname.startsWith(path)) ?? false);
 
   return (
     <PlayerProvider sounds={sounds}>
@@ -43,7 +79,7 @@ export function AppShell({ me }: { me: Me }) {
             </span>
           </div>
           <ul className="flex flex-col gap-1 px-3">
-            {nav.map((item) => (
+            {rail.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}
@@ -82,19 +118,19 @@ export function AppShell({ me }: { me: Me }) {
           className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[env(safe-area-inset-bottom)] md:hidden"
         >
           <ul className="grid h-14 auto-cols-fr grid-flow-col">
-            {nav.map((item) => (
-              <li key={item.to}>
+            {TABS.map((item) => (
+              <li key={item.to} className="min-w-0">
                 <NavLink
                   to={item.to}
                   className={({ isActive }) =>
                     cx(
-                      'flex h-full flex-col items-center justify-center gap-1 text-[12px] leading-4 transition-colors duration-150',
-                      isActive ? 'text-ink' : 'text-ink-3',
+                      'flex h-full flex-col items-center justify-center gap-1 px-1 text-[12px] leading-4 transition-colors duration-150',
+                      isCurrent(item, isActive) ? 'text-ink' : 'text-ink-3',
                     )
                   }
                 >
                   <Icon icon={item.icon} />
-                  {t(item.label)}
+                  <span className="max-w-full truncate">{t(item.label)}</span>
                 </NavLink>
               </li>
             ))}

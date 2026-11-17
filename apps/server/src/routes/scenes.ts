@@ -4,11 +4,10 @@ import type { FastifyInstance } from 'fastify';
 import { createSceneSchema, orderScenesSchema, updateSceneSchema, type Scene } from '@dnd/shared';
 import { requireUser } from '../auth.js';
 import { db } from '../db/index.js';
-import { mixes, sceneMixes, sceneSounds, scenes, sounds } from '../db/schema.js';
+import { sceneMixes, sceneSounds, scenes } from '../db/schema.js';
 import { invalid, notFound, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
-import { imagePath, removeFile } from '../storage.js';
-import { assertOwned } from './common.js';
+import { assertUsableMixes, assertUsableSounds, releaseImages } from '../sharing.js';
 
 type SceneRow = typeof scenes.$inferSelect;
 
@@ -149,7 +148,7 @@ export function scenesRoutes(app: FastifyInstance) {
         required: ['name'],
         properties: {
           name: { type: 'string' },
-          illustration: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'icon'] }, iconId: { type: 'string' } } },
+          illustration: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'icon', 'image'] }, iconId: { type: 'string' }, imageKey: { type: 'string' } } },
           soundIds: { type: 'array', items: { type: 'string' } },
           mixIds: { type: 'array', items: { type: 'string' } },
         },
@@ -172,9 +171,9 @@ export function scenesRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const user = await requireUser(request);
     const body = parse(createSceneSchema, request.body);
-    if (body.soundIds) assertOwned(sounds, user.id, body.soundIds, 'soundIds');
-    if (body.mixIds) assertOwned(mixes, user.id, body.mixIds, 'mixIds');
-    const illustration = body.illustration ? illustrationValues(body.illustration) : undefined;
+    if (body.soundIds) assertUsableSounds(user.id, body.soundIds, 'soundIds');
+    if (body.mixIds) assertUsableMixes(user.id, body.mixIds, 'mixIds');
+    const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
       const last = db
@@ -277,8 +276,9 @@ export function scenesRoutes(app: FastifyInstance) {
           illustration: {
             type: 'object',
             properties: {
-              type: { type: 'string', enum: ['none', 'icon'] },
+              type: { type: 'string', enum: ['none', 'icon', 'image'] },
               iconId: { type: 'string' },
+              imageKey: { type: 'string' },
             },
           },
           soundIds: { type: 'array', items: { type: 'string' } },
@@ -305,9 +305,9 @@ export function scenesRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const current = ownScene(user.id, id);
     const body = parse(updateSceneSchema, request.body);
-    if (body.soundIds) assertOwned(sounds, user.id, body.soundIds, 'soundIds');
-    if (body.mixIds) assertOwned(mixes, user.id, body.mixIds, 'mixIds');
-    const illustration = body.illustration ? illustrationValues(body.illustration) : undefined;
+    if (body.soundIds) assertUsableSounds(user.id, body.soundIds, 'soundIds');
+    if (body.mixIds) assertUsableMixes(user.id, body.mixIds, 'mixIds');
+    const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
       setMembers(current.id, body.soundIds, body.mixIds);
@@ -315,7 +315,7 @@ export function scenesRoutes(app: FastifyInstance) {
       if (Object.keys(changes).length === 0) return current;
       return db.update(scenes).set(changes).where(eq(scenes.id, current.id)).returning().get();
     });
-    if (illustration && current.imageKey) await removeFile(imagePath(user.id, current.imageKey));
+    if (illustration && current.imageKey !== row.imageKey) await releaseImages([current.imageKey]);
     return oneScene(row);
   });
 
@@ -341,7 +341,7 @@ export function scenesRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const row = ownScene(user.id, id);
     db.delete(scenes).where(eq(scenes.id, row.id)).run();
-    if (row.imageKey) await removeFile(imagePath(user.id, row.imageKey));
+    await releaseImages([row.imageKey]);
     return reply.code(204).send();
   });
 }

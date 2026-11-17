@@ -12,6 +12,7 @@ import { db } from '../db/index.js';
 import { sessions, users, verifications, storageSnapshots } from '../db/schema.js';
 import { invalid, parse } from '../errors.js';
 import { defaultLimits, overrideColumn, setDefaultLimits, setSignupsOpen, signupsOpen, usageOf } from '../settings.js';
+import { detachImagesOf, prune } from '../sharing.js';
 import { removeUserFiles } from '../storage.js';
 
 type AdminUser = UserRow & { usage: Usage };
@@ -456,7 +457,9 @@ export function adminRoutes(app: FastifyInstance) {
     }
 
     await removeUserFiles(id);
+    detachImagesOf(id);
     db.delete(users).where(eq(users.id, id)).run();
+    prune();
     return reply.code(204).send();
   });
 

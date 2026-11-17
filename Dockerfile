@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # One image: the API server, which also serves the built web app (apps/web-v2) and its
-# icon libraries. Build from the repo root:  docker build -t dnd-ambiance .
+# icon libraries. Build from the repo root:  docker build -t roleplay-tunes .
 #
 # Debian slim rather than Alpine: better-sqlite3 and sharp ship prebuilt binaries for
 # glibc, so nothing native has to compile against musl.

@@ -1,4 +1,6 @@
 import {
+  DESCRIPTION_MAX,
+  LICENSE_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
   type Me,
@@ -9,7 +11,7 @@ import {
 } from '@dnd/shared';
 import { useState } from 'react';
 import { ApiError } from '../api/client';
-import { useDelete, useSaveSound } from '../api/hooks';
+import { useDelete, useLibraryEntry, useSaveSound } from '../api/hooks';
 import { Dialog } from '../components/Dialog';
 import type { IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
@@ -19,10 +21,15 @@ import { ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../compo
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { EditorFooter } from './EditorFooter';
+import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
 const clampInterval = (n: number) =>
   Math.min(MAX_INTERVAL_SEC, Math.max(MIN_INTERVAL_SEC, Number.isFinite(n) ? n : MIN_INTERVAL_SEC));
 
+/**
+ * Edits a sound. For a sound added from the library, everything but the user's own volume
+ * and scenes is greyed out, and the footer removes it from the library instead of deleting.
+ */
 export function SoundEditor({
   sound,
   scenes,
@@ -37,8 +44,13 @@ export function SoundEditor({
   const { t, errorText } = useI18n();
   const save = useSaveSound();
   const remove = useDelete('sounds');
+  const unlink = useLibraryEntry('sounds');
+  const owned = sound.access === 'owner';
 
   const [name, setName] = useState(sound.name);
+  const [description, setDescription] = useState(sound.description ?? '');
+  const [license, setLicense] = useState(sound.license ?? '');
+  const [isPublic, setIsPublic] = useState(sound.isPublic);
   const [illustration, setIllustration] = useState<IllustrationDraft>(sound.illustration);
   const [mode, setMode] = useState<PlayMode>(sound.defaultMode);
   const [volume, setVolume] = useState(sound.defaultVolume);
@@ -47,10 +59,14 @@ export function SoundEditor({
   const [variation, setVariation] = useState(sound.volumeVariation);
   const [sceneIds, setSceneIds] = useState(sound.sceneIds);
 
-  const error = save.error ?? remove.error;
+  const error = save.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
 
   const submit = () => {
+    if (!owned) {
+      save.mutate({ id: sound.id, body: { defaultVolume: volume, sceneIds } }, { onSuccess: onClose });
+      return;
+    }
     const min = clampInterval(Number(gapMin));
     const max = Math.max(min, clampInterval(Number(gapMax)));
     const { illustration: illustrationInput, image } = illustrationChanges(
@@ -59,6 +75,9 @@ export function SoundEditor({
     );
     const body: UpdateSoundRequest = {
       name: name.trim(),
+      description,
+      license,
+      isPublic,
       defaultMode: mode,
       defaultVolume: volume,
       intervalMinSec: min,
@@ -76,79 +95,120 @@ export function SoundEditor({
       onClose={onClose}
       onSubmit={submit}
       footer={
-        <EditorFooter
-          onCancel={onClose}
-          onDelete={() => remove.mutate(sound.id, { onSuccess: onClose })}
-          saving={save.isPending}
-          deleting={remove.isPending}
-          canSave={name.trim().length > 0}
-        />
+        owned ? (
+          <EditorFooter
+            onCancel={onClose}
+            onDelete={() => remove.mutate(sound.id, { onSuccess: onClose })}
+            saving={save.isPending}
+            deleting={remove.isPending}
+            canSave={name.trim().length > 0}
+          />
+        ) : (
+          <EditorFooter
+            onCancel={onClose}
+            onDelete={() => unlink.mutate({ id: sound.id, add: false }, { onSuccess: onClose })}
+            deleteLabel={t('share.remove')}
+            confirmLabel={t('share.confirmRemove')}
+            saving={save.isPending}
+            deleting={unlink.isPending}
+          />
+        )
       }
     >
-      {error && <ErrorNote>{errorText(error)}</ErrorNote>}
-
-      <Field label={t('common.name')} error={fields?.name}>
-        {(id) => (
-          <TextInput id={id} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
-        )}
-      </Field>
-
-      <IllustrationField
-        value={illustration}
-        onChange={setIllustration}
-        fallback={FALLBACK_ICONS.sound}
-        maxImageBytes={me.limits.imageFileBytes}
-      />
-
-      <div className="flex flex-col gap-2">
-        <span className="text-[13px] leading-5 text-ink-2">{t('sounds.playMode')}</span>
-        <Segmented
-          label={t('sounds.playMode')}
-          value={mode}
-          onChange={setMode}
-          options={MODE_ORDER.map((m) => ({
-            value: m,
-            label: t(MODE_LABELS[m]),
-            icon: MODE_ICONS[m],
-          }))}
-        />
-        <p className="text-[13px] leading-5 text-ink-3">{t(`mode.${mode}.hint` as MessageKey)}</p>
-      </div>
-
-      {mode === 'recurring' && (
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('sounds.gapMin')} error={fields?.intervalMinSec}>
-            {(id) => (
-              <TextInput
-                id={id}
-                type="number"
-                inputMode="numeric"
-                min={MIN_INTERVAL_SEC}
-                max={MAX_INTERVAL_SEC}
-                value={gapMin}
-                onChange={(e) => setGapMin(e.target.value)}
-                className="font-mono tabular-nums"
-              />
-            )}
-          </Field>
-          <Field label={t('sounds.gapMax')} error={fields?.intervalMaxSec}>
-            {(id) => (
-              <TextInput
-                id={id}
-                type="number"
-                inputMode="numeric"
-                min={MIN_INTERVAL_SEC}
-                max={MAX_INTERVAL_SEC}
-                value={gapMax}
-                onChange={(e) => setGapMax(e.target.value)}
-                className="font-mono tabular-nums"
-              />
-            )}
-          </Field>
-        </div>
+      {error && (
+        <ErrorNote>
+          {errorText(error)}
+          {fields?.sound ? `. ${fields.sound}` : ''}
+        </ErrorNote>
       )}
 
-      <Field label={t('sounds.volume')}>
+      {!owned && <OwnerNote name={sound.ownerName} />}
+
+      <OwnerOnly locked={!owned}>
+        <Field label={t('common.name')} error={fields?.name}>
+          {(id) => (
+            <TextInput id={id} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+          )}
+        </Field>
+
+        <TextArea
+          label={t('common.description')}
+          value={description}
+          onChange={setDescription}
+          maxLength={DESCRIPTION_MAX}
+          error={fields?.description}
+        />
+
+        <Field label={t('sounds.license')} hint={t('sounds.licenseHint')} error={fields?.license}>
+          {(id) => (
+            <TextInput
+              id={id}
+              value={license}
+              maxLength={LICENSE_MAX}
+              onChange={(e) => setLicense(e.target.value)}
+            />
+          )}
+        </Field>
+
+        <VisibilityField value={isPublic} onChange={setIsPublic} error={fields?.isPublic} />
+
+        <IllustrationField
+          value={illustration}
+          onChange={setIllustration}
+          fallback={FALLBACK_ICONS.sound}
+          maxImageBytes={me.limits.imageFileBytes}
+        />
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] leading-5 text-ink-2">{t('sounds.playMode')}</span>
+          <Segmented
+            label={t('sounds.playMode')}
+            value={mode}
+            onChange={setMode}
+            options={MODE_ORDER.map((m) => ({
+              value: m,
+              label: t(MODE_LABELS[m]),
+              icon: MODE_ICONS[m],
+            }))}
+          />
+          <p className="text-[13px] leading-5 text-ink-3">{t(`mode.${mode}.hint` as MessageKey)}</p>
+        </div>
+
+        {mode === 'recurring' && (
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t('sounds.gapMin')} error={fields?.intervalMinSec}>
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_INTERVAL_SEC}
+                  max={MAX_INTERVAL_SEC}
+                  value={gapMin}
+                  onChange={(e) => setGapMin(e.target.value)}
+                  className="font-mono tabular-nums"
+                />
+              )}
+            </Field>
+            <Field label={t('sounds.gapMax')} error={fields?.intervalMaxSec}>
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_INTERVAL_SEC}
+                  max={MAX_INTERVAL_SEC}
+                  value={gapMax}
+                  onChange={(e) => setGapMax(e.target.value)}
+                  className="font-mono tabular-nums"
+                />
+              )}
+            </Field>
+          </div>
+        )}
+      </OwnerOnly>
+
+      <Field label={t('sounds.volume')} hint={owned ? undefined : t('share.yourVolume')}>
         {(id) => (
           <div className="flex items-center gap-3">
             <Fader id={id} value={volume} onChange={setVolume} label={t('sounds.volume')} />
@@ -158,14 +218,16 @@ export function SoundEditor({
       </Field>
 
       {mode === 'recurring' && (
-        <Field label={t('sounds.variation')}>
-          {(id) => (
-            <div className="flex items-center gap-3">
-              <Fader id={id} value={variation} onChange={setVariation} label={t('sounds.variation')} />
-              <Percent value={variation} />
-            </div>
-          )}
-        </Field>
+        <OwnerOnly locked={!owned}>
+          <Field label={t('sounds.variation')}>
+            {(id) => (
+              <div className="flex items-center gap-3">
+                <Fader id={id} value={variation} onChange={setVariation} label={t('sounds.variation')} />
+                <Percent value={variation} />
+              </div>
+            )}
+          </Field>
+        </OwnerOnly>
       )}
 
       <PickList

@@ -1,7 +1,8 @@
 import type { Illustration as IllustrationData, IllustrationInput } from '@dnd/shared';
 import { useQuery } from '@tanstack/react-query';
-import { ImageUp, Shapes, Trash2, type LucideIcon } from 'lucide-react';
+import { Images, ImageUp, Shapes, Trash2, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useReusableImages } from '../api/hooks';
 import { useI18n } from '../i18n';
 import { Illustration, type IllustrationDraft } from './Illustration';
 import { matches } from './Page';
@@ -41,8 +42,12 @@ export function illustrationChanges(
   if (draft.type === 'none') {
     return original.type === 'none' ? {} : { illustration: { type: 'none' } };
   }
-  return {};
+  if (original.type === 'image' && original.url === draft.url) return {};
+  return { illustration: { type: 'image', imageKey: imageKeyOf(draft.url) } };
 }
+
+/** The key of a stored image, the last segment of its `/api/images/<key>` address. */
+export const imageKeyOf = (url: string) => url.slice(url.lastIndexOf('/') + 1);
 
 /** Picks how an item looks: an icon from the libraries, an uploaded image, or nothing. */
 export function IllustrationField({
@@ -57,7 +62,7 @@ export function IllustrationField({
   maxImageBytes: number;
 }) {
   const { t, bytes } = useI18n();
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<'icon' | 'image' | null>(null);
   const [tooLarge, setTooLarge] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -72,7 +77,7 @@ export function IllustrationField({
       return;
     }
     setTooLarge(false);
-    setPicking(false);
+    setPicking(null);
     onChange({ type: 'file', file, url: URL.createObjectURL(file) });
   };
 
@@ -84,8 +89,19 @@ export function IllustrationField({
           <Illustration value={value} fallback={fallback} iconClassName="size-9" />
         </span>
         <div className="flex flex-wrap gap-2">
-          <Button icon={Shapes} aria-expanded={picking} onClick={() => setPicking((v) => !v)}>
+          <Button
+            icon={Shapes}
+            aria-expanded={picking === 'icon'}
+            onClick={() => setPicking((v) => (v === 'icon' ? null : 'icon'))}
+          >
             {t('illustration.icon')}
+          </Button>
+          <Button
+            icon={Images}
+            aria-expanded={picking === 'image'}
+            onClick={() => setPicking((v) => (v === 'image' ? null : 'image'))}
+          >
+            {t('illustration.reuse')}
           </Button>
           <Button icon={ImageUp} onClick={() => fileInput.current?.click()}>
             {t('illustration.image')}
@@ -113,14 +129,72 @@ export function IllustrationField({
       <p className={cx('text-[13px] leading-5', tooLarge ? 'text-danger' : 'text-ink-3')}>
         {t('illustration.imageHint', { size: bytes(maxImageBytes) })}
       </p>
-      {picking && (
+      {picking === 'icon' && (
         <IconPicker
           selected={value.type === 'icon' ? value.iconId : null}
           onPick={(iconId, svg) => {
             onChange({ type: 'icon', iconId, svg });
-            setPicking(false);
+            setPicking(null);
           }}
         />
+      )}
+      {picking === 'image' && (
+        <ImagePicker
+          selected={value.type === 'image' ? value.url : null}
+          onPick={(url) => {
+            onChange({ type: 'image', url });
+            setPicking(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The images already shown on the user's items, and on items they added, to use again. */
+function ImagePicker({
+  selected,
+  onPick,
+}: {
+  selected: string | null;
+  onPick: (url: string) => void;
+}) {
+  const { t } = useI18n();
+  const images = useReusableImages(true);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[12px] border border-line bg-deep p-3">
+      {images.isLoading ? (
+        <Spinner label={t('common.loading')} />
+      ) : images.isError ? (
+        <p className="text-[13px] leading-5 text-danger">{t('common.loadFailed')}</p>
+      ) : images.data?.length === 0 ? (
+        <p className="text-[13px] leading-5 text-ink-3">{t('illustration.noImages')}</p>
+      ) : (
+        <ul className="scroll-quiet grid max-h-56 grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2 overflow-y-auto">
+          {images.data?.map((image) => (
+            <li key={image.key}>
+              <button
+                type="button"
+                aria-label={t('illustration.reuseItem')}
+                aria-pressed={image.url === selected}
+                onClick={() => onPick(image.url)}
+                className={cx(
+                  'relative block aspect-square w-full overflow-hidden rounded-[8px] border transition-colors duration-150',
+                  image.url === selected ? 'border-ink' : 'border-line hover:border-line-strong',
+                )}
+              >
+                <img
+                  src={image.url}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                  className="absolute inset-0 size-full object-cover"
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

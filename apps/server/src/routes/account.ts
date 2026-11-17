@@ -6,6 +6,7 @@ import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { invalid, parse } from '../errors.js';
 import { effectiveLimits, signupsOpen, usageOf } from '../settings.js';
+import { detachImagesOf, prune } from '../sharing.js';
 import { removeUserFiles } from '../storage.js';
 
 export function toMe(user: UserRow): Me {
@@ -32,7 +33,9 @@ export async function deleteUser(userId: string): Promise<void> {
       throw new Error('Cannot delete the last admin');
     }
   }
+  detachImagesOf(userId);
   db.delete(users).where(eq(users.id, userId)).run();
+  prune();
   await removeUserFiles(userId);
 }
 

@@ -4,42 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <title>DnD Ambiance</title>
+    <title>Roleplay Tunes</title>
     <meta
       name="description"
       content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
     />
-    <meta name="application-name" content="DnD Ambiance" />
+    <meta name="application-name" content="Roleplay Tunes" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#12110f" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="DnD Ambiance" />
+    <meta name="apple-mobile-web-app-title" content="Roleplay Tunes" />
+    <meta name="msapplication-TileColor" content="#12110f" />
+    <meta name="msapplication-TileImage" content="/icon-192.png" />
 
-    <!-- Icons come from scripts/build-brand-assets.mjs: the same three bars as the in-app mark. -->
+    <!-- Icons come from scripts/build-brand-assets.mjs: the same sword and note as the in-app mark. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="icon" href="/icon-512.png" type="image/png" sizes="512x512" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/manifest.webmanifest" />
 
-    <!-- Open Graph without an image for now: og:image must be an absolute URL, and there is
-         no public origin yet. public/og-image.png is ready; add
-         <meta property="og:image" content="PUBLIC_URL/og-image.png" /> (plus width/height/alt)
-         and switch twitter:card to summary_large_image once the domain exists. -->
+    <!-- Crawlers need absolute addresses: the server replaces __PUBLIC_URL__ with PUBLIC_URL
+         when it serves this page. -->
+    <link rel="canonical" href="__PUBLIC_URL__/" />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="DnD Ambiance" />
-    <meta property="og:title" content="DnD Ambiance" />
+    <meta property="og:site_name" content="Roleplay Tunes" />
+    <meta property="og:title" content="Roleplay Tunes" />
     <meta
       property="og:description"
       content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
     />
+    <meta property="og:url" content="__PUBLIC_URL__/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:image" content="__PUBLIC_URL__/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="A sword and a music note above the name Roleplay Tunes"
+    />
 
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="DnD Ambiance" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Roleplay Tunes" />
     <meta
       name="twitter:description"
       content="Scenes, mixes and loops for the game table. Tap a tile and the room comes alive."
+    />
+    <meta name="twitter:image" content="__PUBLIC_URL__/og-image.png" />
+    <meta
+      name="twitter:image:alt"
+      content="A sword and a music note above the name Roleplay Tunes"
     />
   </head>
   <body>

@@ -268,7 +268,7 @@ class Engine implements AudioEngine {
     if (!api) return;
     const controller = new MediaSessionController(
       api,
-      { artist: opts?.artist ?? 'D&D Ambiance', artwork: opts?.artwork },
+      { artist: opts?.artist ?? 'Roleplay Tunes', artwork: opts?.artwork },
       {
         play: () => void (this.paused ? this.resume() : this.unlock()),
         pause: () => void this.pause(),

@@ -6,7 +6,16 @@ import { defineConfig } from 'vite';
 // The API server trusts http://localhost:5173 by default (TRUSTED_ORIGINS), and the session
 // cookie is same-origin through this proxy, so the port is fixed.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // In production the server fills in PUBLIC_URL; the build keeps the placeholder for it.
+    {
+      name: 'dev-public-url',
+      apply: 'serve',
+      transformIndexHtml: (html) => html.replaceAll('__PUBLIC_URL__', 'http://localhost:5173'),
+    },
+  ],
   server: {
     port: 5173,
     strictPort: true,

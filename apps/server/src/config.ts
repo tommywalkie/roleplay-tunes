@@ -35,7 +35,7 @@ const envSchema = z.object({
    * placeholder; production should set its own — see the sign-up race note in
    * `.env.example`.
    */
-  ADMIN_EMAIL: z.email().default('admin@dnd-ambiance.local'),
+  ADMIN_EMAIL: z.email().default('admin@roleplay-tunes.local'),
   /** Folder of the built web app to serve. Empty: API only. */
   WEB_DIST: z.string().optional(),
   /** Folder of the built icon sets. Defaults to the web app's `icons` folder. */

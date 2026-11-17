@@ -29,7 +29,7 @@ adds or removes a feature.
 | Icon manifests | `node scripts/build-icon-libraries.mjs` (writes `apps/web-v2/public/icons`) |
 | Brand assets | `node scripts/build-brand-assets.mjs` (writes favicons and the social preview in `apps/web-v2/public`) |
 | Screenshots, mocked API | `node tmp/web-v2-shots/shoot.mjs` and `shoot-admin.mjs` (dev server must be running) |
-| Docker image (server + this app) | `docker build -t dnd-ambiance .` |
+| Docker image (server + this app) | `docker build -t roleplay-tunes .` |
 
 If the dev server shows a blank page after several quick edits to one file, it served a
 stale transform: save the file once more or restart the dev server.
@@ -66,7 +66,7 @@ Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) 
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
 | `components/` | `Tile`, `Page`, `Dialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
 | `editors/` | Sound, mix and scene editors, upload dialog, shared footer |
-| `pages/` | Login, Scenes, Scene, Mixes, Sounds, Settings, Admin, ResetPassword |
+| `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Profile, Settings, Admin, ResetPassword |
 | `api/admin.ts` | Admin queries and mutations, password reset |
 | `i18n/` | `en.ts` is the source of keys, `fr.ts` must mirror it (a test checks this) |
 | `test/` | `fixtures.ts`: `makeSound`, `makeMix`, `makeMe`, `makeFakeEngine` |
@@ -114,8 +114,9 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Cinzel, an inscriptional Roman face, only for the product name (`Wordmark` in
   `components/Brand.tsx`). It has no lowercase: it sets the name in caps. Never use it for
   page headings, labels or body.
-- The mark (three level bars) lives in `components/Brand.tsx`; the favicons and the social
-  preview are drawn from it by `scripts/build-brand-assets.mjs`.
+- The mark (a cartoon sword and a music note, in lamp amber and one shade darker) lives in
+  `components/Brand.tsx`; the favicons, the web app manifest icons and the social preview
+  are drawn from the same geometry by `scripts/build-brand-assets.mjs`.
 - Weights 400 and 500. Sentence case. No exclamation marks, no trailing periods on labels.
 - 4px spacing grid; touch targets 44px; radii 8 to 10 controls, 14 to 16 cards, 20 dialogs.
 - Motion: one easing (`--ease-out`), color/opacity/transform only, no looping animation
@@ -151,11 +152,19 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Icon picker over four libraries (11,806 icons) and image upload
 - Settings: storage used against the limit, per-file limits, language, account
 - English and French
-- Product name set in Cinzel, favicon set (SVG, 32, 192, 512, Apple touch) and a 1200×630
-  social preview with Open Graph and Twitter tags
+- Product name (Roleplay Tunes) set in Cinzel, favicon set (SVG, 32, 192, 512, maskable
+  512, Apple touch), a web app manifest, and a 1200×630 social preview with Open Graph and
+  Twitter tags (the server fills in the absolute `PUBLIC_URL` in `index.html`)
 - Admin page (administrators only): server disk split, sign-up toggle, default limits,
   user list with search; per user: role, access, own limits, password reset link, delete
 - Password reset page for links created by an admin
+- Public library: sounds and mixes are private or public; public ones are listed on the
+  Library page (preview, add). Added items keep their owner: their editor is greyed out
+  except the user's own volume, scenes and "Remove from my library"
+- Description (sounds, mixes) and license (sounds)
+- "Choose image" reuses an image already shown on an own or added item
+- Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
+  five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin
 - Dockerfile and `.dockerignore` at the repo root (written, not yet built: see Not done)
 - 77 tests: playback rules, player panel stability, API client, i18n, login, sign-out,
   pick list, limit fields, admin page, password reset

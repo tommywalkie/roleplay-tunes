@@ -77,7 +77,7 @@ export function LoginPage() {
       <main className="flex flex-col justify-center gap-8 px-6 py-10 md:px-12">
         <div className="flex flex-col gap-2">
           <span className="flex items-center gap-2.5 text-ink-2">
-            <Mark size={18} />
+            <Mark size={24} />
             <Wordmark name={t('app.name')} />
           </span>
           <h1 className="text-[32px] leading-10 font-medium">

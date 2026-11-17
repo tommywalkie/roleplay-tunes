@@ -22,7 +22,7 @@ beforeAll(async () => {
     .values({
       id: 'pre-existing',
       name: 'Pre',
-      email: 'ADMIN@DND-AMBIANCE.LOCAL',
+      email: 'ADMIN@ROLEPLAY-TUNES.LOCAL',
       emailVerified: false,
       createdAt: now,
       updatedAt: now,
@@ -40,8 +40,8 @@ const roleOf = (id: string) =>
   dbModule.db.select().from(schema.users).where(eq(schema.users.id, id)).get()?.role;
 
 describe('ADMIN_EMAIL default', () => {
-  it('defaults to the unrouteable admin@dnd-ambiance.local', () => {
-    expect(loadConfig({}).adminEmail).toBe('admin@dnd-ambiance.local');
+  it('defaults to the unrouteable admin@roleplay-tunes.local', () => {
+    expect(loadConfig({}).adminEmail).toBe('admin@roleplay-tunes.local');
   });
 
   it('an explicitly set ADMIN_EMAIL wins over the default and is lowercased', () => {
@@ -54,14 +54,14 @@ describe('ADMIN_EMAIL default', () => {
 
   it('gives the admin role to the account that signs up with the default email', async () => {
     dbModule.db.delete(schema.users).where(eq(schema.users.id, 'pre-existing')).run();
-    const admin = await signUp(app, 'admin@dnd-ambiance.local');
+    const admin = await signUp(app, 'admin@roleplay-tunes.local');
     expect((await call(app, admin, 'GET', '/api/me')).json().role).toBe('admin');
   });
 
   it('gives every other account the user role', async () => {
     const other = await signUp(app, 'someone-else@example.com');
     expect((await call(app, other, 'GET', '/api/me')).json().role).toBe('user');
-    const lookalike = await signUp(app, 'admin@dnd-ambiance.local.evil.test');
+    const lookalike = await signUp(app, 'admin@roleplay-tunes.local.evil.test');
     expect((await call(app, lookalike, 'GET', '/api/me')).json().role).toBe('user');
   });
 

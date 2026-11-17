@@ -1,10 +1,12 @@
 import type {
   CreateMixRequest,
   CreateSceneRequest,
+  Library,
   Me,
   Mix,
   PlayMode,
   PublicSettings,
+  ReusableImage,
   Scene,
   Sound,
   UpdateMixRequest,
@@ -20,13 +22,18 @@ export const keys = {
   sounds: ['sounds'] as const,
   mixes: ['mixes'] as const,
   scenes: ['scenes'] as const,
+  library: ['library'] as const,
+  images: ['images'] as const,
 };
 
 export type Kind = 'sounds' | 'mixes' | 'scenes';
 
-/** Sounds, mixes and scenes reference each other, and every file counts against storage. */
+/**
+ * Sounds, mixes and scenes reference each other, the public library shows them, and
+ * every file counts against storage.
+ */
 function invalidateLibrary(qc: QueryClient) {
-  for (const key of [keys.sounds, keys.mixes, keys.scenes, keys.me]) {
+  for (const key of [keys.sounds, keys.mixes, keys.scenes, keys.me, keys.library, keys.images]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 }
@@ -159,5 +166,37 @@ export function useDelete(kind: Kind) {
   return useMutation({
     mutationFn: (id: string) => api(`/api/${kind}/${id}`, { method: 'DELETE' }),
     onSuccess: () => invalidateLibrary(qc),
+  });
+}
+
+/** Every public sound and mix, with the caller's access to each. */
+export const useLibrary = () =>
+  useQuery({ queryKey: keys.library, queryFn: () => api<Library>('/api/library') });
+
+/** Images the user can put on their own items. */
+export const useReusableImages = (enabled: boolean) =>
+  useQuery({
+    queryKey: keys.images,
+    queryFn: () => api<ReusableImage[]>('/api/images'),
+    enabled,
+  });
+
+/** Adds a public sound or mix of another account to the user's library, or removes it. */
+export function useLibraryEntry(kind: 'sounds' | 'mixes') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, add }: { id: string; add: boolean }) =>
+      api(`/api/library/${kind}/${id}`, { method: add ? 'PUT' : 'DELETE' }),
+    onSettled: () => invalidateLibrary(qc),
+  });
+}
+
+/** The user's own volumes for the sounds of a mix they added. */
+export function useSetMixVolumes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, volumes }: { id: string; volumes: Record<string, number> }) =>
+      api<Mix>(`/api/mixes/${id}/volumes`, { method: 'PUT', json: { volumes } }),
+    onSettled: () => invalidateLibrary(qc),
   });
 }

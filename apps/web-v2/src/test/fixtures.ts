@@ -7,6 +7,11 @@ export function makeSound(over: Partial<Sound> = {}): Sound {
   return {
     id,
     name: 'Tavern crowd',
+    description: null,
+    license: null,
+    isPublic: false,
+    access: 'owner',
+    ownerName: 'Game master',
     audioUrl: `/api/sounds/${id}/audio`,
     mimeType: 'audio/mpeg',
     sizeBytes: 1_000_000,
@@ -30,6 +35,10 @@ export function makeMix(over: Partial<Mix> = {}): Mix {
   return {
     id: 'm1',
     name: 'Tavern evening',
+    description: null,
+    isPublic: false,
+    access: 'owner',
+    ownerName: 'Game master',
     illustration: { type: 'none' },
     items: [],
     sceneIds: [],

@@ -1,5 +1,6 @@
 /**
- * Data model. Every domain row belongs to exactly one user.
+ * Data model. Every sound, mix and scene belongs to exactly one user; public sounds and
+ * mixes can also be added to the library of other users.
  */
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -106,6 +107,9 @@ export const sounds = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    description: text('description'),
+    license: text('license'),
+    isPublic: integer('isPublic', { mode: 'boolean' }).notNull().default(false),
     fileKey: text('fileKey').notNull(),
     mimeType: text('mimeType').notNull(),
     sizeBytes: integer('sizeBytes').notNull(),
@@ -121,7 +125,7 @@ export const sounds = sqliteTable(
     createdAt: timestamp('createdAt').notNull(),
     updatedAt: timestamp('updatedAt').notNull(),
   },
-  (t) => [index('sounds_owner_idx').on(t.ownerId)],
+  (t) => [index('sounds_owner_idx').on(t.ownerId), index('sounds_public_idx').on(t.isPublic)],
 );
 
 export const mixes = sqliteTable(
@@ -132,11 +136,13 @@ export const mixes = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    description: text('description'),
+    isPublic: integer('isPublic', { mode: 'boolean' }).notNull().default(false),
     ...illustrationColumns,
     createdAt: timestamp('createdAt').notNull(),
     updatedAt: timestamp('updatedAt').notNull(),
   },
-  (t) => [index('mixes_owner_idx').on(t.ownerId)],
+  (t) => [index('mixes_owner_idx').on(t.ownerId), index('mixes_public_idx').on(t.isPublic)],
 );
 
 export const mixItems = sqliteTable(
@@ -207,6 +213,103 @@ export const sceneMixes = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.sceneId, t.mixId] }),
     index('scene_mixes_by_mix_idx').on(t.mixId),
+  ],
+);
+
+/**
+ * Uploaded illustration files. Several items, of several accounts, may show the same
+ * image: the file stays while any item uses it, and counts against the storage of the
+ * account that uploaded it.
+ */
+export const images = sqliteTable(
+  'images',
+  {
+    key: text('key').primaryKey(),
+    ownerId: text('ownerId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bytes: integer('bytes').notNull(),
+    createdAt: timestamp('createdAt').notNull(),
+  },
+  (t) => [index('images_owner_idx').on(t.ownerId)],
+);
+
+/** Public sounds a user added to their own library. */
+export const librarySounds = sqliteTable(
+  'library_sounds',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    soundId: text('soundId')
+      .notNull()
+      .references(() => sounds.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('createdAt').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.soundId] }),
+    index('library_sounds_by_sound_idx').on(t.soundId),
+  ],
+);
+
+/** Public mixes a user added to their own library. */
+export const libraryMixes = sqliteTable(
+  'library_mixes',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    mixId: text('mixId')
+      .notNull()
+      .references(() => mixes.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('createdAt').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.mixId] }),
+    index('library_mixes_by_mix_idx').on(t.mixId),
+  ],
+);
+
+/** A user's own volume for a sound they did not upload. */
+export const soundVolumes = sqliteTable(
+  'sound_volumes',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    soundId: text('soundId')
+      .notNull()
+      .references(() => sounds.id, { onDelete: 'cascade' }),
+    volume: real('volume').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.soundId] }),
+    index('sound_volumes_by_sound_idx').on(t.soundId),
+  ],
+);
+
+/**
+ * A user's own volume for one sound of a mix they did not create. Keyed by sound rather
+ * than by mix item, since every edit of the mix recreates its items.
+ */
+export const mixVolumes = sqliteTable(
+  'mix_volumes',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    mixId: text('mixId')
+      .notNull()
+      .references(() => mixes.id, { onDelete: 'cascade' }),
+    soundId: text('soundId')
+      .notNull()
+      .references(() => sounds.id, { onDelete: 'cascade' }),
+    volume: real('volume').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.mixId, t.soundId] }),
+    index('mix_volumes_by_mix_idx').on(t.mixId),
+    index('mix_volumes_by_sound_idx').on(t.soundId),
   ],
 );
 
