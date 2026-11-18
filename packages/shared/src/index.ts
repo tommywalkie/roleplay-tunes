@@ -129,6 +129,72 @@ const optionalText = (max: number) =>
     .transform((v) => (v === '' ? null : v))
     .nullable();
 
+// Synonyms and categories
+
+/**
+ * Other words for an item, used by search. Each user keeps their own: on an item they see
+ * the owner's and their own, and remove only their own. The same text twice on one item
+ * is kept once; an exact match counts as the same synonym.
+ */
+export const SYNONYM_MAX = 40;
+export const SYNONYMS_PER_ITEM = 30;
+export const synonymSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SYNONYM_MAX)
+  .regex(/^[^\u0000-\u001f\u007f]*$/, 'Control characters are not allowed');
+export const synonymsSchema = z.array(synonymSchema).max(SYNONYMS_PER_ITEM);
+
+/** A synonym on an item, as the caller sees it. `mine`: the caller added it and may remove it. */
+export const itemSynonymSchema = z.object({ label: z.string(), mine: z.boolean() });
+export type ItemSynonym = z.infer<typeof itemSynonymSchema>;
+
+/**
+ * A user's own label for sorting their items. Names are unique per user (exact text).
+ * The text color is not stored: clients derive it from the background.
+ */
+export const CATEGORY_NAME_MAX = 40;
+export const CATEGORIES_PER_USER = 100;
+export const categoryColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'A color such as #4a7c59');
+
+export const categorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string(),
+  icon: z.object({ iconId: z.string(), svg: z.string() }).nullable(),
+  createdAt: z.string(),
+});
+export type Category = z.infer<typeof categorySchema>;
+
+const categoryBody = z
+  .object({
+    name: nameSchema.pipe(z.string().max(CATEGORY_NAME_MAX)),
+    color: categoryColorSchema,
+    iconId: iconIdSchema.nullable(),
+  })
+  .strict();
+export const createCategorySchema = categoryBody.partial({ iconId: true });
+export type CreateCategoryRequest = z.infer<typeof createCategorySchema>;
+export const updateCategorySchema = categoryBody.partial();
+export type UpdateCategoryRequest = z.infer<typeof updateCategorySchema>;
+
+/** Fields every sound, mix and scene response carries for the caller. */
+const taggedFields = {
+  synonyms: z.array(itemSynonymSchema),
+  /** The caller's own categories on the item. */
+  categoryIds: z.array(z.string()),
+};
+
+/**
+ * Fields every user who has the item may send, owner or not: their own synonyms and
+ * categories on it, each list replacing what they had set before.
+ */
+const taggingFields = {
+  synonyms: synonymsSchema,
+  categoryIds: idListSchema,
+};
+
 // Sounds
 
 export const soundSchema = z.object({
@@ -152,6 +218,7 @@ export const soundSchema = z.object({
   volumeVariation: z.number(),
   illustration: illustrationSchema,
   sceneIds: z.array(z.string()),
+  ...taggedFields,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -167,7 +234,8 @@ export type UploadSoundFields = z.infer<typeof uploadSoundFieldsSchema>;
 
 /**
  * A sound's owner may send every field. A user who added the sound from the library may
- * send `defaultVolume` (kept as their own volume) and `sceneIds` (their own scenes) only.
+ * send `defaultVolume` (kept as their own volume), `sceneIds` (their own scenes),
+ * `synonyms` and `categoryIds` (their own) only.
  */
 export const updateSoundSchema = z
   .object({
@@ -184,6 +252,7 @@ export const updateSoundSchema = z
     volumeVariation: z.number().min(0).max(1),
     illustration: illustrationInputSchema,
     sceneIds: idListSchema,
+    ...taggingFields,
   })
   .partial()
   .strict();
@@ -225,6 +294,7 @@ export const mixSchema = z.object({
   illustration: illustrationSchema,
   items: z.array(mixItemSchema),
   sceneIds: z.array(z.string()),
+  ...taggedFields,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -239,6 +309,7 @@ const mixBody = z
     /** Order of the array is the order of the items. A sound may appear once per mix. */
     items: z.array(mixItemInputSchema).max(MAX_LIMITS.mixItems),
     sceneIds: idListSchema,
+    ...taggingFields,
   })
   .strict();
 
@@ -275,6 +346,7 @@ export const sceneSchema = z.object({
   illustration: illustrationSchema,
   soundIds: z.array(z.string()),
   mixIds: z.array(z.string()),
+  ...taggedFields,
   createdAt: z.string(),
 });
 export type Scene = z.infer<typeof sceneSchema>;
@@ -285,6 +357,7 @@ const sceneBody = z
     illustration: illustrationInputSchema,
     soundIds: idListSchema,
     mixIds: idListSchema,
+    ...taggingFields,
   })
   .strict();
 

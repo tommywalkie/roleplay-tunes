@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { CategoryFilter, inCategories } from '../components/Categories';
+import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { MixEditor } from '../editors/MixEditor';
@@ -18,9 +19,10 @@ export function MixesPage({ me }: { me: Me }) {
   const [query, setQuery] = useState('');
   /** A mix id, `'new'` for a mix being created, or nothing. */
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = mixes.data ?? [];
-  const shown = all.filter((m) => matches(m.name, query));
+  const shown = all.filter((m) => matches(searchText(m), query) && inCategories(m, categoryIds));
   const editing = all.find((m) => m.id === editingId);
 
   return (
@@ -34,6 +36,7 @@ export function MixesPage({ me }: { me: Me }) {
         </Button>
       }
       search={{ value: query, onChange: setQuery }}
+      filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
     >
       <QueryGate loading={mixes.isLoading} error={mixes.error} onRetry={() => void mixes.refetch()}>
         {all.length === 0 ? (

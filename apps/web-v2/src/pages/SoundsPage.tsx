@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useScenes, useSounds } from '../api/hooks';
 import { SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { CategoryFilter, inCategories } from '../components/Categories';
+import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { SoundEditor } from '../editors/SoundEditor';
@@ -18,9 +19,10 @@ export function SoundsPage({ me }: { me: Me }) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = sounds.data ?? [];
-  const shown = all.filter((s) => matches(s.name, query));
+  const shown = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
   const editing = all.find((s) => s.id === editingId);
   const uploadButton = (
     <Button variant="primary" icon={Upload} onClick={() => setUploading(true)}>
@@ -35,6 +37,7 @@ export function SoundsPage({ me }: { me: Me }) {
       meta={sounds.data ? String(all.length) : undefined}
       action={uploadButton}
       search={{ value: query, onChange: setQuery }}
+      filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
     >
       <QueryGate loading={sounds.isLoading} error={sounds.error} onRetry={() => void sounds.refetch()}>
         {all.length === 0 ? (

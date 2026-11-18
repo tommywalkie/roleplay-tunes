@@ -313,6 +313,69 @@ export const mixVolumes = sqliteTable(
   ],
 );
 
+// Synonyms and categories. Each belongs to the user who wrote it, and a user may put
+// theirs on any sound, mix or scene they own or added. A link names no user: the
+// synonym's or category's owner is the one who set it.
+
+/** A user's synonyms, each text once per user. Deleted once no item carries it. */
+export const synonyms = sqliteTable(
+  'synonyms',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('ownerId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+  },
+  (t) => [uniqueIndex('synonyms_owner_label_idx').on(t.ownerId, t.label)],
+);
+
+/** A user's categories, each name once per user. */
+export const categories = sqliteTable(
+  'categories',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('ownerId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color').notNull(),
+    iconId: text('iconId'),
+    iconSvg: text('iconSvg'),
+    createdAt: timestamp('createdAt').notNull(),
+  },
+  (t) => [uniqueIndex('categories_owner_name_idx').on(t.ownerId, t.name)],
+);
+
+/** Links from a synonym or category to one kind of item, removed with either end. */
+function itemLinks<T extends typeof synonyms | typeof categories>(
+  table: string,
+  tagColumn: 'synonymId' | 'categoryId',
+  tags: () => T,
+  itemColumn: 'soundId' | 'mixId' | 'sceneId',
+  items: () => typeof sounds | typeof mixes | typeof scenes,
+) {
+  return sqliteTable(
+    table,
+    {
+      tagId: text(tagColumn)
+        .notNull()
+        .references(() => tags().id, { onDelete: 'cascade' }),
+      itemId: text(itemColumn)
+        .notNull()
+        .references(() => items().id, { onDelete: 'cascade' }),
+    },
+    (t) => [primaryKey({ columns: [t.tagId, t.itemId] }), index(`${table}_by_item_idx`).on(t.itemId)],
+  );
+}
+
+export const soundSynonyms = itemLinks('sound_synonyms', 'synonymId', () => synonyms, 'soundId', () => sounds);
+export const mixSynonyms = itemLinks('mix_synonyms', 'synonymId', () => synonyms, 'mixId', () => mixes);
+export const sceneSynonyms = itemLinks('scene_synonyms', 'synonymId', () => synonyms, 'sceneId', () => scenes);
+export const soundCategories = itemLinks('sound_categories', 'categoryId', () => categories, 'soundId', () => sounds);
+export const mixCategories = itemLinks('mix_categories', 'categoryId', () => categories, 'mixId', () => mixes);
+export const sceneCategories = itemLinks('scene_categories', 'categoryId', () => categories, 'sceneId', () => scenes);
+
 /** Server-wide settings: `signupsOpen`, and `limit.<key>` for each default limit. */
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),

@@ -15,6 +15,7 @@ export function Page({
   action,
   backTo,
   search,
+  filters,
   children,
 }: {
   title: string;
@@ -25,6 +26,8 @@ export function Page({
   action?: ReactNode;
   backTo?: string;
   search?: { value: string; onChange: (value: string) => void };
+  /** Shown under the search field, and stays on screen with it. */
+  filters?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -56,13 +59,14 @@ export function Page({
       {search && (
         // A child of the whole page, not of the header, so it stays at the top of the
         // scrolling area while the list moves under it. The band covers the list edge to edge.
-        <div className="sticky top-0 z-10 -mx-4 -my-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
+        <div className="sticky top-0 z-10 -mx-4 -my-3 flex flex-col gap-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
           <SearchField
             value={search.value}
             onChange={search.onChange}
             label={t('common.search')}
             className="md:max-w-[360px]"
           />
+          {filters}
         </div>
       )}
       {children}
@@ -100,6 +104,11 @@ export function QueryGate({
 export function NoMatch({ query }: { query: string }) {
   const { t } = useI18n();
   return <EmptyState icon={SearchX} title={t('common.noMatch', { query })} />;
+}
+
+/** What search looks through on an item: its name and the synonyms the user sees on it. */
+export function searchText(item: { name: string; synonyms?: { label: string }[] }): string {
+  return [item.name, ...(item.synonyms ?? []).map((s) => s.label)].join('\n');
 }
 
 /** Case- and accent-insensitive "contains", so `foret` finds `Forêt`. */

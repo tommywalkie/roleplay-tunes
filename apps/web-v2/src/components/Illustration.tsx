@@ -14,6 +14,7 @@ export function Illustration({
   fallback: Fallback,
   lit,
   iconClassName = 'size-12',
+  tile = false,
 }: {
   value: IllustrationDraft;
   fallback: LucideIcon;
@@ -21,16 +22,29 @@ export function Illustration({
   lit?: boolean;
   /** Size of the icon inside the box. */
   iconClassName?: string;
+  /**
+   * In a board tile. On phones the tile's picture is a short band: an image shows whole
+   * over a blurred, darker copy of itself that fills the band, and an icon gets 4px of air.
+   */
+  tile?: boolean;
 }) {
   if (value.type === 'image' || value.type === 'file') {
-    return (
+    const image = (className: string) => (
       <img
         src={value.url}
         alt=""
         loading="lazy"
         draggable={false}
-        className="absolute inset-0 size-full object-cover"
+        aria-hidden={className.includes('blur') || undefined}
+        className={cx('absolute inset-0 size-full', className)}
       />
+    );
+    if (!tile) return image('object-cover');
+    return (
+      <>
+        {image('scale-110 object-cover blur-md brightness-50 md:hidden')}
+        {image('object-contain md:object-cover')}
+      </>
     );
   }
   const tone = cx(
@@ -43,7 +57,7 @@ export function Illustration({
         // Markup comes from the server's own copy of the icon sets, never from a user.
         <span
           aria-hidden
-          className={cx('svg-fill block', iconClassName, tone)}
+          className={cx('svg-fill block', iconClassName, tile && 'p-1 md:p-0', tone)}
           dangerouslySetInnerHTML={{ __html: value.svg }}
         />
       ) : (

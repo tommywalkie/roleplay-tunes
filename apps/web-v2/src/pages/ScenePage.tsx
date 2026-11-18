@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile, SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { MixEditor } from '../editors/MixEditor';
@@ -44,8 +44,8 @@ export function ScenePage({ me }: { me: Me }) {
   // The scene's own order, minus anything deleted since.
   const sceneMixes = (scene?.mixIds ?? []).flatMap((x) => allMixes.find((m) => m.id === x) ?? []);
   const sceneSounds = (scene?.soundIds ?? []).flatMap((x) => allSounds.find((s) => s.id === x) ?? []);
-  const shownMixes = sceneMixes.filter((m) => matches(m.name, query));
-  const shownSounds = sceneSounds.filter((s) => matches(s.name, query));
+  const shownMixes = sceneMixes.filter((m) => matches(searchText(m), query));
+  const shownSounds = sceneSounds.filter((s) => matches(searchText(s), query));
   const empty = sceneMixes.length + sceneSounds.length === 0;
 
   const editedMix = editing?.kind === 'mix' ? allMixes.find((m) => m.id === editing.id) : undefined;

@@ -21,6 +21,7 @@ import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { EditorFooter } from './EditorFooter';
 import { LicenseField } from './LicenseField';
+import { TagFields, useTagsDraft } from './TagFields';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
 const clampInterval = (n: number) =>
@@ -58,13 +59,17 @@ export function SoundEditor({
   const [gapMax, setGapMax] = useState(String(sound.intervalMaxSec));
   const [variation, setVariation] = useState(sound.volumeVariation);
   const [sceneIds, setSceneIds] = useState(sound.sceneIds);
+  const tags = useTagsDraft(sound);
 
   const error = save.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
 
   const submit = () => {
     if (!owned) {
-      save.mutate({ id: sound.id, body: { defaultVolume: volume, sceneIds } }, { onSuccess: onClose });
+      save.mutate(
+        { id: sound.id, body: { defaultVolume: volume, sceneIds, ...tags.body } },
+        { onSuccess: onClose },
+      );
       return;
     }
     const min = clampInterval(Number(gapMin));
@@ -84,6 +89,7 @@ export function SoundEditor({
       intervalMaxSec: max,
       volumeVariation: variation,
       sceneIds,
+      ...tags.body,
       ...(illustrationInput ? { illustration: illustrationInput } : {}),
     };
     save.mutate({ id: sound.id, body, image }, { onSuccess: onClose });
@@ -198,6 +204,8 @@ export function SoundEditor({
           </div>
         )}
       </OwnerOnly>
+
+      <TagFields draft={tags} ownerName={owned ? undefined : sound.ownerName} errors={fields} />
 
       <Field label={t('sounds.volume')} hint={owned ? undefined : t('share.yourVolume')}>
         {(id) => (

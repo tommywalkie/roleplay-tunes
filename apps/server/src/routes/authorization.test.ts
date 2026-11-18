@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { Mix, Scene, Sound } from '@dnd/shared';
+import type { Category, Mix, Scene, Sound } from '@dnd/shared';
 import { buildApp } from '../app.js';
 import {
   call,
@@ -26,30 +26,39 @@ interface Seed {
   sound: Sound;
   mix: Mix;
   scene: Scene;
+  category: Category;
 }
 
 async function seed(owner: TestUser): Promise<Seed> {
+  const res = await call(app, owner, 'POST', '/api/categories', { name: 'Owned category', color: '#3b5b8c' });
+  expect(res.statusCode, res.body).toBe(201);
+  const category: Category = res.json();
   const sound = await uploadSound(app, owner, { fields: { name: 'Owned sound' } });
+  const tagged = await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, {
+    synonyms: ['owned synonym'],
+    categoryIds: [category.id],
+  });
+  expect(tagged.statusCode, tagged.body).toBe(200);
   const mix = await createMix(app, owner, { name: 'Owned mix', items: [{ soundId: sound.id }] });
   const scene = await createScene(app, owner, {
     name: 'Owned scene',
     soundIds: [sound.id],
     mixIds: [mix.id],
   });
-  return { sound, mix, scene };
+  return { sound: tagged.json(), mix, scene, category };
 }
 
 /** Everything user A owns, as the API reports it. */
 async function snapshot(owner: TestUser) {
   const lists = await Promise.all(
-    ['/api/sounds', '/api/mixes', '/api/scenes', '/api/me'].map((url) =>
+    ['/api/sounds', '/api/mixes', '/api/scenes', '/api/me', '/api/categories', '/api/synonyms'].map((url) =>
       call(app, owner, 'GET', url).then((r) => r.json()),
     ),
   );
   return lists;
 }
 
-type Resource = 'sound' | 'mix' | 'scene';
+type Resource = 'sound' | 'mix' | 'scene' | 'category';
 
 interface RouteCase {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -94,6 +103,11 @@ const PROTECTED: RouteCase[] = [
   { method: 'GET', route: '/api/scenes/:id', resource: 'scene' },
   { method: 'PATCH', route: '/api/scenes/:id', resource: 'scene', body: { name: 'Hijacked' } },
   { method: 'DELETE', route: '/api/scenes/:id', resource: 'scene' },
+  { method: 'GET', route: '/api/synonyms' },
+  { method: 'GET', route: '/api/categories' },
+  { method: 'POST', route: '/api/categories', body: { name: 'New', color: '#3b5b8c' } },
+  { method: 'PATCH', route: '/api/categories/:id', resource: 'category', body: { name: 'Hijacked' } },
+  { method: 'DELETE', route: '/api/categories/:id', resource: 'category' },
 ];
 
 // Admin routes - they have their own test below since they need different resource handling
@@ -361,6 +375,25 @@ describe('user B referencing A ids in a body', () => {
           mixIds: [seededA.mix.id],
         }),
       );
+    });
+  });
+
+  it('rejects A categories in categoryIds of a sound, mix or scene of B', async () => {
+    const theirs = [seededA.category.id];
+    await unchanged(async () => {
+      await expectRejected(
+        await call(app, b, 'PATCH', `/api/sounds/${seededB.sound.id}`, { categoryIds: theirs }),
+      );
+      await expectRejected(
+        await call(app, b, 'PATCH', `/api/mixes/${seededB.mix.id}`, {
+          categoryIds: [seededB.category.id, ...theirs],
+        }),
+      );
+      await expectRejected(await call(app, b, 'POST', '/api/mixes', { name: 'X', categoryIds: theirs }));
+      await expectRejected(
+        await call(app, b, 'PATCH', `/api/scenes/${seededB.scene.id}`, { categoryIds: theirs }),
+      );
+      await expectRejected(await call(app, b, 'POST', '/api/scenes', { name: 'X', categoryIds: theirs }));
     });
   });
 

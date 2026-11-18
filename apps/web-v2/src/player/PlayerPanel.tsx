@@ -86,13 +86,13 @@ export function PlayerPanel({
       className={cx(
         'z-30 flex flex-col border-line bg-deep',
         'fixed inset-x-0 bottom-[calc(56px+var(--safe-bottom))] max-h-[72dvh] border-t',
-        'md:static md:h-full md:max-h-none md:border-l md:border-t-0',
+        'lg:static lg:h-full lg:max-h-none lg:border-l lg:border-t-0',
       )}
     >
       {/* Transport: identical in every state. */}
-      {/* One row on phones; from tablet width the title sits above two equal buttons. */}
-      <div className="flex h-16 shrink-0 items-center gap-2 pl-4 pr-3 md:h-auto md:flex-col md:items-stretch md:gap-4 md:p-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3 md:h-10 md:flex-none">
+      {/* One row on phones and tablets; on desktop the title sits above two equal buttons. */}
+      <div className="flex h-16 shrink-0 items-center gap-2 pl-4 pr-3 lg:h-auto lg:flex-col lg:items-stretch lg:gap-4 lg:p-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-10 lg:flex-none">
           <Lamp on={sounding} />
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-[15px] leading-5 font-medium" aria-live="polite">
@@ -106,31 +106,31 @@ export function PlayerPanel({
           label={t(open ? 'player.collapse' : 'player.expand')}
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
-          className="md:hidden"
+          className="lg:hidden"
         />
         <div className="flex shrink-0 gap-2">
           <Button
             icon={paused ? Play : Pause}
             aria-label={t(paused ? 'player.resume' : 'player.pause')}
             onClick={player.togglePause}
-            className="w-11 px-0 md:w-auto md:flex-1 md:px-3"
+            className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
           >
-            <span className="hidden md:inline">{t(paused ? 'player.resume' : 'player.pause')}</span>
+            <span className="hidden lg:inline">{t(paused ? 'player.resume' : 'player.pause')}</span>
           </Button>
           <Button
             icon={Square}
             aria-label={t('player.stopAll')}
             onClick={player.stopAll}
-            className="w-11 px-0 md:w-auto md:flex-1 md:px-3"
+            className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
           >
-            <span className="hidden md:inline">{t('player.stopAll')}</span>
+            <span className="hidden lg:inline">{t('player.stopAll')}</span>
           </Button>
         </div>
       </div>
 
       <div
         className={cx(
-          'min-h-0 flex-1 flex-col border-t border-line md:flex',
+          'min-h-0 flex-1 flex-col border-t border-line lg:flex',
           open ? 'flex' : 'hidden',
         )}
       >

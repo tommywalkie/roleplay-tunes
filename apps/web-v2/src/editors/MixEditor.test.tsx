@@ -23,8 +23,10 @@ const mix = makeMix({
 });
 
 function renderEditor(props: { mix: Mix | null; initialItems?: ItemDraft[] }) {
-  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
-    json(200, props.mix ?? makeMix({ id: 'new' })),
+  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) =>
+    url === '/api/synonyms' || url === '/api/categories'
+      ? json(200, [])
+      : json(200, props.mix ?? makeMix({ id: 'new' })),
   );
   vi.stubGlobal('fetch', fetchMock);
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
@@ -39,11 +41,17 @@ function renderEditor(props: { mix: Mix | null; initialItems?: ItemDraft[] }) {
   /** The list row of an item, found by its play mode select. */
   const row = (name: string) =>
     within(screen.getByRole('combobox', { name: `Play mode: ${name}` }).closest('li')!);
-  const savedItems = () => {
-    const [, init] = fetchMock.mock.calls.at(-1)!;
-    return (JSON.parse(String(init?.body)) as { items: ItemDraft[] }).items;
-  };
-  return { user, fetchMock, row, savedItems };
+  /** Requests that change something, in order; reads that follow a save are left out. */
+  const saves = () =>
+    fetchMock.mock.calls
+      .filter(([, init]) => init?.method && init.method !== 'GET')
+      .map(([url, init]) => ({
+        url,
+        method: init!.method,
+        body: JSON.parse(String(init!.body)) as { items?: ItemDraft[] } & Record<string, unknown>,
+      }));
+  const savedItems = () => saves().at(-1)!.body.items;
+  return { user, fetchMock, row, saves, savedItems };
 }
 
 const MIN = 'Shortest wait, seconds';
@@ -59,7 +67,7 @@ describe('MixEditor pauses', () => {
   });
 
   it('shows the fields once an item is set to Random gaps, and saves the bounds clamped', async () => {
-    const { user, row, fetchMock, savedItems } = renderEditor({ mix });
+    const { user, row, saves, savedItems } = renderEditor({ mix });
     await user.selectOptions(screen.getByRole('combobox', { name: 'Play mode: Tavern crowd' }), 'Random gaps');
     const min = row('Tavern crowd').getByLabelText(MIN);
     const max = row('Tavern crowd').getByLabelText(MAX);
@@ -78,9 +86,7 @@ describe('MixEditor pauses', () => {
     await user.type(row('Drip').getByLabelText(MAX), '10');
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    const [url, init] = fetchMock.mock.calls.at(-1)!;
-    expect(url).toBe('/api/mixes/m1');
-    expect(init?.method).toBe('PATCH');
+    expect(saves()).toMatchObject([{ url: '/api/mixes/m1', method: 'PATCH' }]);
     expect(savedItems()).toMatchObject([
       { soundId: 'crowd', mode: 'recurring', intervalMinSec: 1, intervalMaxSec: 3600 },
       { soundId: 'drip', mode: 'recurring', intervalMinSec: 50, intervalMaxSec: 50 },
@@ -94,7 +100,7 @@ describe('MixEditor pauses', () => {
     expect(row('Drip').queryByLabelText(MAX)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(savedItems()[1]).toMatchObject({ soundId: 'drip', mode: 'loop' });
+    expect(savedItems()?.[1]).toMatchObject({ soundId: 'drip', mode: 'loop' });
   });
 });
 
@@ -121,7 +127,7 @@ describe('MixEditor initialItems', () => {
       { soundId: 'crowd', mode: 'loop', volume: 0.3, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
       { soundId: 'drip', mode: 'recurring', volume: 0.5, intervalMinSec: 4, intervalMaxSec: 12, volumeVariation: 0.25 },
     ];
-    const { user, row, fetchMock, savedItems } = renderEditor({ mix: null, initialItems });
+    const { user, row, saves, savedItems } = renderEditor({ mix: null, initialItems });
     expect(screen.getByRole('dialog', { name: 'New mix' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Play mode: Tavern crowd' })).toHaveDisplayValue('Loop');
     expect(row('Drip').getByLabelText(MIN)).toHaveValue(4);
@@ -129,9 +135,39 @@ describe('MixEditor initialItems', () => {
 
     await user.type(screen.getByLabelText('Name'), 'Storm at the inn');
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    const [url, init] = fetchMock.mock.calls.at(-1)!;
-    expect(url).toBe('/api/mixes');
-    expect(init?.method).toBe('POST');
+    expect(saves()).toMatchObject([{ url: '/api/mixes', method: 'POST' }]);
     expect(savedItems()).toEqual(initialItems);
+  });
+});
+
+describe('MixEditor synonyms and categories', () => {
+  it('sends the owner’s synonyms and categories with the mix', async () => {
+    const { user, saves } = renderEditor({ mix: { ...mix, synonyms: [{ label: 'inn', mine: true }] } });
+    await user.type(screen.getByRole('combobox', { name: 'Synonyms' }), 'pub{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(saves()[0].body).toMatchObject({ synonyms: ['inn', 'pub'], categoryIds: [] });
+  });
+
+  it('saves only the user’s own synonyms on a mix they added', async () => {
+    const added = makeMix({
+      ...mix,
+      access: 'added',
+      ownerName: 'Grace',
+      synonyms: [
+        { label: 'market', mine: false },
+        { label: 'bazaar', mine: true },
+      ],
+    });
+    const { user, saves } = renderEditor({ mix: added });
+    expect(screen.queryByRole('button', { name: 'Remove market' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove bazaar' }));
+    await user.type(screen.getByRole('combobox', { name: 'Synonyms' }), 'souk{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await vi.waitFor(() => expect(saves()).toHaveLength(2));
+    const [volumes, tags] = saves();
+    expect(volumes).toMatchObject({ url: '/api/mixes/m1/volumes', method: 'PUT' });
+    expect(tags).toMatchObject({ url: '/api/mixes/m1', method: 'PATCH' });
+    expect(tags.body).toEqual({ sceneIds: [], synonyms: ['souk'], categoryIds: [] });
   });
 });

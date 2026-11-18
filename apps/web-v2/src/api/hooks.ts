@@ -1,5 +1,8 @@
 import type {
+  Category,
+  CreateCategoryRequest,
   CreateMixRequest,
+  UpdateCategoryRequest,
   CreateSceneRequest,
   Library,
   Me,
@@ -24,6 +27,8 @@ export const keys = {
   scenes: ['scenes'] as const,
   library: ['library'] as const,
   images: ['images'] as const,
+  synonyms: ['synonyms'] as const,
+  categories: ['categories'] as const,
 };
 
 export type Kind = 'sounds' | 'mixes' | 'scenes';
@@ -33,7 +38,15 @@ export type Kind = 'sounds' | 'mixes' | 'scenes';
  * every file counts against storage.
  */
 function invalidateLibrary(qc: QueryClient) {
-  for (const key of [keys.sounds, keys.mixes, keys.scenes, keys.me, keys.library, keys.images]) {
+  for (const key of [
+    keys.sounds,
+    keys.mixes,
+    keys.scenes,
+    keys.me,
+    keys.library,
+    keys.images,
+    keys.synonyms,
+  ]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 }
@@ -103,6 +116,37 @@ export const useMixes = () =>
   useQuery({ queryKey: keys.mixes, queryFn: () => api<Mix[]>('/api/mixes') });
 export const useScenes = () =>
   useQuery({ queryKey: keys.scenes, queryFn: () => api<Scene[]>('/api/scenes') });
+
+/** Every synonym the user put on an item, for suggestions while typing a new one. */
+export const useSynonyms = () =>
+  useQuery({ queryKey: keys.synonyms, queryFn: () => api<string[]>('/api/synonyms') });
+
+/** The user's own categories, sorted by name. */
+export const useCategories = () =>
+  useQuery({ queryKey: keys.categories, queryFn: () => api<Category[]>('/api/categories') });
+
+export function useSaveCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: string; body: CreateCategoryRequest | UpdateCategoryRequest }) =>
+      id
+        ? api<Category>(`/api/categories/${id}`, { method: 'PATCH', json: body })
+        : api<Category>('/api/categories', { method: 'POST', json: body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.categories }),
+  });
+}
+
+/** Deleting a category takes it off every item, so the item lists change too. */
+export function useDeleteCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/api/categories/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.categories });
+      invalidateLibrary(qc);
+    },
+  });
+}
 
 export interface UploadSoundInput {
   file: File;

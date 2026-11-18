@@ -73,10 +73,11 @@ export function AppShell({ me }: { me: Me }) {
 
   return (
     <PlayerProvider sounds={sounds}>
-      <div className="grid h-full grid-cols-1 md:grid-cols-[72px_minmax(0,1fr)_320px] lg:grid-cols-[232px_minmax(0,1fr)_344px]">
+      {/* Phones and tablets: tab bar and docked player. Desktop: rail and player column. */}
+      <div className="grid h-full grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)_344px]">
         <nav
           aria-label={t('app.name')}
-          className="hidden flex-col border-r border-line bg-deep md:flex"
+          className="hidden flex-col border-r border-line bg-deep lg:flex"
         >
           <div className="flex h-20 items-center justify-center gap-3 px-5 lg:justify-start">
             <Mark />
@@ -116,7 +117,7 @@ export function AppShell({ me }: { me: Me }) {
         </nav>
 
         {/* Its own stacking context: nothing in a page can paint over the player or the tab bar. */}
-        <main className="scroll-quiet relative z-0 min-w-0 overflow-y-auto pb-[calc(120px+var(--safe-bottom))] md:pb-0">
+        <main className="scroll-quiet relative z-0 min-w-0 overflow-y-auto pb-[calc(120px+var(--safe-bottom))] lg:pb-0">
           <Outlet />
         </main>
 
@@ -134,7 +135,7 @@ export function AppShell({ me }: { me: Me }) {
 
         <nav
           aria-label={t('app.name')}
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[var(--safe-bottom)] md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[var(--safe-bottom)] lg:hidden"
         >
           <ul className="grid h-14 auto-cols-fr grid-flow-col">
             {TABS.map((item) => (

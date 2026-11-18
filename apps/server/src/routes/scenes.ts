@@ -8,6 +8,8 @@ import { sceneMixes, sceneSounds, scenes } from '../db/schema.js';
 import { invalid, notFound, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
 import { assertUsableMixes, assertUsableSounds, releaseImages } from '../sharing.js';
+import { assertOwnCategories, setTags, tagsOf } from '../tags.js';
+import { taggedBody, taggedResponse } from './tags.js';
 
 type SceneRow = typeof scenes.$inferSelect;
 
@@ -29,6 +31,8 @@ function toScene(row: SceneRow, soundIds: string[], mixIds: string[]): Scene {
     illustration: toIllustration(row),
     soundIds,
     mixIds,
+    // A scene is only ever seen by its owner.
+    ...tagsOf('scene', row.ownerId, row.id, row.ownerId),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -88,6 +92,7 @@ export function scenesRoutes(app: FastifyInstance) {
               illustration: { type: 'object', additionalProperties: true },
               soundIds: { type: 'array', items: { type: 'string' } },
               mixIds: { type: 'array', items: { type: 'string' } },
+              ...taggedResponse,
               createdAt: { type: 'string', format: 'date-time' },
             },
           },
@@ -127,6 +132,7 @@ export function scenesRoutes(app: FastifyInstance) {
             illustration: { type: 'object', additionalProperties: true },
             soundIds: { type: 'array', items: { type: 'string' } },
             mixIds: { type: 'array', items: { type: 'string' } },
+            ...taggedResponse,
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
@@ -151,6 +157,7 @@ export function scenesRoutes(app: FastifyInstance) {
           illustration: { type: 'object', properties: { type: { type: 'string', enum: ['none', 'icon', 'image'] }, iconId: { type: 'string' }, imageKey: { type: 'string' } } },
           soundIds: { type: 'array', items: { type: 'string' } },
           mixIds: { type: 'array', items: { type: 'string' } },
+          ...taggedBody,
         },
       },
       response: {
@@ -163,6 +170,7 @@ export function scenesRoutes(app: FastifyInstance) {
             illustration: { type: 'object', additionalProperties: true },
             soundIds: { type: 'array', items: { type: 'string' } },
             mixIds: { type: 'array', items: { type: 'string' } },
+            ...taggedResponse,
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
@@ -173,6 +181,7 @@ export function scenesRoutes(app: FastifyInstance) {
     const body = parse(createSceneSchema, request.body);
     if (body.soundIds) assertUsableSounds(user.id, body.soundIds, 'soundIds');
     if (body.mixIds) assertUsableMixes(user.id, body.mixIds, 'mixIds');
+    if (body.categoryIds) assertOwnCategories(user.id, body.categoryIds);
     const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
@@ -194,6 +203,7 @@ export function scenesRoutes(app: FastifyInstance) {
         .returning()
         .get();
       setMembers(inserted.id, body.soundIds, body.mixIds);
+      setTags('scene', user.id, inserted.id, body);
       return inserted;
     });
     return reply.code(201).send(oneScene(row));
@@ -228,6 +238,7 @@ export function scenesRoutes(app: FastifyInstance) {
               illustration: { type: 'object', additionalProperties: true },
               soundIds: { type: 'array', items: { type: 'string' } },
               mixIds: { type: 'array', items: { type: 'string' } },
+              ...taggedResponse,
               createdAt: { type: 'string', format: 'date-time' },
             },
           },
@@ -283,6 +294,7 @@ export function scenesRoutes(app: FastifyInstance) {
           },
           soundIds: { type: 'array', items: { type: 'string' } },
           mixIds: { type: 'array', items: { type: 'string' } },
+          ...taggedBody,
         },
       },
       response: {
@@ -295,6 +307,7 @@ export function scenesRoutes(app: FastifyInstance) {
             illustration: { type: 'object', additionalProperties: true },
             soundIds: { type: 'array', items: { type: 'string' } },
             mixIds: { type: 'array', items: { type: 'string' } },
+            ...taggedResponse,
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
@@ -307,10 +320,12 @@ export function scenesRoutes(app: FastifyInstance) {
     const body = parse(updateSceneSchema, request.body);
     if (body.soundIds) assertUsableSounds(user.id, body.soundIds, 'soundIds');
     if (body.mixIds) assertUsableMixes(user.id, body.mixIds, 'mixIds');
+    if (body.categoryIds) assertOwnCategories(user.id, body.categoryIds);
     const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
       setMembers(current.id, body.soundIds, body.mixIds);
+      setTags('scene', user.id, current.id, body);
       const changes = { ...(body.name ? { name: body.name } : {}), ...illustration };
       if (Object.keys(changes).length === 0) return current;
       return db.update(scenes).set(changes).where(eq(scenes.id, current.id)).returning().get();

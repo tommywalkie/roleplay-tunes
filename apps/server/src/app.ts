@@ -19,6 +19,7 @@ import { libraryRoutes } from './routes/library.js';
 import { mixesRoutes } from './routes/mixes.js';
 import { scenesRoutes } from './routes/scenes.js';
 import { soundsRoutes } from './routes/sounds.js';
+import { tagsRoutes } from './routes/tags.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -138,6 +139,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   soundsRoutes(app);
   mixesRoutes(app);
   scenesRoutes(app);
+  tagsRoutes(app);
 
   serveWebApp(app);
 

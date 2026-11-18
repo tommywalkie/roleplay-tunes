@@ -61,7 +61,7 @@ Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) 
 | `api/client.ts` | `api()` fetch wrapper and `ApiError`. Reads both error shapes: the API's `{ error: { code } }` and Better Auth's `{ code }` |
 | `api/hooks.ts` | Every query and mutation. Saving an item = JSON request, then an optional image upload |
 | `audio/player.tsx` | The board's playback rules on top of the engine (`createPlayer`), and `PlayerProvider` |
-| `player/PlayerPanel.tsx` | The always-visible player: column on tablet and desktop, dock on phones |
+| `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1024px), dock on phones and tablets |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
 | `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
@@ -110,7 +110,18 @@ confirmations (`EditorFooter`), the icon and image pickers (`IllustrationField`)
 lists of sounds and mixes to choose (`PickField`) open this way, to keep editors short.
 
 **Search stays on screen.** On list pages the search field sticks to the top of the
-scrolling area (`Page`); the title scrolls away.
+scrolling area (`Page`); the title scrolls away. Search matches an item's name and the
+synonyms the user sees on it (`searchText`), on pages, in the Library and in the
+"Choose" lists.
+
+**Synonyms and categories are per user.** Each user puts their own on any item they own
+or added (`TagFields` in every editor, owner or not, sends `synonyms` and `categoryIds`).
+On an item they see the owner's synonyms (no remove button) and their own; only their
+own categories. A duplicate is the exact same text. A synonym no item carries is deleted
+by the server; a category stays until its owner deletes it from its dialog. Categories
+are created and edited from the editor's field; the list pages filter by them
+(`CategoryFilter`: items carrying any of the chosen ones). A category's text color is
+derived from its background (`textOn`: white or dark slate).
 
 **Auth.** Sessions are cookies from Better Auth (`/api/auth/sign-in/email`,
 `/sign-up/email`, `/sign-out`). `useMe()` returns `null` on 401 and `App.tsx` shows the
@@ -154,7 +165,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   own validation coerced values (`name: 5` became "5") and could not read multipart bodies.
   Response schemas still shape the output, so loose objects (`illustration`, `limits`,
   `usage`) must carry `additionalProperties: true` or their contents are stripped.
-- All server tests pass (283), and the server type-check is clean.
+- All server tests pass (313), and the server type-check is clean.
 - The server reads icon sets from `ICONS_DIR`, defaulting to `<WEB_DIST>/icons`, or to
   `apps/web-v2/public/icons` in development, where the icon script writes them.
 - An admin's password reset link points to `<PUBLIC_URL>/reset-password?token=…`, which
@@ -169,7 +180,8 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Scene page: its mixes and sounds, playable, with search
 - Tiles showing the uploaded image or chosen icon, lit while playing, one-shot progress
 - Player: pause/resume, stop all, master and one-shot volume, per-sound volume, mute, remove
-- Responsive shell: tab bar and dock on phones, rail and player column from tablet width
+- Responsive shell: tab bar and docked player on phones and tablets, rail and player
+  column from desktop width (`lg`, 1024px)
 - Sound upload (several files, per-file result), sound editor (name, illustration, play
   mode, volume, wait bounds, volume variation, scenes)
 - Mix editor (sounds, per-sound volume and mode, scenes) and scene editor (mixes, sounds)
@@ -196,6 +208,9 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   dialog with Short, Medium and Very random suggestions), and edit
 - Player: "Save as a mix" opens a new mix with what loops right now (own and added sounds)
 - "Install the app" instructions on the Profile page and the sign-in page
+- Tiles on phones: a 70px picture band; an image shows whole over a blurred, darker copy
+  of itself, an icon gets 4px of padding (`Illustration` with `tile`)
+- Library lists newest first (by `createdAt`, sorted in the client)
 - Library rows readable on phones: description and license under the row, full width.
   Under the name, what the item is (a sound's mode and length, a mix's stack of sound
   pictures); at the foot, who shared it (initials and name) and the license as a tag
@@ -203,11 +218,15 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   player its row reads like a loop's, with "Once · length" where a loop has its fader
 - Icon and image pickers keep one height and scroll their own grid; the icon grid is
   virtualised and shows the whole selected set (no cap on mounted icons)
+- Synonyms on sounds, mixes and scenes: tags with suggestions from the user's own
+  (`GET /api/synonyms`); categories (name, color from a palette or any color, optional
+  icon), several per item, as filters on the Scenes, Mixes, Sounds and Library pages
 - "Choose image" reuses an image already shown on an own or added item
 - Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
   five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin
 - Dockerfile and `.dockerignore` at the repo root (written, not yet built: see Not done)
-- 137 tests, all passing: playback rules, player panel stability, API client, i18n,
+- 163 tests, all passing: synonyms field, categories (field, dialog, filter, text
+  color), search by synonyms, playback rules, player panel stability, API client, i18n,
   login, sign-out, pick list and pick field, limit fields, admin page, password reset,
   sound tile menu and pauses dialog, dialog stack, license field and codes, changing how
   a playing sound repeats, mix editor pauses, Library rows, icon picker (virtualised

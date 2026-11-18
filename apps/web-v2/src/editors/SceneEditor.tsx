@@ -10,6 +10,7 @@ import { PickField } from '../components/PickField';
 import { ErrorNote, Field, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
+import { TagFields, useTagsDraft } from './TagFields';
 
 /** Creates a scene when `scene` is null, edits it otherwise. */
 export function SceneEditor({
@@ -37,6 +38,7 @@ export function SceneEditor({
   const [illustration, setIllustration] = useState<IllustrationDraft>(original);
   const [mixIds, setMixIds] = useState(scene?.mixIds ?? []);
   const [soundIds, setSoundIds] = useState(scene?.soundIds ?? []);
+  const tags = useTagsDraft(scene);
 
   const error = save.error ?? remove.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
@@ -50,6 +52,7 @@ export function SceneEditor({
           name: name.trim(),
           mixIds,
           soundIds,
+          ...tags.body,
           ...(illustrationInput ? { illustration: illustrationInput } : {}),
         },
         image,
@@ -88,6 +91,8 @@ export function SceneEditor({
           />
         )}
       </Field>
+
+      <TagFields draft={tags} errors={fields} />
 
       <IllustrationField
         value={illustration}

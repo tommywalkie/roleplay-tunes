@@ -210,7 +210,8 @@ function ImagePicker({
   );
 }
 
-function IconPicker({
+/** The icon libraries with search; fills a `fixedHeight` dialog. */
+export function IconPicker({
   selected,
   onPick,
 }: {

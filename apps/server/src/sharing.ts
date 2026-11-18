@@ -73,6 +73,31 @@ const PRUNE_STATEMENTS = [
      SELECT 1 FROM library_mixes lm
      WHERE lm.userId = mix_volumes.userId AND lm.mixId = mix_volumes.mixId
    )`,
+  // Synonyms and categories a user set on an item they can no longer use.
+  ...(['synonym', 'category'] as const).flatMap((tag) => {
+    const tags = tag === 'synonym' ? 'synonyms' : 'categories';
+    const owner = (links: string) =>
+      `(SELECT ownerId FROM ${tags} WHERE ${tags}.id = ${links}.${tag}Id)`;
+    return [
+      `DELETE FROM sound_${tags} WHERE NOT ${canUseSound(owner(`sound_${tags}`), `sound_${tags}.soundId`)}`,
+      `DELETE FROM mix_${tags} WHERE NOT EXISTS (
+         SELECT 1 FROM mixes m WHERE m.id = mix_${tags}.mixId AND (
+           m.ownerId = ${owner(`mix_${tags}`)} OR EXISTS (
+             SELECT 1 FROM library_mixes lm
+             WHERE lm.userId = ${owner(`mix_${tags}`)} AND lm.mixId = m.id
+           )
+         )
+       )`,
+      `DELETE FROM scene_${tags} WHERE NOT EXISTS (
+         SELECT 1 FROM scenes sc
+         WHERE sc.id = scene_${tags}.sceneId AND sc.ownerId = ${owner(`scene_${tags}`)}
+       )`,
+    ];
+  }),
+  `DELETE FROM synonyms
+   WHERE NOT EXISTS (SELECT 1 FROM sound_synonyms l WHERE l.synonymId = synonyms.id)
+     AND NOT EXISTS (SELECT 1 FROM mix_synonyms l WHERE l.synonymId = synonyms.id)
+     AND NOT EXISTS (SELECT 1 FROM scene_synonyms l WHERE l.synonymId = synonyms.id)`,
 ];
 
 /**

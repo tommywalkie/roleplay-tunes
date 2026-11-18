@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { SceneTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { CategoryFilter, inCategories } from '../components/Categories';
+import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { SceneEditor } from '../editors/SceneEditor';
@@ -18,9 +19,10 @@ export function ScenesPage({ me }: { me: Me }) {
   const [query, setQuery] = useState('');
   /** A scene id, `'new'` for a scene being created, or nothing. */
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = scenes.data ?? [];
-  const shown = all.filter((s) => matches(s.name, query));
+  const shown = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
   const editing = all.find((s) => s.id === editingId);
 
   return (
@@ -34,6 +36,7 @@ export function ScenesPage({ me }: { me: Me }) {
         </Button>
       }
       search={{ value: query, onChange: setQuery }}
+      filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
     >
       <QueryGate loading={scenes.isLoading} error={scenes.error} onRetry={() => void scenes.refetch()}>
         {all.length === 0 ? (

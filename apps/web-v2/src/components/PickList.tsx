@@ -3,13 +3,15 @@ import { Check, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useI18n } from '../i18n';
 import { Thumb } from './Illustration';
-import { matches } from './Page';
+import { matches, searchText } from './Page';
 import { cx, Icon, SearchField } from './ui';
 
 export interface PickItem {
   id: string;
   name: string;
   illustration: Illustration;
+  /** Search also matches these. */
+  synonyms?: { label: string }[];
 }
 
 /** A checklist of library items with its own search, for choosing several at once. */
@@ -34,7 +36,7 @@ export function PickList({
   const { t, tn } = useI18n();
   const [query, setQuery] = useState('');
   const chosen = new Set(selected);
-  const shown = query.trim() ? items.filter((i) => matches(i.name, query)) : items;
+  const shown = query.trim() ? items.filter((i) => matches(searchText(i), query)) : items;
   const full = max !== undefined && selected.length >= max;
 
   const toggle = (id: string) =>

@@ -58,8 +58,9 @@ export function Tile({
   const hasImage = illustration.type === 'image';
   const body = (
     <>
-      <span className="relative block aspect-[4/3] bg-deep/40">
-        <Illustration value={illustration} fallback={fallback} lit={active} />
+      {/* A 70px band on phones, so more tiles fit; 4:3 from tablet width. */}
+      <span className="relative block h-[70px] overflow-hidden bg-deep/40 md:h-auto md:aspect-[4/3]">
+        <Illustration value={illustration} fallback={fallback} lit={active} tile />
         {hasImage && active && <span className="absolute inset-0 bg-lamp/10" aria-hidden />}
       </span>
       <span className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">

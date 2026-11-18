@@ -5,13 +5,18 @@ import { useLibrary, useLibraryEntry, useSounds } from '../api/hooks';
 import { usePlayer } from '../audio/player';
 import { Thumb } from '../components/Illustration';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { CategoryFilter, inCategories } from '../components/Categories';
+import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { Button, cx, EmptyState, Icon, IconButton, Lamp, Segmented } from '../components/ui';
 import { licenseText } from '../editors/LicenseField';
 import { useI18n } from '../i18n';
 import { initials } from './ProfilePage';
 
 type Tab = 'sounds' | 'mixes';
+
+/** By creation time, newest first. ISO dates sort as text. */
+const newestFirst = <T extends { createdAt: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
 
 /** Every public sound and mix: listen first, then add what you like to your own library. */
 export function LibraryPage() {
@@ -21,17 +26,21 @@ export function LibraryPage() {
   const [query, setQuery] = useState('');
 
   const own = useSounds().data;
-  const sounds = library.data?.sounds ?? [];
-  const mixes = library.data?.mixes ?? [];
+  // Newest first, so what was just shared sits at the top.
+  const sounds = useMemo(() => newestFirst(library.data?.sounds ?? []), [library.data?.sounds]);
+  const mixes = useMemo(() => newestFirst(library.data?.mixes ?? []), [library.data?.mixes]);
   // A public mix may use public sounds or the user's own: either can draw its stack.
   const soundsById = useMemo(
     () => new Map([...(own ?? []), ...(library.data?.sounds ?? [])].map((s) => [s.id, s])),
     [own, library.data?.sounds],
   );
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const searchable = (item: Sound | Mix) =>
-    `${item.name} ${item.ownerName} ${item.description ?? ''}`;
-  const shownSounds = sounds.filter((s) => matches(searchable(s), query));
-  const shownMixes = mixes.filter((m) => matches(searchable(m), query));
+    `${searchText(item)}\n${item.ownerName}\n${item.description ?? ''}`;
+  const keep = (item: Sound | Mix) =>
+    matches(searchable(item), query) && inCategories(item, categoryIds);
+  const shownSounds = sounds.filter(keep);
+  const shownMixes = mixes.filter(keep);
   const empty = sounds.length + mixes.length === 0;
 
   return (
@@ -40,6 +49,7 @@ export function LibraryPage() {
       description={t('library.description')}
       meta={library.data ? String(sounds.length + mixes.length) : undefined}
       search={{ value: query, onChange: setQuery }}
+      filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
     >
       <QueryGate
         loading={library.isLoading}

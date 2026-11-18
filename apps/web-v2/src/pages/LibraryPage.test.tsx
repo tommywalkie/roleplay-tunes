@@ -22,8 +22,18 @@ const bells = makeSound({
   license: 'private-use',
   defaultMode: 'loop',
   durationSec: 168,
+  synonyms: [{ label: 'chimes', mine: false }],
 });
-const wind = makeSound({ id: 'pub2', name: 'Cold wind', isPublic: true, access: 'added', license: 'unknown' });
+const wind = makeSound({
+  id: 'pub2',
+  name: 'Cold wind',
+  isPublic: true,
+  access: 'added',
+  license: 'unknown',
+  synonyms: [{ label: 'gale', mine: true }],
+  categoryIds: ['c1'],
+});
+const outdoors = { id: 'c1', name: 'Outdoors', color: '#5a7d3a', icon: null, createdAt: '2026-11-01T10:00:00.000Z' };
 const rain = makeSound({ id: 'mine', name: 'My rain', isPublic: true, access: 'owner', license: 'CC BY 4.0' });
 const item = (id: string, soundId: string) => ({
   id,
@@ -47,6 +57,7 @@ function renderLibrary() {
   const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
     if (url === '/api/library') return json(200, { sounds: [bells, wind, rain], mixes: [market] });
     if (url === '/api/sounds') return json(200, []);
+    if (url === '/api/categories') return json(200, [outdoors]);
     return new Response(null, { status: 204 });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -68,6 +79,36 @@ function renderLibrary() {
 const rowOf = async (name: string) => within((await screen.findByText(name)).closest('li')!);
 
 describe('LibraryPage', () => {
+  it('finds items by the synonyms the user sees on them, the owner’s or their own', async () => {
+    const { user } = renderLibrary();
+    await rowOf('Harbor bells');
+    const search = screen.getByRole('searchbox', { name: 'Search' });
+
+    await user.type(search, 'chimes');
+    expect(screen.getByText('Harbor bells')).toBeInTheDocument();
+    expect(screen.queryByText('Cold wind')).not.toBeInTheDocument();
+    expect(screen.queryByText('My rain')).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, 'gale');
+    expect(screen.getByText('Cold wind')).toBeInTheDocument();
+    expect(screen.queryByText('Harbor bells')).not.toBeInTheDocument();
+  });
+
+  it('filters by the user’s categories', async () => {
+    const { user } = renderLibrary();
+    await rowOf('Harbor bells');
+    const filter = within(await screen.findByRole('group', { name: 'Filter by category' }));
+    await user.click(filter.getByRole('button', { name: 'Outdoors' }));
+    expect(screen.getByText('Cold wind')).toBeInTheDocument();
+    expect(screen.queryByText('Harbor bells')).not.toBeInTheDocument();
+    expect(screen.queryByText('My rain')).not.toBeInTheDocument();
+
+    await user.click(filter.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('Harbor bells')).toBeInTheDocument();
+    expect(screen.getByText('My rain')).toBeInTheDocument();
+  });
+
   it('shows name, what it is, owner, description and license of a public sound', async () => {
     renderLibrary();
     const row = await rowOf('Harbor bells');

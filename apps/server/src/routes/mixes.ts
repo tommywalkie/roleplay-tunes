@@ -8,8 +8,11 @@ import {
   type Access,
   type Mix,
   type MixItem,
+  type ItemSynonym,
   type MixItemInput,
 } from '@dnd/shared';
+import { assertOwnCategories, setTags, tagsOf, tagsOfMany } from '../tags.js';
+import { taggedBody, taggedResponse } from './tags.js';
 import { requireUser, type UserRow } from '../auth.js';
 import { db } from '../db/index.js';
 import { mixItems, mixVolumes, mixes, scenes, sounds } from '../db/schema.js';
@@ -58,6 +61,7 @@ export const mixResponse = {
     illustration: { type: 'object', additionalProperties: true },
     items: { type: 'array', items: itemResponse },
     sceneIds: { type: 'array', items: { type: 'string' } },
+    ...taggedResponse,
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
   },
@@ -91,6 +95,7 @@ const mixBody = {
     },
     items: { type: 'array', items: itemBody },
     sceneIds: { type: 'array', items: { type: 'string' } },
+    ...taggedBody,
   },
 } as const;
 
@@ -108,7 +113,12 @@ export interface MixView {
   sceneIds: string[];
   /** The viewer's own volumes by sound id, for a mix they did not create. */
   volumes?: Map<string, number>;
+  synonyms: ItemSynonym[];
+  categoryIds: string[];
 }
+
+/** Fields a user who added the mix from the library may change. */
+const ADDED_FIELDS = new Set(['sceneIds', 'synonyms', 'categoryIds']);
 
 function toItem(row: ItemRow, volume: number | undefined): MixItem {
   return {
@@ -133,6 +143,8 @@ export function toMix(row: MixRow, items: ItemRow[], view: MixView): Mix {
     illustration: toIllustration(row),
     items: items.map((item) => toItem(item, view.volumes?.get(item.soundId))),
     sceneIds: view.sceneIds,
+    synonyms: view.synonyms,
+    categoryIds: view.categoryIds,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -167,6 +179,7 @@ function mixFor(userId: string, row: MixRow, access: Access): Mix {
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
     sceneIds: sceneIdsByMix(userId).get(row.id) ?? [],
     volumes: access === 'owner' ? undefined : mixVolumesOf(userId).get(row.id),
+    ...tagsOf('mix', userId, row.id, row.ownerId),
   });
 }
 
@@ -248,6 +261,7 @@ export function mixesRoutes(app: FastifyInstance) {
     const sceneIds = sceneIdsByMix(user.id);
     const names = ownerNames(rows.map((r) => r.ownerId));
     const volumes = mixVolumesOf(user.id);
+    const tags = tagsOfMany('mix', user.id, new Map(rows.map((r) => [r.id, r.ownerId])));
     return rows.map((row) => {
       const access: Access = row.ownerId === user.id ? 'owner' : 'added';
       return toMix(row, items.get(row.id) ?? [], {
@@ -255,6 +269,7 @@ export function mixesRoutes(app: FastifyInstance) {
         ownerName: names.get(row.ownerId) ?? '',
         sceneIds: sceneIds.get(row.id) ?? [],
         volumes: access === 'owner' ? undefined : volumes.get(row.id),
+        ...tags(row.id),
       });
     });
   });
@@ -290,6 +305,7 @@ export function mixesRoutes(app: FastifyInstance) {
     const items = buildItems(user, id, body.items ?? []);
     if (body.isPublic) assertAllPublic(items.map((i) => i.soundId), 'items');
     if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
+    if (body.categoryIds) assertOwnCategories(user.id, body.categoryIds);
     const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const now = new Date();
@@ -310,6 +326,7 @@ export function mixesRoutes(app: FastifyInstance) {
         .get();
       replaceItems(id, items);
       if (body.sceneIds) setMixScenes(id, body.sceneIds);
+      setTags('mix', user.id, id, body);
       return inserted;
     });
     return reply.code(201).send(mixFor(user.id, row, 'owner'));
@@ -324,7 +341,7 @@ export function mixesRoutes(app: FastifyInstance) {
       tags: ['mixes'],
       summary: 'Update mix',
       description:
-        'Updates a mix. The owner may change every field; `items` replaces the whole list. A user who added the mix from the library may only change `sceneIds` (their own scenes).',
+        'Updates a mix. The owner may change every field; `items` replaces the whole list. A user who added the mix from the library may only change `sceneIds` (their own scenes), `synonyms` and `categoryIds` (their own).',
       params: idParams,
       body: mixBody,
       response: { 200: mixResponse },
@@ -334,16 +351,18 @@ export function mixesRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { row: current, access } = usableMix(user.id, id);
     const body = parse(updateMixSchema, request.body);
+    if (body.categoryIds) assertOwnCategories(user.id, body.categoryIds);
 
     if (access !== 'owner') {
       const sent = Object.keys(request.body as object);
-      if (sent.some((key) => key !== 'sceneIds')) {
+      if (sent.some((key) => !ADDED_FIELDS.has(key))) {
         throw forbidden('Only the owner of this mix can change it');
       }
-      if (body.sceneIds) {
-        assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
-        setMixScenes(current.id, body.sceneIds);
-      }
+      if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
+      db.transaction(() => {
+        if (body.sceneIds) setMixScenes(current.id, body.sceneIds);
+        setTags('mix', user.id, current.id, body);
+      });
       return mixFor(user.id, current, access);
     }
 
@@ -358,6 +377,7 @@ export function mixesRoutes(app: FastifyInstance) {
     const row = db.transaction(() => {
       if (items) replaceItems(current.id, items);
       if (body.sceneIds) setMixScenes(current.id, body.sceneIds);
+      setTags('mix', user.id, current.id, body);
       return db
         .update(mixes)
         .set({

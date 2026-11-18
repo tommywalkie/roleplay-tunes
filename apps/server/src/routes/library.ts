@@ -19,6 +19,7 @@ import {
   prune,
   soundVolumesOf,
 } from '../sharing.js';
+import { tagsOfMany } from '../tags.js';
 import { sceneIdsByMix, sceneIdsBySound } from './common.js';
 import { itemsByMix, mixResponse, toMix } from './mixes.js';
 import { soundResponse, toSound } from './sounds.js';
@@ -75,6 +76,8 @@ export function libraryRoutes(app: FastifyInstance) {
     const soundVolumes = soundVolumesOf(user.id);
     const mixVolumes = mixVolumesOf(user.id);
     const items = itemsByMix(mixRows.map((r) => r.id));
+    const soundTags = tagsOfMany('sound', user.id, new Map(soundRows.map((r) => [r.id, r.ownerId])));
+    const mixTags = tagsOfMany('mix', user.id, new Map(mixRows.map((r) => [r.id, r.ownerId])));
 
     const accessOf = (ownerId: string, added: boolean): Access =>
       ownerId === user.id ? 'owner' : added ? 'added' : 'available';
@@ -87,6 +90,7 @@ export function libraryRoutes(app: FastifyInstance) {
           ownerName: names.get(row.ownerId) ?? '',
           sceneIds: soundScenes.get(row.id) ?? [],
           volume: access === 'owner' ? undefined : soundVolumes.get(row.id),
+          ...soundTags(row.id),
         });
       }),
       mixes: mixRows.map((row) => {
@@ -96,6 +100,7 @@ export function libraryRoutes(app: FastifyInstance) {
           ownerName: names.get(row.ownerId) ?? '',
           sceneIds: mixScenes.get(row.id) ?? [],
           volumes: access === 'owner' ? undefined : mixVolumes.get(row.id),
+          ...mixTags(row.id),
         });
       }),
     };

@@ -11,6 +11,7 @@ import { PickList } from '../components/PickList';
 import { ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
+import { TagFields, useTagsDraft } from './TagFields';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
 export type ItemDraft = Required<MixItemInput>;
@@ -109,6 +110,7 @@ export function MixEditor({
       [],
   );
   const [sceneIds, setSceneIds] = useState(mix?.sceneIds ?? []);
+  const tags = useTagsDraft(mix);
 
   const error = save.error ?? setVolumes.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
@@ -132,7 +134,10 @@ export function MixEditor({
         { id: mix.id, volumes },
         {
           onSuccess: () =>
-            save.mutate({ id: mix.id, body: { sceneIds }, image: null }, { onSuccess: onClose }),
+            save.mutate(
+              { id: mix.id, body: { sceneIds, ...tags.body }, image: null },
+              { onSuccess: onClose },
+            ),
         },
       );
       return;
@@ -150,6 +155,7 @@ export function MixEditor({
             return { ...item, intervalMinSec: min, intervalMaxSec: Math.max(min, clampPause(item.intervalMaxSec)) };
           }),
           sceneIds,
+          ...tags.body,
           ...(illustrationInput ? { illustration: illustrationInput } : {}),
         },
         image,
@@ -238,6 +244,8 @@ export function MixEditor({
           </p>
         </div>
       </OwnerOnly>
+
+      <TagFields draft={tags} ownerName={owned ? undefined : mix?.ownerName} errors={fields} />
 
       {items.length > 0 && (
         <div className="flex flex-col gap-2">

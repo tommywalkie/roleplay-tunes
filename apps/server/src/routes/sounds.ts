@@ -11,9 +11,12 @@ import {
   updateSoundSchema,
   uploadSoundFieldsSchema,
   type Access,
+  type ItemSynonym,
   type PlayMode,
   type Sound,
 } from '@dnd/shared';
+import { assertOwnCategories, setTags, tagsOf, tagsOfMany } from '../tags.js';
+import { taggedBody, taggedResponse } from './tags.js';
 import { requireUser } from '../auth.js';
 import { db } from '../db/index.js';
 import { scenes, soundVolumes, sounds } from '../db/schema.js';
@@ -63,6 +66,7 @@ export const soundResponse = {
     volumeVariation: { type: 'number' },
     illustration: { type: 'object', additionalProperties: true },
     sceneIds: { type: 'array', items: { type: 'string' } },
+    ...taggedResponse,
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
   },
@@ -82,6 +86,8 @@ export interface SoundView {
   sceneIds: string[];
   /** The viewer's own volume, for a sound they did not upload. */
   volume?: number;
+  synonyms: ItemSynonym[];
+  categoryIds: string[];
 }
 
 export function toSound(row: SoundRow, view: SoundView): Sound {
@@ -106,6 +112,8 @@ export function toSound(row: SoundRow, view: SoundView): Sound {
     volumeVariation: row.volumeVariation,
     illustration: toIllustration(row),
     sceneIds: view.sceneIds,
+    synonyms: view.synonyms,
+    categoryIds: view.categoryIds,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -118,6 +126,7 @@ function soundFor(userId: string, row: SoundRow, access: Access): Sound {
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
     sceneIds: sceneIdsBySound(userId).get(row.id) ?? [],
     volume: access === 'owner' ? undefined : soundVolumesOf(userId).get(row.id),
+    ...tagsOf('sound', userId, row.id, row.ownerId),
   });
 }
 
@@ -153,7 +162,7 @@ async function measureDuration(path: string): Promise<number | null> {
 }
 
 /** Fields a user who added the sound from the library may change. */
-const ADDED_FIELDS = new Set(['defaultVolume', 'sceneIds']);
+const ADDED_FIELDS = new Set(['defaultVolume', 'sceneIds', 'synonyms', 'categoryIds']);
 
 export function soundsRoutes(app: FastifyInstance) {
   app.get('/api/sounds', {
@@ -178,6 +187,7 @@ export function soundsRoutes(app: FastifyInstance) {
     const sceneIds = sceneIdsBySound(user.id);
     const names = ownerNames(rows.map((r) => r.ownerId));
     const volumes = soundVolumesOf(user.id);
+    const tags = tagsOfMany('sound', user.id, new Map(rows.map((r) => [r.id, r.ownerId])));
     return rows.map((row) => {
       const access: Access = row.ownerId === user.id ? 'owner' : 'added';
       return toSound(row, {
@@ -185,6 +195,7 @@ export function soundsRoutes(app: FastifyInstance) {
         ownerName: names.get(row.ownerId) ?? '',
         sceneIds: sceneIds.get(row.id) ?? [],
         volume: access === 'owner' ? undefined : volumes.get(row.id),
+        ...tags(row.id),
       });
     });
   });
@@ -348,6 +359,7 @@ export function soundsRoutes(app: FastifyInstance) {
             },
           },
           sceneIds: { type: 'array', items: { type: 'string' } },
+          ...taggedBody,
         },
       },
       response: { 200: soundResponse },
@@ -356,7 +368,15 @@ export function soundsRoutes(app: FastifyInstance) {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
     const { row: current, access } = usableSound(user.id, id);
-    const { sceneIds, illustration, ...changes } = parse(updateSoundSchema, request.body);
+    const {
+      sceneIds,
+      illustration,
+      synonyms: synonymList,
+      categoryIds,
+      ...changes
+    } = parse(updateSoundSchema, request.body);
+    if (categoryIds) assertOwnCategories(user.id, categoryIds);
+    const tags = { synonyms: synonymList, categoryIds };
 
     if (access !== 'owner') {
       const sent = Object.keys(request.body as object);
@@ -365,6 +385,7 @@ export function soundsRoutes(app: FastifyInstance) {
       }
       if (sceneIds) assertOwned(scenes, user.id, sceneIds, 'sceneIds');
       db.transaction(() => {
+        setTags('sound', user.id, current.id, tags);
         if (sceneIds) setSoundScenes(current.id, sceneIds);
         if (changes.defaultVolume !== undefined) {
           db.insert(soundVolumes)
@@ -410,6 +431,7 @@ export function soundsRoutes(app: FastifyInstance) {
     const illustrationChange = illustration ? illustrationValues(illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
+      setTags('sound', user.id, current.id, tags);
       if (sceneIds) setSoundScenes(current.id, sceneIds);
       return db
         .update(sounds)
