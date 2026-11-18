@@ -1,7 +1,9 @@
+import type { Mix, Scene } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { waitFor } from '@testing-library/react';
 import { PlayerProvider } from '../audio/player';
 import { I18nProvider } from '../i18n';
 import { makeFakeEngine, makeMix, makeSound } from '../test/fixtures';
@@ -33,8 +35,23 @@ const wind = makeSound({
   synonyms: [{ label: 'gale', mine: true }],
   categoryIds: ['c1'],
 });
-const outdoors = { id: 'c1', name: 'Outdoors', color: '#5a7d3a', icon: null, createdAt: '2026-11-01T10:00:00.000Z' };
-const rain = makeSound({ id: 'mine', name: 'My rain', isPublic: true, access: 'owner', license: 'CC BY 4.0' });
+// Added outright and used by no other mix of theirs: the one sound that can really come
+// out with the mix being removed.
+const gong = makeSound({ id: 'pub3', name: 'Temple gong', isPublic: true, access: 'added' });
+const outdoors = {
+  id: 'c1',
+  name: 'Outdoors',
+  color: '#5a7d3a',
+  icon: null,
+  createdAt: '2026-11-01T10:00:00.000Z',
+};
+const rain = makeSound({
+  id: 'mine',
+  name: 'My rain',
+  isPublic: true,
+  access: 'owner',
+  license: 'CC BY 4.0',
+});
 const item = (id: string, soundId: string) => ({
   id,
   soundId,
@@ -52,17 +69,45 @@ const market = makeMix({
   ownerName: 'Grace Hopper',
   items: [item('i1', 'pub1'), item('i2', 'pub2'), item('i3', 'mine')],
 });
+// A second mix the user already added, and one of their own: a sound either of them still
+// uses cannot come out with the mix being removed.
+const watch = makeMix({
+  id: 'pm2',
+  name: 'Night watch',
+  isPublic: true,
+  access: 'added',
+  ownerName: 'Grace Hopper',
+  items: [item('w1', 'pub3'), item('w2', 'pub2'), item('w3', 'mine')],
+});
+const study = makeMix({ id: 'own1', name: 'My study', items: [item('s1', 'pub2')] });
+const scene = (id: string, name: string, over: Partial<Scene> = {}): Scene => ({
+  id,
+  name,
+  position: 0,
+  illustration: { type: 'none' },
+  soundIds: [],
+  mixIds: [],
+  synonyms: [],
+  categoryIds: [],
+  createdAt: '2026-11-01T10:00:00.000Z',
+  ...over,
+});
 
-function renderLibrary() {
+function renderLibrary(board: { mixes?: Mix[]; scenes?: Scene[] } = {}) {
   const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
-    if (url === '/api/library') return json(200, { sounds: [bells, wind, rain], mixes: [market] });
+    if (url === '/api/library')
+      return json(200, { sounds: [bells, wind, rain, gong], mixes: [market, watch] });
     if (url === '/api/sounds') return json(200, []);
+    if (url === '/api/mixes') return json(200, board.mixes ?? [study]);
+    if (url === '/api/scenes') return json(200, board.scenes ?? []);
     if (url === '/api/categories') return json(200, [outdoors]);
     return new Response(null, { status: 204 });
   });
   vi.stubGlobal('fetch', fetchMock);
   const fake = makeFakeEngine();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   render(
     <QueryClientProvider client={client}>
       <I18nProvider initial="en">
@@ -121,30 +166,37 @@ describe('LibraryPage', () => {
     expect(row.getByText('GH')).toHaveAttribute('aria-hidden', 'true');
     expect(row.getByText('Grace Hopper')).toHaveAttribute('aria-hidden', 'true');
 
-    expect(row.getByText('License: Private use only')).toHaveClass('sr-only');
-    const tag = row.getByText('Private use only');
-    expect(tag).toHaveAttribute('aria-hidden', 'true');
-    expect(tag.parentElement).toHaveAttribute('title', 'License: Private use only');
+    expect(row.getByRole('button', { name: 'License: Private use only' })).toBeInTheDocument();
   });
 
   it('shows license codes translated and license names as they are', async () => {
     renderLibrary();
-    expect((await rowOf('Cold wind')).getByText('License: Unknown')).toBeInTheDocument();
-    expect((await rowOf('My rain')).getByText('License: CC BY 4.0')).toBeInTheDocument();
+    expect(
+      (await rowOf('Cold wind')).getByRole('button', { name: 'License: Unknown' }),
+    ).toBeInTheDocument();
+    expect(
+      (await rowOf('My rain')).getByRole('button', { name: 'License: CC BY 4.0' }),
+    ).toBeInTheDocument();
   });
 
-  it('marks own and added items, and offers Add for the others', async () => {
+  it('offers Add for what the user lacks, Remove for what they added, and nothing for their own', async () => {
     const { user, fetchMock } = renderLibrary();
+    // One 44px slot per row whatever its state, so Play holds one line down the list.
     const mine = await rowOf('My rain');
-    expect(mine.getByText('Yours')).toBeInTheDocument();
-    expect(mine.queryByRole('button', { name: /to my library/ })).not.toBeInTheDocument();
+    expect(mine.getByRole('button', { name: 'My rain is yours: nothing to add' })).toBeDisabled();
+    // Cold wind is in the user's own study mix, so removing it warns first rather than
+    // deleting at once; the dialog is covered by its own cases below.
     const added = await rowOf('Cold wind');
-    expect(added.getByText('Added')).toBeInTheDocument();
-    expect(added.queryByRole('button', { name: /to my library/ })).not.toBeInTheDocument();
+    expect(added.getByRole('button', { name: 'Remove Cold wind from my library' })).toBeEnabled();
 
     const available = await rowOf('Harbor bells');
-    await user.click(available.getByRole('button', { name: 'Add Harbor bells to my library' }));
-    expect(fetchMock).toHaveBeenCalledWith('/api/library/sounds/pub1', expect.objectContaining({ method: 'PUT' }));
+    const add = available.getByRole('button', { name: 'Add Harbor bells to my library' });
+    expect(add).toBeEnabled();
+    await user.click(add);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/sounds/pub1',
+      expect.objectContaining({ method: 'PUT' }),
+    );
   });
 
   it('plays and stops a sound from its row', async () => {
@@ -160,12 +212,15 @@ describe('LibraryPage', () => {
 
     await user.click(stop);
     expect(spies.removeLayer).toHaveBeenCalledWith('sound:pub1');
-    expect(row.getByRole('button', { name: 'Play Harbor bells' })).toHaveAttribute('aria-pressed', 'false');
+    expect(row.getByRole('button', { name: 'Play Harbor bells' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 
   it('lists public mixes with their owner, adds and plays them', async () => {
     const { user, fetchMock, spies } = renderLibrary();
-    await user.click(await screen.findByRole('radio', { name: '1 mix' }));
+    await user.click(await screen.findByRole('radio', { name: '2 mixes' }));
     const row = await rowOf('Market day');
     expect(row.getByText('3 sounds')).toBeInTheDocument();
     expect(row.getByText('By Grace Hopper')).toBeInTheDocument();
@@ -173,9 +228,122 @@ describe('LibraryPage', () => {
 
     await user.click(row.getByRole('button', { name: 'Play Market day' }));
     expect(spies.playMix).toHaveBeenCalledWith(expect.objectContaining({ id: 'pm1' }));
-    expect(row.getByRole('button', { name: 'Stop Market day' })).toHaveAttribute('aria-pressed', 'true');
+    expect(row.getByRole('button', { name: 'Stop Market day' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
+    // Adding a mix opens a dialog: it says what the mix holds and what that costs.
     await user.click(row.getByRole('button', { name: 'Add Market day to my library' }));
-    expect(fetchMock).toHaveBeenCalledWith('/api/library/mixes/pm1', expect.objectContaining({ method: 'PUT' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Add this mix' }));
+    expect(dialog.getByText('Harbor bells')).toBeInTheDocument();
+    expect(dialog.getByText(/with the mix and (is|are) added to your library/)).toHaveTextContent(
+      '1 sound comes with the mix and is added to your library; you already have 2.',
+    );
+    await user.click(dialog.getByRole('button', { name: 'Add mix and sounds' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/mixes/pm1',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    // The one sound the user lacked is added on its own, so it survives the mix.
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/sounds/pub1',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+  });
+
+  it('removes an added mix through a dialog that says which sounds come out with it', async () => {
+    const { user, fetchMock } = renderLibrary();
+    await user.click(await screen.findByRole('radio', { name: '2 mixes' }));
+    const row = await rowOf('Night watch');
+    await user.click(row.getByRole('button', { name: 'Remove Night watch from my library' }));
+
+    const dialog = within(await screen.findByRole('dialog', { name: 'Remove this mix' }));
+    expect(dialog.getByText(/Going out with the mix: 1 of 1\./)).toBeInTheDocument();
+    // The gong was added outright and nothing else uses it: it can come out, and starts ticked.
+    const gong = dialog.getByText('Temple gong').closest('li')!;
+    expect(within(gong).getByRole('checkbox')).toBeChecked();
+    // Cold wind is in another mix of theirs, and the rain is their own: neither can come out.
+    expect(within(dialog.getByText('Cold wind').closest('li')!).queryByRole('checkbox')).toBeNull();
+    expect(within(dialog.getByText('My rain').closest('li')!).queryByRole('checkbox')).toBeNull();
+
+    // Unticking keeps it: the mix still goes, the sound stays in the library.
+    await user.click(within(gong).getByRole('checkbox'));
+    expect(dialog.getByText(/Going out with the mix: 0 of 1\./)).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Remove the mix' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/mixes/pm2',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/library/sounds/pub3', expect.anything());
+  });
+
+  it('removes an unused added sound at once, with no dialog', async () => {
+    const { user, fetchMock } = renderLibrary();
+    const row = await rowOf('Temple gong');
+    await user.click(row.getByRole('button', { name: 'Remove Temple gong from my library' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/sounds/pub3',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('warns that an added sound leaves the mixes and scenes that hold it', async () => {
+    const { user, fetchMock } = renderLibrary({
+      mixes: [makeMix({ id: 'own2', name: 'Cold cellar', items: [item('c1', 'pub2')] })],
+      scenes: [scene('sc1', 'Chapter four', { soundIds: ['pub2'] })],
+    });
+    const row = await rowOf('Cold wind');
+    await user.click(row.getByRole('button', { name: 'Remove Cold wind from my library' }));
+
+    const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
+    expect(dialog.getByText('In 1 of your mixes')).toBeInTheDocument();
+    expect(dialog.getByText('Cold cellar')).toBeInTheDocument();
+    expect(dialog.getByText('In 1 of your scenes')).toBeInTheDocument();
+    expect(dialog.getByText('Chapter four')).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Remove it' })).toBeEnabled();
+
+    await user.click(dialog.getByRole('button', { name: 'Remove it' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/sounds/pub2',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Remove this sound' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('names a scene that holds the sound only through one of its mixes', async () => {
+    const { user } = renderLibrary({
+      mixes: [makeMix({ id: 'own2', name: 'Cold cellar', items: [item('c1', 'pub2')] })],
+      scenes: [scene('sc1', 'Chapter four', { mixIds: ['own2'] })],
+    });
+    await user.click(
+      (await rowOf('Cold wind')).getByRole('button', { name: 'Remove Cold wind from my library' }),
+    );
+    const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
+    expect(dialog.getByText('Chapter four')).toBeInTheDocument();
+    expect(dialog.getByText('Holds a mix that uses it')).toBeInTheDocument();
+  });
+
+  it('refuses to confirm when the sound sits inside a mix the user only borrowed', async () => {
+    const { user, fetchMock } = renderLibrary({
+      // `watch` is a mix the user added from the library, holding the wind. Its contents
+      // belong to its owner, so the server would refuse: the dialog says so up front and
+      // leaves the button disabled.
+      mixes: [study, watch],
+    });
+    await user.click(
+      (await rowOf('Cold wind')).getByRole('button', { name: 'Remove Cold wind from my library' }),
+    );
+    const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
+    expect(dialog.getByText('Night watch')).toBeInTheDocument();
+    expect(dialog.getByText(/is also inside 1 mix you added from the Library/)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Remove it' })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/library/sounds/pub2',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
   });
 });

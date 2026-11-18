@@ -392,6 +392,8 @@ export const meSchema = z.object({
   role: roleSchema,
   limits: limitsSchema,
   usage: usageSchema,
+  /** When the user last accepted the server rules. Null while they never did. */
+  termsAcceptedAt: z.string().nullable(),
 });
 export type Me = z.infer<typeof meSchema>;
 
@@ -400,6 +402,81 @@ export const deleteMeSchema = z.object({ email: z.string().min(1) }).strict();
 
 export const publicSettingsSchema = z.object({ signupsOpen: z.boolean() });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
+
+// Locales and terms of service
+
+/** The languages the app speaks, and the ones an administrator writes the rules in. */
+export const LOCALES = ['en', 'fr'] as const;
+export const localeSchema = z.enum(LOCALES);
+export type Locale = (typeof LOCALES)[number];
+
+/**
+ * What the server rules may contain. The editor's toolbar and the server's sanitizer both
+ * read these lists, so one place decides what is possible: add a tag here and it becomes
+ * an editable, storable and renderable format; remove it and the sanitizer drops it from
+ * anything saved after. `href` is the only attribute kept, on links only.
+ */
+export const TERMS_TAGS = [
+  'p',
+  'h2',
+  'h3',
+  'ul',
+  'ol',
+  'li',
+  'strong',
+  'em',
+  'u',
+  's',
+  'a',
+  'br',
+] as const;
+export const TERMS_ATTRIBUTES = { a: ['href'] } as const;
+export const TERMS_SCHEMES = ['http', 'https', 'mailto'] as const;
+
+/** Sanitized HTML of one language, held in one settings row. */
+export const TERMS_RULES_MAX = 20_000;
+export const termsRulesSchema = z.record(localeSchema, z.string().max(TERMS_RULES_MAX));
+
+/** The rules as an administrator edits them: every language at once. */
+export const termsAdminSchema = z.object({
+  enabled: z.boolean(),
+  updatedAt: z.string().nullable(),
+  rules: termsRulesSchema,
+});
+export type TermsAdmin = z.infer<typeof termsAdminSchema>;
+
+/** The rules as one visitor sees them: the sanitized text of the language they asked for. */
+export const termsSchema = z.object({
+  enabled: z.boolean(),
+  updatedAt: z.string().nullable(),
+  html: z.string(),
+});
+export type Terms = z.infer<typeof termsSchema>;
+
+/**
+ * Draft rules to run through the sanitizer without saving, so the admin's preview shows
+ * what readers would get rather than what was typed.
+ */
+export const termsPreviewSchema = z
+  .object({ locale: localeSchema, html: z.string().max(TERMS_RULES_MAX) })
+  .strict();
+export type TermsPreviewRequest = z.infer<typeof termsPreviewSchema>;
+
+/** What an administrator saves. A language left out keeps what it had. */
+export const setTermsSchema = z.object({ enabled: z.boolean(), rules: termsRulesSchema }).strict();
+export type SetTermsRequest = z.infer<typeof setTermsSchema>;
+
+/**
+ * True when the rules stand between this user and the app: they are on, they say something,
+ * and the acceptance on record is not for the version they now stand in. `acceptedAt` is
+ * the user's stamp, null while they never accepted one — never equal to any version.
+ */
+export function termsAwait(
+  terms: Pick<Terms, 'enabled' | 'updatedAt' | 'html'>,
+  acceptedAt: string | null | undefined,
+): boolean {
+  return terms.enabled && terms.html !== '' && acceptedAt !== terms.updatedAt;
+}
 
 // Errors
 

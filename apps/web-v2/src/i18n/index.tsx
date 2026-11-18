@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { LOCALES as SHARED_LOCALES, type Locale as SharedLocale } from '@dnd/shared';
 import { ApiError } from '../api/client';
 import { en, type MessageKey, type Messages } from './en';
 import { fr } from './fr';
 
-export const LOCALES = ['en', 'fr'] as const;
-export type Locale = (typeof LOCALES)[number];
+/** The languages the app speaks, and the ones the server rules are written in. */
+export const LOCALES = SHARED_LOCALES;
+export type Locale = SharedLocale;
 export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', fr: 'Français' };
 
 const MESSAGES: Record<Locale, Messages> = { en, fr };

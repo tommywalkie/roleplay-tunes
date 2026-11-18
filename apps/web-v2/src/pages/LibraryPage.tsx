@@ -1,14 +1,16 @@
 import type { Illustration, Mix, Sound } from '@dnd/shared';
-import { Check, Play, Plus, Square, type LucideIcon } from 'lucide-react';
+import { Check, Play, Plus, Square, Trash2, type LucideIcon } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { useLibrary, useLibraryEntry, useSounds } from '../api/hooks';
+import { useLibrary, useLibraryEntry, useMixes, useScenes, useSounds } from '../api/hooks';
 import { usePlayer } from '../audio/player';
 import { Thumb } from '../components/Illustration';
+import { LicenseBadge } from '../components/LicenseBadge';
+import { AddMixDialog, RemoveMixDialog } from '../components/MixLibraryDialogs';
+import { RemoveSoundDialog, soundUsage } from '../components/RemoveSoundDialog';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
 import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
-import { Button, cx, EmptyState, Icon, IconButton, Lamp, Segmented } from '../components/ui';
-import { licenseText } from '../editors/LicenseField';
+import { Button, EmptyState, IconButton, Lamp, Segmented, cx } from '../components/ui';
 import { useI18n } from '../i18n';
 import { initials } from './ProfilePage';
 
@@ -22,19 +24,48 @@ const newestFirst = <T extends { createdAt: string }>(items: T[]): T[] =>
 export function LibraryPage() {
   const { t, tn } = useI18n();
   const library = useLibrary();
+  const own = useSounds();
+  const ownMixes = useMixes();
+  const ownScenes = useScenes();
   const [tab, setTab] = useState<Tab>('sounds');
   const [query, setQuery] = useState('');
+  // A mix being added or taken out opens a dialog over the list: what it holds decides
+  // what happens to its sounds, and that is not a one-tap answer.
+  const [adding, setAdding] = useState<Mix | null>(null);
+  const [removing, setRemoving] = useState<Mix | null>(null);
+  const [removingSound, setRemovingSound] = useState<Sound | null>(null);
 
-  const own = useSounds().data;
   // Newest first, so what was just shared sits at the top.
   const sounds = useMemo(() => newestFirst(library.data?.sounds ?? []), [library.data?.sounds]);
   const mixes = useMemo(() => newestFirst(library.data?.mixes ?? []), [library.data?.mixes]);
   // A public mix may use public sounds or the user's own: either can draw its stack.
-  const soundsById = useMemo(
-    () => new Map([...(own ?? []), ...(library.data?.sounds ?? [])].map((s) => [s.id, s])),
-    [own, library.data?.sounds],
+  const byId = useMemo(
+    () => new Map([...(own.data ?? []), ...(library.data?.sounds ?? [])].map((s) => [s.id, s])),
+    [own.data, library.data?.sounds],
   );
+  /** Sounds the user can use already: their own, added outright, or inside a mix of theirs. */
+  const heldIds = useMemo(() => {
+    const ids = new Set<string>((own.data ?? []).map((s) => s.id));
+    for (const sound of library.data?.sounds ?? [])
+      if (sound.access !== 'available') ids.add(sound.id);
+    for (const mix of ownMixes.data ?? []) for (const item of mix.items) ids.add(item.soundId);
+    // Only a mix the user actually added brings its sounds to them: a public mix of
+    // somebody else that holds the same sound proves nothing.
+    for (const mix of library.data?.mixes ?? []) {
+      if (mix.access === 'available') continue;
+      for (const item of mix.items) ids.add(item.soundId);
+    }
+    return ids;
+  }, [own.data, library.data?.sounds, ownMixes.data, library.data?.mixes]);
+
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  // One hook for the whole list: a removal in flight greys every row's button, not just its own.
+  const soundsEntry = useLibraryEntry('sounds');
+  /** What the user owns, to say where an added sound sits before it goes. */
+  const board = useMemo(
+    () => ({ mixes: ownMixes.data ?? [], scenes: ownScenes.data ?? [] }),
+    [ownMixes.data, ownScenes.data],
+  );
   const searchable = (item: Sound | Mix) =>
     `${searchText(item)}\n${item.ownerName}\n${item.description ?? ''}`;
   const keep = (item: Sound | Mix) =>
@@ -63,7 +94,7 @@ export function LibraryPage() {
             body={t('library.empty.body')}
           />
         ) : (
-          <div className="flex max-w-[880px] flex-col gap-4">
+          <div className="flex max-w-[1040px] flex-col gap-4">
             <div className="max-w-[360px]">
               <Segmented
                 label={t('library.title')}
@@ -87,7 +118,26 @@ export function LibraryPage() {
               ) : (
                 <ul className="flex flex-col rounded-[16px] border border-line bg-card">
                   {shownSounds.map((sound) => (
-                    <SoundRow key={sound.id} sound={sound} />
+                    <SoundRow
+                      key={sound.id}
+                      sound={sound}
+                      removing={sound.id === removingSound?.id}
+                      busy={soundsEntry.isPending}
+                      onAdd={() => soundsEntry.mutate({ id: sound.id, add: true })}
+                      onRemove={() => {
+                        const usage = soundUsage(sound.id, board);
+                        // Used somewhere on the board, or stuck inside a borrowed mix: say
+                        // so before it goes. Otherwise there is nothing to warn about.
+                        const used =
+                          usage.mixes.length +
+                            usage.scenes.length +
+                            usage.scenesViaMix.length +
+                            usage.blockingMixes.length >
+                          0;
+                        if (used) setRemovingSound(sound);
+                        else soundsEntry.mutate({ id: sound.id, add: false });
+                      }}
+                    />
                   ))}
                 </ul>
               )
@@ -102,21 +152,110 @@ export function LibraryPage() {
             ) : (
               <ul className="flex flex-col rounded-[16px] border border-line bg-card">
                 {shownMixes.map((mix) => (
-                  <MixRow key={mix.id} mix={mix} soundsById={soundsById} />
+                  <MixRow
+                    key={mix.id}
+                    mix={mix}
+                    byId={byId}
+                    onAdd={() => setAdding(mix)}
+                    onRemove={() => setRemoving(mix)}
+                  />
                 ))}
               </ul>
             )}
           </div>
         )}
       </QueryGate>
+
+      {adding && (
+        <AddMixDialog mix={adding} byId={byId} heldIds={heldIds} onClose={() => setAdding(null)} />
+      )}
+      {removing && (
+        <RemoveMixDialog
+          mix={removing}
+          byId={byId}
+          heldIds={heldIds}
+          removableIds={removableWith(removing, {
+            own: own.data ?? [],
+            ownMixes: ownMixes.data ?? [],
+            scenes: ownScenes.data ?? [],
+            libraryMixes: library.data?.mixes ?? [],
+            addedSoundIds: new Set(
+              (library.data?.sounds ?? []).filter((s) => s.access === 'added').map((s) => s.id),
+            ),
+          })}
+          onClose={() => setRemoving(null)}
+        />
+      )}
+      {removingSound && (
+        <RemoveSoundDialog
+          sound={removingSound}
+          usage={soundUsage(removingSound.id, board)}
+          onClose={() => setRemovingSound(null)}
+        />
+      )}
     </Page>
   );
 }
 
-function SoundRow({ sound }: { sound: Sound }) {
+/**
+ * The sounds of `mix` that may be taken out of the library with it: ones the user added
+ * rather than owns, and that no other mix or scene of theirs still uses. Everything else
+ * stays, because removing it would break something the user kept.
+ */
+function removableWith(
+  mix: Mix,
+  board: {
+    own: Sound[];
+    ownMixes: Mix[];
+    scenes: { soundIds: string[]; mixIds: string[] }[];
+    libraryMixes: Mix[];
+    addedSoundIds: Set<string>;
+  },
+): Set<string> {
+  const ownIds = new Set(board.own.map((s) => s.id));
+  const usedElsewhere = new Set<string>();
+  // Only the mixes the user actually holds protect a sound: a public mix of somebody else
+  // that happens to use the same sound says nothing about what this user would lose.
+  const heldMixes = [
+    ...board.ownMixes,
+    ...board.libraryMixes.filter((other) => other.access !== 'available'),
+  ];
+  for (const other of heldMixes) {
+    if (other.id === mix.id) continue;
+    for (const item of other.items) usedElsewhere.add(item.soundId);
+  }
+  // A scene holding another mix of theirs holds its sounds too.
+  const keptMixIds = new Set<string>();
+  for (const scene of board.scenes) for (const id of scene.mixIds) keptMixIds.add(id);
+  for (const other of heldMixes) {
+    if (other.id === mix.id || !keptMixIds.has(other.id)) continue;
+    for (const item of other.items) usedElsewhere.add(item.soundId);
+  }
+  for (const scene of board.scenes) for (const id of scene.soundIds) usedElsewhere.add(id);
+
+  return new Set(
+    mix.items
+      .map((item) => item.soundId)
+      .filter((id) => board.addedSoundIds.has(id) && !ownIds.has(id) && !usedElsewhere.has(id)),
+  );
+}
+
+function SoundRow({
+  sound,
+  removing,
+  busy,
+  onAdd,
+  onRemove,
+}: {
+  sound: Sound;
+  /** Its removal dialog is open. */
+  removing: boolean;
+  busy: boolean;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
   const { t, duration } = useI18n();
   const player = usePlayer();
-  const entry = useLibraryEntry('sounds');
   const ModeIcon = MODE_ICONS[sound.defaultMode];
   return (
     <Row
@@ -129,7 +268,9 @@ function SoundRow({ sound }: { sound: Sound }) {
             <ModeIcon size={14} strokeWidth={1.5} aria-hidden className="shrink-0" />
             <span className="truncate">{t(MODE_LABELS[sound.defaultMode])}</span>
           </span>
-          <span className="font-mono text-[12px] tabular-nums">{duration(sound.durationSec)}</span>
+          <span className="shrink-0 font-mono text-[12px] tabular-nums">
+            {duration(sound.durationSec)}
+          </span>
         </>
       }
       owner={sound.ownerName}
@@ -138,24 +279,37 @@ function SoundRow({ sound }: { sound: Sound }) {
       playing={player.isSoundPlaying(sound.id)}
       onPlay={() => player.toggleSound(sound)}
       action={
-        <AddButton
+        <ActionButton
           name={sound.name}
           access={sound.access}
-          busy={entry.isPending}
-          onAdd={() => entry.mutate({ id: sound.id, add: true })}
+          busy={busy}
+          active={removing}
+          onAdd={onAdd}
+          onRemove={sound.access === 'added' ? onRemove : undefined}
         />
       }
     />
   );
 }
 
+/** How many of a mix's sounds are drawn beside its name. */
 const MIX_THUMBS = 4;
 
-function MixRow({ mix, soundsById }: { mix: Mix; soundsById: Map<string, Sound> }) {
+function MixRow({
+  mix,
+  byId,
+  onAdd,
+  onRemove,
+}: {
+  mix: Mix;
+  byId: Map<string, Sound>;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
   const { tn } = useI18n();
   const player = usePlayer();
-  const entry = useLibraryEntry('mixes');
-  const inside = mix.items.slice(0, MIX_THUMBS).map((item) => soundsById.get(item.soundId));
+  const inside = mix.items.slice(0, MIX_THUMBS).map((item) => byId.get(item.soundId));
+  const extra = mix.items.length - inside.length;
   return (
     <Row
       name={mix.name}
@@ -165,15 +319,24 @@ function MixRow({ mix, soundsById }: { mix: Mix; soundsById: Map<string, Sound> 
         <>
           {/* The sounds it is made of, as a small overlapping stack of their pictures. */}
           {inside.length > 0 && (
-            <span className="flex shrink-0 items-center pl-1.5" aria-hidden>
+            <span className="flex shrink-0 items-center" aria-hidden>
               {inside.map((sound, i) => (
                 <Thumb
                   key={mix.items[i]!.id}
                   value={sound?.illustration ?? { type: 'none' }}
                   fallback={FALLBACK_ICONS.sound}
-                  className="-ml-1.5 size-5 rounded-[5px] ring-2 ring-card [&_svg]:size-3"
+                  size="size-5"
+                  radius="rounded-[5px]"
+                  iconSize="size-3"
+                  className="-ml-1 ring-1 ring-card first:ml-0"
                 />
               ))}
+              {/* The count under the name already says how many there are in all. */}
+              {extra > 0 && (
+                <span className="-ml-1 flex size-5 items-center justify-center rounded-[5px] border border-line bg-raised font-mono text-[10px] leading-none text-ink-3 ring-1 ring-card">
+                  +{extra}
+                </span>
+              )}
             </span>
           )}
           <span className="truncate">{tn('count.sounds', mix.items.length)}</span>
@@ -184,17 +347,27 @@ function MixRow({ mix, soundsById }: { mix: Mix; soundsById: Map<string, Sound> 
       playing={player.isMixPlaying(mix.id)}
       onPlay={() => player.toggleMix(mix)}
       action={
-        <AddButton
+        <ActionButton
           name={mix.name}
           access={mix.access}
-          busy={entry.isPending}
-          onAdd={() => entry.mutate({ id: mix.id, add: true })}
+          busy={false}
+          onAdd={onAdd}
+          onRemove={mix.access === 'added' ? onRemove : undefined}
         />
       }
     />
   );
 }
 
+/**
+ * One shared item: a picture, its name over what it is, and a right-hand group holding the
+ * license, who shared it, and the two buttons.
+ *
+ * Three zones, not a grid of columns. Fixed columns for the owner and the license ate the
+ * name's width on a tablet and left the owner stranded in the middle of the row; the group
+ * is sized by its own content and sticks to the right edge, so the name keeps everything
+ * that is left. On phones the group drops to a band of its own under the text.
+ */
 function Row({
   name,
   illustration,
@@ -212,27 +385,27 @@ function Row({
   fallback: LucideIcon;
   /** What the item is, under its name: a sound's mode and length, a mix's sounds. */
   what: ReactNode;
-  /** Who shared it, shown with their initials at the foot of the row. */
+  /** Who shared it, shown with their initials. */
   owner: string;
   description: string | null;
   license?: string | null;
   playing: boolean;
   onPlay: () => void;
+  /** Add, remove, or the greyed state of an item that needs no action. */
   action: ReactNode;
 }) {
   const { t } = useI18n();
-  // Phones: the description and the bottom line use the full row width, under the
-  // thumbnail. From tablet width they line up with the name.
-  const below = 'col-span-3 md:col-start-2 md:col-end-4';
+
   return (
-    <li className="grid grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-t border-line px-4 py-3 first:border-t-0 md:grid-cols-[56px_minmax(0,1fr)_auto] md:gap-x-4 md:px-5 md:py-4">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line px-4 py-3 first:border-t-0 md:flex-nowrap md:gap-x-4 md:py-3">
       <Thumb
         value={illustration}
         fallback={fallback}
         lit={playing}
-        className="size-12 rounded-[10px] md:size-14"
+        size="size-12 md:size-14"
+        className="shrink-0"
       />
-      <div className="flex min-w-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-2">
           <Lamp on={playing} />
           <span className="truncate text-[15px] leading-6 font-medium">{name}</span>
@@ -240,21 +413,14 @@ function Row({
         <span className="flex h-5 min-w-0 items-center gap-3 pl-4 text-[13px] leading-5 text-ink-3">
           {what}
         </span>
+        {description && (
+          <p className="mt-1 line-clamp-2 pl-4 text-[14px] leading-5 text-ink-2 md:line-clamp-1">
+            {description}
+          </p>
+        )}
       </div>
-      <IconButton
-        icon={playing ? Square : Play}
-        label={t(playing ? 'library.stop' : 'library.play', { name })}
-        aria-pressed={playing}
-        onClick={onPlay}
-        variant="secondary"
-        className={playing ? 'text-lamp hover:text-lamp' : undefined}
-      />
-      {description && (
-        <p className={cx(below, 'line-clamp-3 text-[14px] leading-5 text-ink-2 md:line-clamp-2')}>
-          {description}
-        </p>
-      )}
-      <div className={cx(below, 'flex min-h-11 items-center gap-3')}>
+      <div className="flex w-full items-center gap-3 md:w-auto md:shrink-0">
+        {license && <LicenseBadge value={license} />}
         <span className="flex min-w-0 items-center gap-2">
           <span
             aria-hidden
@@ -267,55 +433,98 @@ function Row({
             {owner}
           </span>
         </span>
-        {license && (
-          // Set like a small label stuck on the item, so it reads apart from the owner.
-          <span
-            title={t('library.license', { license: licenseText(license, t) })}
-            className="min-w-0 truncate rounded-[6px] border border-line px-1.5 text-[12px] leading-5 text-ink-3"
-          >
-            <span className="sr-only">{t('library.license', { license: licenseText(license, t) })}</span>
-            <span aria-hidden>{licenseText(license, t)}</span>
-          </span>
-        )}
-        <span className="ml-auto shrink-0">{action}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
+          <IconButton
+            icon={playing ? Square : Play}
+            label={t(playing ? 'library.stop' : 'library.play', { name })}
+            aria-pressed={playing}
+            onClick={onPlay}
+            variant="secondary"
+            className={playing ? 'text-lamp hover:text-lamp' : undefined}
+          />
+          {action}
+        </span>
       </div>
     </li>
   );
 }
 
-function AddButton({
+/**
+ * The one thing you can do with this item, always the same 44px box, so Play holds one
+ * line down the whole list. What you can do depends on the state: add it, take it back out
+ * if it is already yours to use, or nothing at all when you own it, which shows the button
+ * greyed out rather than hiding the slot.
+ */
+function ActionButton({
   name,
   access,
   busy,
+  active = false,
   onAdd,
+  onRemove,
 }: {
   name: string;
   access: Sound['access'];
   busy: boolean;
+  /** This item's own dialog is open, so the button reads as held down. */
+  active?: boolean;
   onAdd: () => void;
+  /** Only a mix needs a dialog before it comes out; a sound removes at once. */
+  onRemove?: () => void;
 }) {
   const { t } = useI18n();
-  // Yours and Added are states, not actions: quiet text, so only Add reads as a button.
   if (access === 'owner') {
-    return <span className="shrink-0 text-[13px] leading-5 text-ink-3">{t('library.yours')}</span>;
+    return (
+      <Button
+        variant="secondary"
+        icon={Plus}
+        disabled
+        aria-label={t('library.yoursItem', { name })}
+        title={t('library.yoursItem', { name })}
+        className="size-11 shrink-0 px-0"
+      />
+    );
   }
+  if (access === 'added' && onRemove) {
+    return (
+      <Button
+        variant="secondary"
+        icon={Trash2}
+        disabled={busy}
+        onClick={onRemove}
+        aria-label={t('library.removeItem', { name })}
+        title={t('library.removeItem', { name })}
+        aria-expanded={active}
+        className={cx(
+          'size-11 shrink-0 px-0 text-ink-2 hover:text-danger',
+          active && 'bg-raised-hover text-danger',
+        )}
+      />
+    );
+  }
+  // An added item with nothing wired to take it back out: the state, said honestly.
   if (access === 'added') {
     return (
-      <span className="flex shrink-0 items-center gap-1.5 text-[13px] leading-5 text-ink-2">
-        <Icon icon={Check} />
-        {t('library.added')}
-      </span>
+      <Button
+        variant="secondary"
+        icon={Check}
+        disabled
+        aria-label={t('library.addedItem', { name })}
+        title={t('library.addedItem', { name })}
+        className="size-11 shrink-0 px-0"
+      />
     );
   }
   return (
     <Button
+      variant="secondary"
       icon={Plus}
       busy={busy}
+      disabled={busy}
       onClick={onAdd}
       aria-label={t('library.addItem', { name })}
-      className="px-3"
-    >
-      {t('library.add')}
-    </Button>
+      title={t('library.addItem', { name })}
+      className="size-11 shrink-0 px-0"
+    />
   );
 }

@@ -1,6 +1,6 @@
 import type { Limits, Me } from '@dnd/shared';
 import { ChevronRight } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import {
   useAdminSettings,
   useAdminUsage,
@@ -16,6 +16,11 @@ import { Button, cx, ErrorNote, Icon, SearchField, Segmented } from '../componen
 import { UserDialog } from '../editors/UserDialog';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
+
+/** The rules editor pulls in a whole rich-text engine: only the Admin page needs it. */
+const RulesCard = lazy(() =>
+  import('../editors/RulesCard').then((module) => ({ default: module.RulesCard })),
+);
 
 function Card({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -215,6 +220,10 @@ export function AdminPage({ me }: { me: Me }) {
               </div>
               <DefaultsCard defaults={settings.data.defaults} />
             </div>
+
+            <Suspense fallback={null}>
+              <RulesCard />
+            </Suspense>
 
             <section className="flex flex-col gap-3 rounded-[16px] border border-line bg-card p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">

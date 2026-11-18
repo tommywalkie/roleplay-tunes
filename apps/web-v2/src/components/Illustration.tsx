@@ -67,26 +67,42 @@ export function Illustration({
   );
 }
 
-/** A small square thumbnail for list rows. */
+/**
+ * A small square thumbnail for list rows. The box and the icon inside it are sized by the
+ * caller rather than by a default in the class list: two `size-*` utilities on one element
+ * resolve by stylesheet order, not by intent, which is how a 20px stack once grew to 40px
+ * and painted over the name above it.
+ */
 export function Thumb({
   value,
   fallback,
   lit,
+  size = 'size-10',
+  radius = 'rounded-[8px]',
+  iconSize = 'size-5',
   className,
 }: {
   value: IllustrationDraft;
   fallback: LucideIcon;
   lit?: boolean;
+  /** The box, e.g. `size-10`. */
+  size?: string;
+  /** Its corners, e.g. `rounded-[8px]`. */
+  radius?: string;
+  /** The icon inside it, kept smaller than the box. */
+  iconSize?: string;
   className?: string;
 }) {
   return (
     <span
       className={cx(
-        'relative block size-10 shrink-0 overflow-hidden rounded-[8px] border border-line bg-raised',
+        'relative block shrink-0 overflow-hidden border border-line bg-raised',
+        size,
+        radius,
         className,
       )}
     >
-      <Illustration value={value} fallback={fallback} lit={lit} iconClassName="size-5" />
+      <Illustration value={value} fallback={fallback} lit={lit} iconClassName={iconSize} />
     </span>
   );
 }

@@ -19,6 +19,7 @@ import { layersToMixItems, LOOSE_MIX_ID, usePlayer } from '../audio/player';
 import { PausesDialog } from '../board/PausesDialog';
 import { Thumb } from '../components/Illustration';
 import { MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import { Marquee } from '../components/Marquee';
 import { Menu } from '../components/Menu';
 import { useToast } from '../components/Toasts';
 import { Button, cx, Fader, Icon, IconButton, Lamp, Percent } from '../components/ui';
@@ -95,9 +96,11 @@ export function PlayerPanel({
         <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-10 lg:flex-none">
           <Lamp on={sounding} />
           <div className="flex min-w-0 flex-col">
-            <span className="truncate text-[15px] leading-5 font-medium" aria-live="polite">
+            {/* What plays by name, which is the one line here long enough to be cut: a mix
+                carries across rather than ending in an ellipsis. */}
+            <Marquee className="text-[15px] leading-5 font-medium" aria-live="polite">
               {title}
-            </span>
+            </Marquee>
             <span className="truncate text-[12px] leading-4 text-ink-3 tabular-nums">{status}</span>
           </div>
         </div>
@@ -191,14 +194,18 @@ export function PlayerPanel({
                       )}
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span
+                      <Marquee
                         className={cx(
-                          'truncate text-[14px] leading-5',
-                          layer.load === 'error' ? 'text-danger' : layer.muted ? 'text-ink-3' : 'text-ink',
+                          'text-[14px] leading-5',
+                          layer.load === 'error'
+                            ? 'text-danger'
+                            : layer.muted
+                              ? 'text-ink-3'
+                              : 'text-ink',
                         )}
                       >
                         {name}
-                      </span>
+                      </Marquee>
                       <div className="flex items-center gap-2">
                         <Fader
                           value={layer.volume}
@@ -238,7 +245,7 @@ export function PlayerPanel({
                     lit={!paused}
                   />
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-[14px] leading-5">{nameOf(shot.soundId)}</span>
+                    <Marquee className="text-[14px] leading-5">{nameOf(shot.soundId)}</Marquee>
                     <span className="flex items-center gap-1.5 text-[12px] leading-4 text-ink-3 tabular-nums">
                       <Zap size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
                       {t(MODE_LABELS.oneshot)} · {duration(shot.durationSec)}

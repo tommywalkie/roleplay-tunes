@@ -17,6 +17,7 @@ export function toMe(user: UserRow): Me {
     role: roleSchema.catch('user').parse(user.role),
     limits: effectiveLimits(user),
     usage: usageOf(user.id),
+    termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
   };
 }
 
@@ -74,6 +75,9 @@ export function accountRoutes(app: FastifyInstance) {
             role: { type: 'string', enum: ['user', 'admin'] },
             limits: { type: 'object', additionalProperties: true },
             usage: { type: 'object', additionalProperties: true },
+            // Must be named or the serializer strips it, and the rules dialog never
+            // closes: the client would read the acceptance as missing forever.
+            termsAcceptedAt: { type: 'string', format: 'date-time', nullable: true },
           },
         },
       },

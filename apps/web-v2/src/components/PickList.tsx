@@ -79,7 +79,7 @@ export function PickList({
                       on && 'bg-raised',
                     )}
                   >
-                    <Thumb value={item.illustration} fallback={fallback} className="size-8" />
+                    <Thumb value={item.illustration} fallback={fallback} size="size-8" />
                     <span className="min-w-0 flex-1 truncate text-[14px] leading-5">{item.name}</span>
                     <span
                       aria-hidden

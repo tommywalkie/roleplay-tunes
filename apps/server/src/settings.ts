@@ -21,11 +21,11 @@ export function overrideColumn(key: LimitKey) {
   return OVERRIDE_COLUMN[key];
 }
 
-function readSetting(key: string): string | undefined {
+export function readSetting(key: string): string | undefined {
   return db.select().from(appSettings).where(eq(appSettings.key, key)).get()?.value;
 }
 
-function writeSetting(key: string, value: string) {
+export function writeSetting(key: string, value: string) {
   db.insert(appSettings)
     .values({ key, value })
     .onConflictDoUpdate({ target: appSettings.key, set: { value } })

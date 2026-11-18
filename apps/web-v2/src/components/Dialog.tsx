@@ -39,6 +39,7 @@ export function Dialog({
   footer,
   children,
   fixedHeight = false,
+  dismissible = true,
 }: {
   title: string;
   onClose: () => void;
@@ -51,6 +52,8 @@ export function Dialog({
    * the body does not scroll, the content scrolls its own list.
    */
   fixedHeight?: boolean;
+  /** False for a dialog that must be answered: no close button, no backdrop, no Escape. */
+  dismissible?: boolean;
 }) {
   const { t } = useI18n();
   const titleId = useId();
@@ -74,7 +77,7 @@ export function Dialog({
   }, [titleId]);
 
   useEffect(() => {
-    if (!onTop) return;
+    if (!onTop || !dismissible) return;
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -84,7 +87,7 @@ export function Dialog({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onTop]);
+  }, [onTop, dismissible]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -101,7 +104,7 @@ export function Dialog({
           covers it, so the page behind never flashes back. */}
       <div
         className={cx('absolute inset-0', !stacked && 'animate-fade bg-black/60')}
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
         aria-hidden
       />
       <form
@@ -122,7 +125,7 @@ export function Dialog({
           <h2 id={titleId} className="truncate text-[17px] leading-6 font-medium">
             {title}
           </h2>
-          <IconButton icon={X} label={t('common.close')} onClick={onClose} />
+          {dismissible && <IconButton icon={X} label={t('common.close')} onClick={onClose} />}
         </header>
         <div
           className={cx(

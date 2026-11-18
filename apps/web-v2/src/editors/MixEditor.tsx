@@ -1,14 +1,31 @@
-import { DESCRIPTION_MAX, MAX_INTERVAL_SEC, MIN_INTERVAL_SEC, type Me, type Mix, type MixItemInput, type PlayMode, type Scene, type Sound } from '@dnd/shared';
+import {
+  DESCRIPTION_MAX,
+  MAX_INTERVAL_SEC,
+  MIN_INTERVAL_SEC,
+  type Me,
+  type Mix,
+  type MixItemInput,
+  type PlayMode,
+  type Scene,
+  type Sound,
+  type UpdateSoundRequest,
+} from '@dnd/shared';
 import { useMemo, useState } from 'react';
 import { ApiError } from '../api/client';
-import { useDelete, useLibraryEntry, useSaveMix, useSetMixVolumes } from '../api/hooks';
+import {
+  useDelete,
+  useLibraryEntry,
+  useSaveMix,
+  useSaveSound,
+  useSetMixVolumes,
+} from '../api/hooks';
 import { Dialog } from '../components/Dialog';
 import { Thumb, type IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
 import { PickList } from '../components/PickList';
-import { ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
+import { Button, ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
 import { TagFields, useTagsDraft } from './TagFields';
@@ -88,6 +105,7 @@ export function MixEditor({
   const setVolumes = useSetMixVolumes();
   const remove = useDelete('mixes');
   const unlink = useLibraryEntry('mixes');
+  const publish = useSaveSound();
   const byId = useMemo(() => new Map(sounds.map((s) => [s.id, s])), [sounds]);
   const owned = !mix || mix.access === 'owner';
 
@@ -98,14 +116,16 @@ export function MixEditor({
   const [illustration, setIllustration] = useState<IllustrationDraft>(original);
   const [items, setItems] = useState<ItemDraft[]>(
     () =>
-      mix?.items.map(({ soundId, mode, volume, intervalMinSec, intervalMaxSec, volumeVariation }) => ({
-        soundId,
-        mode,
-        volume,
-        intervalMinSec,
-        intervalMaxSec,
-        volumeVariation,
-      })) ??
+      mix?.items.map(
+        ({ soundId, mode, volume, intervalMinSec, intervalMaxSec, volumeVariation }) => ({
+          soundId,
+          mode,
+          volume,
+          intervalMinSec,
+          intervalMaxSec,
+          volumeVariation,
+        }),
+      ) ??
       initialItems ??
       [],
   );
@@ -114,6 +134,21 @@ export function MixEditor({
 
   const error = save.error ?? setVolumes.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
+
+  /**
+   * A public mix may only hold public sounds, so publishing one that still holds private
+   * sounds has to make those public first. The mix is not saved until the user says so:
+   * the server would refuse it either way, and a refusal after a click is a worse answer
+   * than a question before it.
+   */
+  const [publishing, setPublishing] = useState(false);
+  const privateMembers = useMemo(
+    () =>
+      items
+        .map((item) => byId.get(item.soundId))
+        .filter((sound): sound is Sound => sound !== undefined && !sound.isPublic),
+    [items, byId],
+  );
 
   /** Keeps the settings of sounds that stay, and gives new ones their sound's defaults. */
   const setMembers = (ids: string[]) =>
@@ -142,6 +177,14 @@ export function MixEditor({
       );
       return;
     }
+    if (owned && isPublic && privateMembers.length > 0) {
+      setPublishing(true);
+      return;
+    }
+    saveMix();
+  };
+
+  const saveMix = () => {
     const { illustration: illustrationInput, image } = illustrationChanges(illustration, original);
     save.mutate(
       {
@@ -152,7 +195,11 @@ export function MixEditor({
           isPublic,
           items: items.map((item) => {
             const min = clampPause(item.intervalMinSec);
-            return { ...item, intervalMinSec: min, intervalMaxSec: Math.max(min, clampPause(item.intervalMaxSec)) };
+            return {
+              ...item,
+              intervalMinSec: min,
+              intervalMaxSec: Math.max(min, clampPause(item.intervalMaxSec)),
+            };
           }),
           sceneIds,
           ...tags.body,
@@ -164,157 +211,222 @@ export function MixEditor({
     );
   };
 
+  /** Makes every private sound of the mix public, then saves the mix as public. */
+  const publishAll = async () => {
+    for (const sound of privateMembers) {
+      await publish.mutateAsync({
+        id: sound.id,
+        body: { isPublic: true } satisfies UpdateSoundRequest,
+      });
+    }
+    setPublishing(false);
+    saveMix();
+  };
+
   return (
-    <Dialog
-      title={t(mix ? 'mixes.edit' : 'mixes.new')}
-      onClose={onClose}
-      onSubmit={submit}
-      footer={
-        owned ? (
-          <EditorFooter
-            onCancel={onClose}
-            onDelete={mix ? () => remove.mutate(mix.id, { onSuccess: onClose }) : undefined}
-            saving={save.isPending}
-            deleting={remove.isPending}
-            canSave={name.trim().length > 0}
-          />
-        ) : (
-          <EditorFooter
-            onCancel={onClose}
-            onDelete={() => unlink.mutate({ id: mix.id, add: false }, { onSuccess: onClose })}
-            deleteLabel={t('share.remove')}
-            confirmText={t('share.confirmRemove')}
-            saving={save.isPending || setVolumes.isPending}
-            deleting={unlink.isPending}
-          />
-        )
-      }
-    >
-      {error && <ErrorNote>{errorText(error)}</ErrorNote>}
-
-      {mix && !owned && <OwnerNote name={mix.ownerName} />}
-
-      <OwnerOnly locked={!owned}>
-        <Field label={t('common.name')} error={fields?.name}>
-          {(id) => (
-            <TextInput
-              id={id}
-              value={name}
-              maxLength={100}
-              autoFocus={!mix}
-              onChange={(e) => setName(e.target.value)}
+    <>
+      <Dialog
+        title={t(mix ? 'mixes.edit' : 'mixes.new')}
+        onClose={onClose}
+        onSubmit={submit}
+        footer={
+          owned ? (
+            <EditorFooter
+              onCancel={onClose}
+              onDelete={mix ? () => remove.mutate(mix.id, { onSuccess: onClose }) : undefined}
+              saving={save.isPending}
+              deleting={remove.isPending}
+              canSave={name.trim().length > 0}
             />
-          )}
-        </Field>
+          ) : (
+            <EditorFooter
+              onCancel={onClose}
+              onDelete={() => unlink.mutate({ id: mix.id, add: false }, { onSuccess: onClose })}
+              deleteLabel={t('share.remove')}
+              confirmText={t('share.confirmRemove')}
+              saving={save.isPending || setVolumes.isPending}
+              deleting={unlink.isPending}
+            />
+          )
+        }
+      >
+        {error && <ErrorNote>{errorText(error)}</ErrorNote>}
 
-        <TextArea
-          label={t('common.description')}
-          value={description}
-          onChange={setDescription}
-          maxLength={DESCRIPTION_MAX}
-          error={fields?.description}
-        />
+        {mix && !owned && <OwnerNote name={mix.ownerName} />}
 
-        <VisibilityField
-          value={isPublic}
-          onChange={setIsPublic}
-          note={t('share.mixPublicHint')}
-          error={fields?.isPublic}
-        />
+        <OwnerOnly locked={!owned}>
+          <Field label={t('common.name')} error={fields?.name}>
+            {(id) => (
+              <TextInput
+                id={id}
+                value={name}
+                maxLength={100}
+                autoFocus={!mix}
+                onChange={(e) => setName(e.target.value)}
+              />
+            )}
+          </Field>
 
-        <IllustrationField
-          value={illustration}
-          onChange={setIllustration}
-          fallback={FALLBACK_ICONS.mix}
-          maxImageBytes={me.limits.imageFileBytes}
-        />
-
-        <div className="flex flex-col gap-2">
-          <PickField
-            label={t('mixes.sounds')}
-            items={sounds}
-            selected={items.map((i) => i.soundId)}
-            onChange={setMembers}
-            fallback={FALLBACK_ICONS.sound}
-            emptyText={t('sounds.empty.title')}
-            max={me.limits.mixItems}
+          <TextArea
+            label={t('common.description')}
+            value={description}
+            onChange={setDescription}
+            maxLength={DESCRIPTION_MAX}
+            error={fields?.description}
           />
-          <p className={fields?.items ? 'text-[13px] leading-5 text-danger' : 'text-[13px] leading-5 text-ink-3'}>
-            {fields?.items ?? t('mixes.limit', { n: me.limits.mixItems })}
-          </p>
-        </div>
-      </OwnerOnly>
 
-      <TagFields draft={tags} ownerName={owned ? undefined : mix?.ownerName} errors={fields} />
+          <VisibilityField
+            value={isPublic}
+            onChange={setIsPublic}
+            note={t('share.mixPublicHint')}
+            error={fields?.isPublic}
+          />
 
-      {items.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {!owned && <p className="text-[13px] leading-5 text-ink-3">{t('share.yourVolume')}</p>}
-          <ul className="flex flex-col gap-1">
-            {items.map((item) => {
-              const sound = byId.get(item.soundId);
-              const label = sound?.name ?? t('player.unknownSound');
-              return (
-                <li key={item.soundId} className="flex flex-col gap-2 py-1">
-                  <div className="flex min-h-16 items-center gap-3">
-                  <Thumb value={sound?.illustration ?? { type: 'none' }} fallback={FALLBACK_ICONS.sound} />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[14px] leading-5">{label}</span>
-                    <div className="flex items-center gap-2">
-                      <Fader
-                        value={item.volume}
-                        onChange={(volume) => patch(item.soundId, { volume })}
-                        label={t('player.volumeOf', { name: label })}
+          <IllustrationField
+            value={illustration}
+            onChange={setIllustration}
+            fallback={FALLBACK_ICONS.mix}
+            maxImageBytes={me.limits.imageFileBytes}
+          />
+
+          <div className="flex flex-col gap-2">
+            <PickField
+              label={t('mixes.sounds')}
+              items={sounds}
+              selected={items.map((i) => i.soundId)}
+              onChange={setMembers}
+              fallback={FALLBACK_ICONS.sound}
+              emptyText={t('sounds.empty.title')}
+              max={me.limits.mixItems}
+            />
+            <p
+              className={
+                fields?.items
+                  ? 'text-[13px] leading-5 text-danger'
+                  : 'text-[13px] leading-5 text-ink-3'
+              }
+            >
+              {fields?.items ?? t('mixes.limit', { n: me.limits.mixItems })}
+            </p>
+          </div>
+        </OwnerOnly>
+
+        <TagFields draft={tags} ownerName={owned ? undefined : mix?.ownerName} errors={fields} />
+
+        {items.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {!owned && <p className="text-[13px] leading-5 text-ink-3">{t('share.yourVolume')}</p>}
+            <ul className="flex flex-col gap-1">
+              {items.map((item) => {
+                const sound = byId.get(item.soundId);
+                const label = sound?.name ?? t('player.unknownSound');
+                return (
+                  <li key={item.soundId} className="flex flex-col gap-2 py-1">
+                    <div className="flex min-h-16 items-center gap-3">
+                      <Thumb
+                        value={sound?.illustration ?? { type: 'none' }}
+                        fallback={FALLBACK_ICONS.sound}
                       />
-                      <Percent value={item.volume} />
-                    </div>
-                  </div>
-                  <Select
-                    value={item.mode}
-                    disabled={!owned}
-                    onChange={(e) => patch(item.soundId, { mode: e.target.value as PlayMode })}
-                    aria-label={`${t('sounds.playMode')}: ${label}`}
-                    className="w-40 shrink-0 pr-8 text-[14px] disabled:opacity-45 sm:w-48"
-                  >
-                    {MODE_ORDER.map((m) => (
-                      <option key={m} value={m}>
-                        {t(MODE_LABELS[m])}
-                      </option>
-                    ))}
-                  </Select>
-                  </div>
-                  {item.mode === 'recurring' && (
-                    // Under the name, past the thumbnail: the pauses belong to this sound.
-                    <div className="grid grid-cols-2 gap-3 pl-[52px]">
-                      <PauseInput
-                        label={t('sounds.gapMin')}
-                        value={item.intervalMinSec}
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[14px] leading-5">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <Fader
+                            value={item.volume}
+                            onChange={(volume) => patch(item.soundId, { volume })}
+                            label={t('player.volumeOf', { name: label })}
+                          />
+                          <Percent value={item.volume} />
+                        </div>
+                      </div>
+                      <Select
+                        value={item.mode}
                         disabled={!owned}
-                        onChange={(intervalMinSec) => patch(item.soundId, { intervalMinSec })}
-                      />
-                      <PauseInput
-                        label={t('sounds.gapMax')}
-                        value={item.intervalMaxSec}
-                        disabled={!owned}
-                        onChange={(intervalMaxSec) => patch(item.soundId, { intervalMaxSec })}
-                      />
+                        onChange={(e) => patch(item.soundId, { mode: e.target.value as PlayMode })}
+                        aria-label={`${t('sounds.playMode')}: ${label}`}
+                        className="w-40 shrink-0 pr-8 text-[14px] disabled:opacity-45 sm:w-48"
+                      >
+                        {MODE_ORDER.map((m) => (
+                          <option key={m} value={m}>
+                            {t(MODE_LABELS[m])}
+                          </option>
+                        ))}
+                      </Select>
                     </div>
-                  )}
+                    {item.mode === 'recurring' && (
+                      // Under the name, past the thumbnail: the pauses belong to this sound.
+                      <div className="grid grid-cols-2 gap-3 pl-[52px]">
+                        <PauseInput
+                          label={t('sounds.gapMin')}
+                          value={item.intervalMinSec}
+                          disabled={!owned}
+                          onChange={(intervalMinSec) => patch(item.soundId, { intervalMinSec })}
+                        />
+                        <PauseInput
+                          label={t('sounds.gapMax')}
+                          value={item.intervalMaxSec}
+                          disabled={!owned}
+                          onChange={(intervalMaxSec) => patch(item.soundId, { intervalMaxSec })}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        <PickList
+          label={t('sounds.inScenes')}
+          items={scenes}
+          selected={sceneIds}
+          onChange={setSceneIds}
+          fallback={FALLBACK_ICONS.scene}
+          emptyText={t('sounds.noScenes')}
+        />
+
+        {publishing && (
+          <Dialog
+            title={t('mixes.publish.title')}
+            onClose={() => setPublishing(false)}
+            onSubmit={publishAll}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setPublishing(false)} className="ml-auto">
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  busy={publish.isPending}
+                  disabled={publish.isPending}
+                >
+                  {t('mixes.publish.confirm')}
+                </Button>
+              </>
+            }
+          >
+            {publish.error && <ErrorNote>{errorText(publish.error)}</ErrorNote>}
+            <p className="text-[14px] leading-5 text-ink-2">
+              {t('mixes.publish.intro', { n: privateMembers.length })}
+            </p>
+            <ul className="flex flex-col gap-1.5">
+              {privateMembers.map((sound) => (
+                <li key={sound.id} className="flex items-center gap-3">
+                  <Thumb value={sound.illustration} fallback={FALLBACK_ICONS.sound} size="size-8" />
+                  <span className="min-w-0 flex-1 truncate text-[14px] leading-5 text-ink">
+                    {sound.name}
+                  </span>
+                  <span className="shrink-0 text-[12px] leading-4 text-ink-3">
+                    {t('mixes.publish.becomesPublic')}
+                  </span>
                 </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      <PickList
-        label={t('sounds.inScenes')}
-        items={scenes}
-        selected={sceneIds}
-        onChange={setSceneIds}
-        fallback={FALLBACK_ICONS.scene}
-        emptyText={t('sounds.noScenes')}
-      />
-    </Dialog>
+              ))}
+            </ul>
+            <p className="text-[13px] leading-5 text-ink-3">{t('mixes.publish.note')}</p>
+          </Dialog>
+        )}
+      </Dialog>
+    </>
   );
 }

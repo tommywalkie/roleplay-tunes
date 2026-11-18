@@ -181,6 +181,146 @@ input[type='range'].fader::-moz-range-thumb {
   display: block;
 }
 
+/*
+ * Text an administrator wrote: the server rules, and the editor that writes them. The
+ * markup arrives from the server already limited to the tags of TERMS_TAGS in @dnd/shared,
+ * and Tailwind's reset strips the default look of headings and lists, so it is rebuilt
+ * here. Weights stay at 400 and 500, and links take the text colour, never the lamp.
+ */
+.rich-text {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-ink-2);
+}
+.rich-text p,
+.rich-text ul,
+.rich-text ol {
+  margin: 0 0 12px;
+}
+.rich-text > :last-child {
+  margin-bottom: 0;
+}
+.rich-text h2,
+.rich-text h3 {
+  color: var(--color-ink);
+  font-weight: 500;
+  margin: 16px 0 8px;
+}
+.rich-text h2 {
+  font-size: 16px;
+  line-height: 24px;
+}
+.rich-text h3 {
+  font-size: 14px;
+  line-height: 22px;
+}
+.rich-text > h2:first-child,
+.rich-text > h3:first-child {
+  margin-top: 0;
+}
+.rich-text ul {
+  list-style: disc;
+  padding-left: 20px;
+}
+.rich-text ol {
+  list-style: decimal;
+  padding-left: 20px;
+}
+.rich-text li {
+  margin: 0 0 4px;
+}
+.rich-text li > ul,
+.rich-text li > ol {
+  margin: 4px 0 0;
+}
+.rich-text strong,
+.rich-text u {
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.rich-text a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-word;
+}
+.rich-text a:hover {
+  color: var(--color-lamp);
+}
+
+/*
+ * The writing surface of the rules editor. ProseMirror focuses an element as short as the
+ * text typed so far, and the house `:focus-visible` ring above is unlayered, so a Tailwind
+ * utility cannot beat it: the ring is taken off the text here and drawn around the whole
+ * canvas instead, inside its own edge. The bottom corners follow the frame they sit in
+ * (10 minus its 1px border), so the rounded overflow cuts nothing.
+ */
+.rich-text:focus-visible {
+  outline: none;
+}
+.rules-canvas {
+  border-radius: 0 0 9px 9px;
+}
+.rules-canvas:focus-within {
+  outline: 2px solid var(--color-lamp);
+  outline-offset: -2px;
+}
+
+/*
+ * Text too long for its box, carried across it by `Marquee`: it holds at the start, slides
+ * right to left, rests at the end, fades out, and fades back where it began. The distance
+ * and the time come from the component as custom properties, because only it knows how far
+ * the text overflows.
+ */
+.marquee {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.marquee > span {
+  display: inline-block;
+  max-width: none;
+}
+/* While the text travels, an ellipsis at the edge would sit over the moving glyphs. */
+.marquee[data-run] {
+  text-overflow: clip;
+}
+.marquee[data-run] > span {
+  /* Linear, not the house ease-out: a slide that decelerates on every cycle reads as a
+     stumble, and the fades already carry its start and its end. */
+  animation: marquee var(--marquee-cycle, 14s) linear infinite;
+}
+@keyframes marquee {
+  /* Readable at the start before it moves. */
+  0%,
+  6% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  46%,
+  60% {
+    transform: translateX(var(--marquee-shift, 0));
+    opacity: 1;
+  }
+  72% {
+    transform: translateX(var(--marquee-shift, 0));
+    opacity: 0;
+  }
+  /* Back to the start while invisible, then faded in there. */
+  72.01%,
+  100% {
+    transform: translateX(0);
+  }
+  72.01% {
+    opacity: 0;
+  }
+  84%,
+  100% {
+    opacity: 1;
+  }
+}
+
 .scroll-quiet {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-strong) transparent;
@@ -192,5 +332,9 @@ input[type='range'].fader::-moz-range-thumb {
   *::after {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
+  }
+  /* A marquee at 1ms is a flicker: the name keeps its ellipsis instead. */
+  .marquee > span {
+    animation: none;
   }
 }

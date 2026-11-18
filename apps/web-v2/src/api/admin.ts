@@ -1,4 +1,12 @@
-import type { LimitKey, Limits, Role, Usage } from '@dnd/shared';
+import type {
+  LimitKey,
+  Limits,
+  Role,
+  SetTermsRequest,
+  TermsAdmin,
+  TermsPreviewRequest,
+  Usage,
+} from '@dnd/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import { keys } from './hooks';
@@ -58,12 +66,16 @@ export function overridesOf(user: AdminUser): LimitOverrides {
 const adminKeys = {
   all: ['admin'] as const,
   settings: ['admin', 'settings'] as const,
+  terms: ['admin', 'terms'] as const,
   users: ['admin', 'users'] as const,
   usage: ['admin', 'usage'] as const,
 };
 
 export const useAdminSettings = () =>
-  useQuery({ queryKey: adminKeys.settings, queryFn: () => api<AdminSettings>('/api/admin/settings') });
+  useQuery({
+    queryKey: adminKeys.settings,
+    queryFn: () => api<AdminSettings>('/api/admin/settings'),
+  });
 export const useAdminUsers = () =>
   useQuery({ queryKey: adminKeys.users, queryFn: () => api<AdminUser[]>('/api/admin/users') });
 export const useAdminUsage = () =>
@@ -91,6 +103,29 @@ export const useSetDefaultLimits = () =>
   useAdminMutation((limits: Limits) =>
     api('/api/admin/settings/defaults', { method: 'PUT', json: { limits } }),
   );
+
+/** Every language of the server rules, as saved. */
+export const useAdminTerms = () =>
+  useQuery({
+    queryKey: adminKeys.terms,
+    queryFn: () => api<TermsAdmin>('/api/admin/settings/terms'),
+  });
+
+/** Saves the toggle and the text of every language given. */
+export const useSetTerms = () =>
+  useAdminMutation((body: SetTermsRequest) =>
+    api<TermsAdmin>('/api/admin/settings/terms', { method: 'PUT', json: body }),
+  );
+
+/** Draft rules, sanitized by the server without being saved. */
+export const usePreviewTerms = () =>
+  useMutation({
+    mutationFn: ({ locale, html }: TermsPreviewRequest) =>
+      api<{ html: string }>('/api/admin/settings/terms/preview', {
+        method: 'POST',
+        json: { locale, html },
+      }),
+  });
 
 export interface UserChanges {
   id: string;

@@ -23,6 +23,9 @@ export const users = sqliteTable('users', {
   banExpires: timestamp('banExpires'),
   // Product fields.
   lastActiveAt: timestamp('lastActiveAt'),
+  /** When the user accepted the server rules. Null while they never did, or accepted an
+   * older version: the current version is a server setting, not a copy of this. */
+  termsAcceptedAt: timestamp('termsAcceptedAt'),
   // Per-user limit overrides. Null means "use the server default".
   limitStorageBytes: integer('limitStorageBytes'),
   limitAudioFileBytes: integer('limitAudioFileBytes'),

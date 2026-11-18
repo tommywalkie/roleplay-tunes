@@ -108,6 +108,7 @@ const PROTECTED: RouteCase[] = [
   { method: 'POST', route: '/api/categories', body: { name: 'New', color: '#3b5b8c' } },
   { method: 'PATCH', route: '/api/categories/:id', resource: 'category', body: { name: 'Hijacked' } },
   { method: 'DELETE', route: '/api/categories/:id', resource: 'category' },
+  { method: 'POST', route: '/api/terms/accept' },
 ];
 
 // Admin routes - they have their own test below since they need different resource handling
@@ -115,6 +116,9 @@ const ADMIN_ROUTES: RouteCase[] = [
   { method: 'GET', route: '/api/admin/settings' },
   { method: 'PUT', route: '/api/admin/settings/signups', body: { open: true } },
   { method: 'PUT', route: '/api/admin/settings/defaults', body: { limits: {} } },
+  { method: 'GET', route: '/api/admin/settings/terms' },
+  { method: 'PUT', route: '/api/admin/settings/terms', body: { enabled: true, rules: {} } },
+  { method: 'POST', route: '/api/admin/settings/terms/preview', body: { locale: 'en', html: '' } },
   { method: 'GET', route: '/api/admin/users' },
   { method: 'PATCH', route: '/api/admin/users/:id/role', body: { role: 'user' } },
   { method: 'PATCH', route: '/api/admin/users/:id/banned', body: { banned: false } },
@@ -124,7 +128,8 @@ const ADMIN_ROUTES: RouteCase[] = [
   { method: 'GET', route: '/api/admin/usage' },
 ];
 
-const PUBLIC_ROUTES = ['GET /api/health', 'GET /api/settings/public'];
+// The rules are read before anyone has an account, so the locale route is public.
+const PUBLIC_ROUTES = ['GET /api/health', 'GET /api/settings/public', 'GET /api/terms/:locale'];
 
 /** Parses `app.printRoutes()` (a radix tree) into "METHOD /full/path" entries. */
 function registeredApiRoutes(): string[] {

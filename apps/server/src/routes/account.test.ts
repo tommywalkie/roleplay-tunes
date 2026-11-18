@@ -7,7 +7,7 @@ import { buildApp } from '../app.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { accounts, mixes, scenes, sessions, sounds, users } from '../db/schema.js';
-import { setSignupsOpen } from '../settings.js';
+import { setSignupsOpen, writeSetting } from '../settings.js';
 import {
   call,
   cookieHeader,
@@ -44,7 +44,15 @@ describe('GET /api/me', () => {
     const res = await call(app, user, 'GET', '/api/me');
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(Object.keys(body).sort()).toEqual(['email', 'id', 'limits', 'name', 'role', 'usage']);
+    expect(Object.keys(body).sort()).toEqual([
+      'email',
+      'id',
+      'limits',
+      'name',
+      'role',
+      'termsAcceptedAt',
+      'usage',
+    ]);
     expect(body).toMatchObject({ id: user.id, email: user.email, name: 'Test User', role: 'user' });
     expect(Object.keys(body.limits).sort()).toEqual([
       'audioDurationSec',
@@ -61,6 +69,30 @@ describe('GET /api/me', () => {
     await call(app, user, 'GET', '/api/me');
     const row = db.select().from(users).where(eq(users.id, user.id)).get();
     expect(row?.lastActiveAt).toBeInstanceOf(Date);
+  });
+
+  /**
+   * The rules dialog closes on `me.termsAcceptedAt` matching the version on record, so a
+   * response schema that forgets the field leaves the dialog up forever.
+   */
+  it('carries the acceptance back on /api/me, so the rules dialog can close', async () => {
+    const user = await signUp(app);
+    expect((await call(app, user, 'GET', '/api/me')).json().termsAcceptedAt).toBeNull();
+
+    writeSetting('termsEnabled', 'true');
+    writeSetting('termsRules.en', '<p>Keep the noise down</p>');
+    writeSetting('termsUpdatedAt', new Date().toISOString());
+
+    const before = (await call(app, user, 'GET', '/api/terms/en')).json().updatedAt;
+    expect((await call(app, user, 'POST', '/api/terms/accept')).statusCode).toBe(204);
+
+    const after = (await call(app, user, 'GET', '/api/me')).json().termsAcceptedAt;
+    expect(after).not.toBeNull();
+    // The same instant, to the millisecond: the client compares the two strings.
+    expect(new Date(after).getTime()).toBe(new Date(before).getTime());
+
+    // Leave no rules switched on for the rest of the file.
+    writeSetting('termsEnabled', 'false');
   });
 });
 

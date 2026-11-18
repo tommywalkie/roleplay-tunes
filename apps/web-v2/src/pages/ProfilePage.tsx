@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Download,
   LogOut,
+  ScrollText,
   Settings,
   ShieldCheck,
   Tags,
@@ -10,9 +11,10 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useSignOut } from '../api/hooks';
+import { useSignOut, useTerms } from '../api/hooks';
 import { Credit } from '../components/Brand';
 import { InstallDialog, runsInstalled } from '../components/InstallDialog';
+import { TermsDialog } from '../components/TermsDialog';
 import { Button, ErrorNote, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
 
@@ -25,9 +27,13 @@ export function initials(name: string): string {
 
 /** The account at a glance, and the way to everything about it. */
 export function ProfilePage({ me }: { me: Me }) {
-  const { t, errorText } = useI18n();
+  const { t, errorText, locale } = useI18n();
   const signOut = useSignOut();
   const [installing, setInstalling] = useState(false);
+  const [reading, setReading] = useState(false);
+  const terms = useTerms(locale);
+  // Nothing to read while the administrator has not written the rules for this language.
+  const hasTerms = Boolean(terms.data?.enabled && terms.data.html !== '');
 
   return (
     <div className="mx-auto flex w-full max-w-[560px] animate-enter flex-col gap-6 px-4 pb-10 pt-6 md:px-8 md:pt-8">
@@ -54,6 +60,14 @@ export function ProfilePage({ me }: { me: Me }) {
           hint={t('profile.categories.hint')}
           to="/categories"
         />
+        {hasTerms && (
+          <Row
+            icon={ScrollText}
+            title={t('terms.title')}
+            hint={t('profile.terms.hint')}
+            onClick={() => setReading(true)}
+          />
+        )}
         {me.role === 'admin' && (
           <Row
             icon={ShieldCheck}
@@ -86,6 +100,9 @@ export function ProfilePage({ me }: { me: Me }) {
       <Credit className="items-center text-center lg:hidden" />
 
       {installing && <InstallDialog onClose={() => setInstalling(false)} />}
+      {reading && (
+        <TermsDialog mode={{ kind: 'read' }} updating={false} onClose={() => setReading(false)} />
+      )}
     </div>
   );
 }

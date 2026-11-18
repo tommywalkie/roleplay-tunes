@@ -11,11 +11,13 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { useLibrary, useScenes, useSounds } from '../api/hooks';
+import { useAcceptTerms, useLibrary, useScenes, useSignOut, useSounds, useTerms } from '../api/hooks';
+import { termsAwait } from '@dnd/shared';
 import { MixEditor, type ItemDraft } from '../editors/MixEditor';
 import { PlayerProvider } from '../audio/player';
 import { Credit, Mark, Wordmark } from '../components/Brand';
 import { StorageMeter } from '../components/StorageMeter';
+import { TermsDialog } from '../components/TermsDialog';
 import { cx, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
@@ -58,12 +60,17 @@ function playableSounds(own: Sound[], library: Sound[]): Sound[] {
  * rail on the left and the player as a column on the right.
  */
 export function AppShell({ me }: { me: Me }) {
-  const { t } = useI18n();
+  const { t, locale, errorText } = useI18n();
   const { pathname } = useLocation();
   const own = useSounds().data;
   const library = useLibrary().data?.sounds;
   const sounds = useMemo(() => playableSounds(own ?? [], library ?? []), [own, library]);
   const scenes = useScenes().data;
+  const terms = useTerms(locale);
+  const accept = useAcceptTerms();
+  const signOut = useSignOut();
+  // The rules an administrator changed since this user accepted them, or never did.
+  const pending = terms.data ? termsAwait(terms.data, me.termsAcceptedAt) : false;
   // A mix holds the user's own and added sounds only: a library sound played as a preview
   // has to be added first.
   const ownIds = useMemo(() => new Set((own ?? []).map((s) => s.id)), [own]);
@@ -135,6 +142,22 @@ export function AppShell({ me }: { me: Me }) {
             me={me}
             initialItems={newMixItems.filter((item) => ownIds.has(item.soundId))}
             onClose={() => setNewMixItems(null)}
+          />
+        )}
+
+        {/* The rules stand over the board until they are answered: no close, no Escape. */}
+        {pending && (
+          <TermsDialog
+            updating={me.termsAcceptedAt !== null}
+            onClose={() => {}}
+            mode={{
+              kind: 'accept',
+              onAccept: () => accept.mutate(),
+              pending: accept.isPending,
+              error: accept.isError ? errorText(accept.error) : undefined,
+              onSignOut: () => signOut.mutate(),
+              signingOut: signOut.isPending,
+            }}
           />
         )}
 

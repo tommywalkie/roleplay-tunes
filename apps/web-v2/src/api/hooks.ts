@@ -5,6 +5,7 @@ import type {
   UpdateCategoryRequest,
   CreateSceneRequest,
   Library,
+  Locale,
   Me,
   Mix,
   PlayMode,
@@ -12,6 +13,7 @@ import type {
   ReusableImage,
   Scene,
   Sound,
+  Terms,
   UpdateMixRequest,
   UpdateSceneRequest,
   UpdateSoundRequest,
@@ -29,6 +31,7 @@ export const keys = {
   images: ['images'] as const,
   synonyms: ['synonyms'] as const,
   categories: ['categories'] as const,
+  terms: ['terms'] as const,
 };
 
 export type Kind = 'sounds' | 'mixes' | 'scenes';
@@ -73,6 +76,25 @@ export function usePublicSettings() {
   return useQuery({
     queryKey: keys.publicSettings,
     queryFn: () => api<PublicSettings>('/api/settings/public'),
+  });
+}
+
+/** The server rules in one language, sanitized on the server. Readable signed out. */
+export function useTerms(locale: Locale, enabled = true) {
+  return useQuery({
+    queryKey: [...keys.terms, locale],
+    queryFn: () => api<Terms>(`/api/terms/${locale}`),
+    staleTime: Infinity,
+    enabled,
+  });
+}
+
+/** Records that the user accepted the rules as they stand now. */
+export function useAcceptTerms() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api('/api/terms/accept', { method: 'POST', json: {} }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.me }),
   });
 }
 
@@ -128,7 +150,13 @@ export const useCategories = () =>
 export function useSaveCategory() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, body }: { id?: string; body: CreateCategoryRequest | UpdateCategoryRequest }) =>
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id?: string;
+      body: CreateCategoryRequest | UpdateCategoryRequest;
+    }) =>
       id
         ? api<Category>(`/api/categories/${id}`, { method: 'PATCH', json: body })
         : api<Category>('/api/categories', { method: 'POST', json: body }),
@@ -202,8 +230,7 @@ function useSave<Body, Result extends { id: string }>(kind: Kind) {
 
 export const useSaveSound = () => useSave<UpdateSoundRequest, Sound>('sounds');
 export const useSaveMix = () => useSave<CreateMixRequest | UpdateMixRequest, Mix>('mixes');
-export const useSaveScene = () =>
-  useSave<CreateSceneRequest | UpdateSceneRequest, Scene>('scenes');
+export const useSaveScene = () => useSave<CreateSceneRequest | UpdateSceneRequest, Scene>('scenes');
 
 export function useDelete(kind: Kind) {
   const qc = useQueryClient();

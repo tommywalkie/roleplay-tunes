@@ -52,7 +52,8 @@ is same-origin. `public/icons/*.json` is generated and required by the icon pick
 React 19, Vite, TypeScript (strict), Tailwind v4 (tokens in `src/index.css`, no config
 file), TanStack Query, React Router, lucide-react for interface icons, vitest + React
 Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) and
-`@dnd/audio-engine` (Web Audio engine).
+`@dnd/audio-engine` (Web Audio engine). Tiptap (ProseMirror) backs the server-rules field
+on the Admin page only, behind a lazy import so it stays out of the board's bundle.
 
 ## Layout of `src/`
 
@@ -64,8 +65,8 @@ Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) 
 | `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1024px), dock on phones and tablets |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
-| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
-| `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField` |
+| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `TermsDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
+| `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField`, `RulesEditor`/`RulesCard` (server rules, lazy) |
 | `layout/viewport.ts` | Measures the installed iPhone app's shortened viewport (see Safe areas) |
 | `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Categories, Profile, Settings, Admin, ResetPassword |
 | `api/admin.ts` | Admin queries and mutations, password reset |
@@ -135,7 +136,26 @@ observer and leaves the board on screen.
 markup comes from the server's own copy of the icon sets and is rendered as HTML; never
 render markup from any other source that way. A client sends an icon by `iconId` only;
 an image is a separate multipart `PUT /api/<kind>/<id>/image`
-(`illustrationChanges` decides what to send).
+(`illustrationChanges` decides what to send). The one exception is the server rules: HTML
+an admin wrote, sanitized on the way in against `TERMS_TAGS`/`TERMS_ATTRIBUTES` in
+`@dnd/shared`, rendered by `TermsDialog` into `.rich-text`.
+
+**Server rules (terms of service).** One sanitized text per language, in the same
+key/value settings table as the sign-up toggle and the default limits, plus a version
+stamp that moves only when the text really changed. `termsAwait(terms, me.termsAcceptedAt)`
+(one function, in `@dnd/shared`) decides whether they stand between the user and the board:
+`AppShell` then shows `TermsDialog` with `dismissible={false}` — no close button, no
+backdrop, no Escape — offering accept or sign out. The sign-up page instead gates creation on
+a checkbox that only unlocks once the reader reaches the foot of the text (an
+`IntersectionObserver` sentinel in `TermsDialog`); the Profile page offers a read-only copy.
+Switching language on the sign-up screen re-earns that unlock: another language is another
+text, and the box un-ticks.
+
+**Language belongs to the browser, not the account.** `I18nProvider` (above `App` in
+`main.tsx`) holds the locale and saves it to `localStorage` under `ambiance.locale`, which
+`detectLocale` reads back at boot. One `Segmented` on Settings and one on the sign-in screen
+set it, so a choice made before an account exists still holds once the app opens and
+survives a reload.
 
 ## Design direction
 
@@ -190,7 +210,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Icon picker over five libraries (13,728 icons), Twemoji being full-colour art with
   names from emojibase-data, and image upload
 - Settings: storage used against the limit, per-file limits, language, account
-- English and French
+- English and French, switchable on the sign-in screen and in Settings, remembered per browser
 - Product name (Roleplay Tunes) set in Cinzel, favicon set (SVG, 32, 192, 512, maskable
   512, Apple touch), a web app manifest, and a 1200×630 social preview with Open Graph and
   Twitter tags (the server fills in the absolute `PUBLIC_URL` in `index.html`)
@@ -223,6 +243,10 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Synonyms on sounds, mixes and scenes: tags with suggestions from the user's own
   (`GET /api/synonyms`); categories (name, color from a palette or any color, optional
   icon), several per item, as filters on the Scenes, Mixes, Sounds and Library pages
+- Server rules: an admin writes one sanitized text per language (Tiptap field, lazy
+  chunk, allowlist shared with the server's sanitizer); everyone else reads them in
+  `TermsDialog` — forced and un-closable when the version on record is not the current
+  one, offered from Profile, and required reading before an account can be created
 - "Choose image" reuses an image already shown on an own or added item
 - Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
   five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin

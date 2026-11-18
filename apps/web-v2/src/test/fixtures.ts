@@ -67,6 +67,7 @@ export function makeMe(over: Partial<Me> = {}): Me {
       mixItems: 50,
     },
     usage: { storageBytes: 125 * MB, sounds: 12, mixes: 3, scenes: 2 },
+    termsAcceptedAt: null,
     ...over,
   };
 }
