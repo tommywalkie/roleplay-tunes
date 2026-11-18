@@ -154,7 +154,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   own validation coerced values (`name: 5` became "5") and could not read multipart bodies.
   Response schemas still shape the output, so loose objects (`illustration`, `limits`,
   `usage`) must carry `additionalProperties: true` or their contents are stripped.
-- All server tests pass (250), and the server type-check is clean.
+- All server tests pass (283), and the server type-check is clean.
 - The server reads icon sets from `ICONS_DIR`, defaulting to `<WEB_DIST>/icons`, or to
   `apps/web-v2/public/icons` in development, where the icon script writes them.
 - An admin's password reset link points to `<PUBLIC_URL>/reset-password?token=…`, which
@@ -173,7 +173,8 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Sound upload (several files, per-file result), sound editor (name, illustration, play
   mode, volume, wait bounds, volume variation, scenes)
 - Mix editor (sounds, per-sound volume and mode, scenes) and scene editor (mixes, sounds)
-- Icon picker over four libraries (11,806 icons) and image upload
+- Icon picker over five libraries (13,728 icons), Twemoji being full-colour art with
+  names from emojibase-data, and image upload
 - Settings: storage used against the limit, per-file limits, language, account
 - English and French
 - Product name (Roleplay Tunes) set in Cinzel, favicon set (SVG, 32, 192, 512, maskable
@@ -200,16 +201,19 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   pictures); at the foot, who shared it (initials and name) and the license as a tag
 - A playing "once" sound: its progress runs along the foot of its tile's picture; in the
   player its row reads like a loop's, with "Once · length" where a loop has its fader
-- Icon and image pickers keep one height and scroll their own grid
+- Icon and image pickers keep one height and scroll their own grid; the icon grid is
+  virtualised and shows the whole selected set (no cap on mounted icons)
 - "Choose image" reuses an image already shown on an own or added item
 - Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
   five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin
 - Dockerfile and `.dockerignore` at the repo root (written, not yet built: see Not done)
-- 133 tests, all passing: playback rules, player panel stability, API client, i18n,
+- 137 tests, all passing: playback rules, player panel stability, API client, i18n,
   login, sign-out, pick list and pick field, limit fields, admin page, password reset,
   sound tile menu and pauses dialog, dialog stack, license field and codes, changing how
-  a playing sound repeats, mix editor pauses, Library rows, icon picker. Tests that open
-  a `Menu` stub `window.matchMedia` (jsdom has none)
+  a playing sound repeats, mix editor pauses, Library rows, icon picker (virtualised
+  grid: visible rows only, scroll to the end, search narrowing, scroll reset, pick).
+  Tests that open a `Menu` stub `window.matchMedia`, and the icon grid tests rely on the
+  `ResizeObserver` stub in `src/test/setup.ts` (jsdom has neither)
 
 ### Not done
 

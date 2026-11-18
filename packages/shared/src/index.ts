@@ -72,14 +72,14 @@ const idListSchema = z.array(idSchema).max(1000);
 
 // Illustrations
 
-export const ICON_SETS = ['tabler', 'material', 'lucide', 'healthicons'] as const;
+export const ICON_SETS = ['tabler', 'material', 'lucide', 'healthicons', 'twemoji'] as const;
 export type IconSet = (typeof ICON_SETS)[number];
 
 /** `<set>:<slug>`, for example `tabler:door`. */
 export const iconIdSchema = z
   .string()
   .max(120)
-  .regex(/^(tabler|material|lucide|healthicons):[a-z0-9][a-z0-9-]*$/);
+  .regex(/^(tabler|material|lucide|healthicons|twemoji):[a-z0-9][a-z0-9-]*$/);
 
 export const illustrationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),

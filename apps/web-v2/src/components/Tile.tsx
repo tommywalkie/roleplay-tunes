@@ -47,7 +47,6 @@ export function Tile({
   fallback,
   meta,
   active = false,
-  progress,
   onPress,
   to,
   onEdit,

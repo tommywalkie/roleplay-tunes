@@ -18,7 +18,9 @@ interface IconSetFile {
   icons: Record<string, { m: string; l: string }>;
 }
 
-const MAX_SHOWN = 120;
+/** Grid sizing for the virtualised rows: square cells at least 44px wide, gap-1 between. */
+const GRID_GAP = 4;
+const MIN_CELL = 44;
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -236,6 +238,15 @@ function IconPicker({
     () => (query.trim() ? all.filter(([slug, icon]) => matches(`${icon.l} ${slug}`, query)) : all),
     [all, query],
   );
+  const cells = useMemo(
+    () =>
+      found.map(([slug, icon]) => ({
+        iconId: `${current}:${slug}`,
+        markup: icon.m,
+        label: icon.l,
+      })),
+    [found, current],
+  );
 
   if (libraries.isError) {
     return <p className="text-[13px] leading-5 text-danger">{t('illustration.iconsMissing')}</p>;
@@ -257,45 +268,16 @@ function IconPicker({
         </Select>
         <SearchField value={query} onChange={setQuery} label={t('common.search')} />
       </div>
-      {/* Only the icons scroll; the dialog keeps its height while a library loads. */}
-      <div className="scroll-quiet -mx-2 min-h-0 flex-1 overflow-y-auto px-2">
+      {/* Loading and errors keep the dialog's height; only the icons scroll. */}
       {set.isLoading || libraries.isLoading ? (
-        <div className="flex h-full items-center justify-center">
+        <div className="flex min-h-0 flex-1 items-center justify-center">
           <Spinner label={t('common.loading')} />
         </div>
       ) : set.isError ? (
         <p className="text-[13px] leading-5 text-danger">{t('illustration.iconsMissing')}</p>
       ) : (
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(44px,1fr))] gap-1">
-            {found.slice(0, MAX_SHOWN).map(([slug, icon]) => {
-              const iconId = `${current}:${slug}`;
-              return (
-                <li key={slug}>
-                  <button
-                    type="button"
-                    title={icon.l}
-                    aria-label={icon.l}
-                    aria-pressed={iconId === selected}
-                    onClick={() => onPick(iconId, icon.m)}
-                    className={cx(
-                      'flex aspect-square w-full items-center justify-center rounded-[8px] transition-colors duration-150',
-                      iconId === selected
-                        ? 'bg-raised text-lamp'
-                        : 'text-ink-2 hover:bg-raised hover:text-ink',
-                    )}
-                  >
-                    <span
-                      className="svg-fill block size-6"
-                      aria-hidden
-                      dangerouslySetInnerHTML={{ __html: icon.m }}
-                    />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+        <IconGrid cells={cells} selected={selected} onPick={onPick} />
       )}
-      </div>
       <p className="h-4 shrink-0 text-[12px] leading-4 text-ink-3 tabular-nums">
         {set.data &&
           (query.trim() && found.length === 0
@@ -304,6 +286,105 @@ function IconPicker({
                 n: new Intl.NumberFormat(locale).format(found.length),
               }))}
       </p>
+    </div>
+  );
+}
+
+const range = (from: number, to: number) =>
+  Array.from({ length: Math.max(0, to - from) }, (_, index) => from + index);
+
+/** The icon buttons, virtualised: only the rows on screen are in the DOM, so the whole
+ * set (thousands) can be shown. Rows are uniform squares of at least 44px with a gap
+ * between them — the CSS grid here is built from the same numbers the scroll math uses. */
+function IconGrid({
+  cells,
+  selected,
+  onPick,
+}: {
+  cells: { iconId: string; markup: string; label: string }[];
+  selected: string | null;
+  onPick: (iconId: string, svg: string) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const frame = useRef(0);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const [scrollTop, setScrollTop] = useState(0);
+
+  // The dialog fixes this area's height; the observer tracks resizes (rotation, split view).
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setBox({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // A new search or library starts from the top.
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [cells]);
+
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  const cols = Math.max(1, Math.floor((box.width + GRID_GAP) / (MIN_CELL + GRID_GAP)));
+  const cell = (box.width - GRID_GAP * (cols - 1)) / cols;
+  const rowHeight = cell + GRID_GAP;
+  const rows = Math.ceil(cells.length / cols);
+  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - 1);
+  const last = Math.min(rows, Math.ceil((scrollTop + box.height) / rowHeight) + 1);
+
+  // Scroll events can outpace frames; one update per frame is enough.
+  const onScroll = () => {
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => setScrollTop(scroller.current?.scrollTop ?? 0));
+  };
+
+  return (
+    <div
+      ref={scroller}
+      onScroll={onScroll}
+      className="scroll-quiet -mx-2 min-h-0 flex-1 overflow-y-auto px-2"
+    >
+      <div className="relative w-full" style={{ height: Math.max(0, rows * rowHeight - GRID_GAP) }}>
+        {range(first, last).map((row) => (
+          <div
+            key={row}
+            className="absolute left-0 right-0 grid"
+            style={{
+              top: row * rowHeight,
+              height: cell,
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              columnGap: GRID_GAP,
+            }}
+          >
+            {cells.slice(row * cols, row * cols + cols).map((item) => (
+              <button
+                key={item.iconId}
+                type="button"
+                title={item.label}
+                aria-label={item.label}
+                aria-pressed={item.iconId === selected}
+                onClick={() => onPick(item.iconId, item.markup)}
+                className={cx(
+                  'flex aspect-square w-full items-center justify-center rounded-[8px] transition-colors duration-150',
+                  item.iconId === selected
+                    ? 'bg-raised text-lamp'
+                    : 'text-ink-2 hover:bg-raised hover:text-ink',
+                )}
+              >
+                <span
+                  className="svg-fill block size-6"
+                  aria-hidden
+                  dangerouslySetInnerHTML={{ __html: item.markup }}
+                />
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
