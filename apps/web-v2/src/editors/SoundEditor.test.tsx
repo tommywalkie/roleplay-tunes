@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { illustrationChanges } from '../components/IllustrationField';
@@ -32,7 +32,8 @@ describe('SoundEditor', () => {
   it('lets the owner set description, license and visibility', async () => {
     const { user, fetchMock } = renderEditor();
     await user.type(screen.getByLabelText('Description'), 'Crowd in a busy inn');
-    await user.type(screen.getByLabelText('License'), 'CC0');
+    await user.selectOptions(screen.getByLabelText('License'), 'CC BY 4.0');
+    expect(screen.queryByLabelText('Your license')).not.toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: 'Public' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -40,8 +41,76 @@ describe('SoundEditor', () => {
     expect(url).toBe('/api/sounds/s1');
     expect(JSON.parse(String(init?.body))).toMatchObject({
       description: 'Crowd in a busy inn',
-      license: 'CC0',
+      license: 'CC BY 4.0',
       isPublic: true,
+    });
+  });
+
+  it('saves the typed text when the license is Other', async () => {
+    const { user, fetchMock } = renderEditor();
+    await user.selectOptions(screen.getByLabelText('License'), 'Other');
+    await user.type(screen.getByLabelText('Your license'), 'Recorded by Jo, credit required');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      license: 'Recorded by Jo, credit required',
+    });
+  });
+
+  it('shows a sound without a license as Unknown and saves it unchanged', async () => {
+    const { user, fetchMock } = renderEditor();
+    expect(screen.getByLabelText('License')).toHaveDisplayValue('Unknown');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ license: '' });
+  });
+
+  it('saves the options worded per language as codes', async () => {
+    const { user, fetchMock } = renderEditor(makeSound({ license: 'CC0 1.0' }));
+    const license = screen.getByLabelText('License');
+    await user.selectOptions(license, 'Private use only');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ license: 'private-use' });
+
+    await user.selectOptions(license, 'Unknown');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ license: 'unknown' });
+  });
+
+  it('opens a custom license on Other with its text filled in', () => {
+    renderEditor(makeSound({ license: 'Free for streams' }));
+    expect(screen.getByLabelText('License')).toHaveDisplayValue('Other');
+    expect(screen.getByLabelText('Your license')).toHaveValue('Free for streams');
+  });
+
+  it('picks an icon in its own dialog, which closes and updates the preview', async () => {
+    const { user } = renderEditor();
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
+      if (url === '/icons/index.json') return json(200, [{ id: 'game', label: 'Game icons', count: 2 }]);
+      if (url === '/icons/game.json') {
+        return json(200, {
+          icons: {
+            dragon: { m: '<svg data-icon="dragon"></svg>', l: 'Dragon' },
+            sword: { m: '<svg data-icon="sword"></svg>', l: 'Sword' },
+          },
+        });
+      }
+      return json(200, makeSound());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const editor = screen.getByRole('dialog', { name: 'Edit sound' });
+
+    await user.click(within(editor).getByRole('button', { name: 'Choose icon' }));
+    const picker = within(screen.getByRole('dialog', { name: 'Choose icon' }));
+    await user.click(await picker.findByRole('button', { name: 'Dragon' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Choose icon' })).not.toBeInTheDocument();
+    expect(editor.querySelector('[data-icon="dragon"]')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)![1]?.body))).toMatchObject({
+      illustration: { type: 'icon', iconId: 'game:dragon' },
     });
   });
 

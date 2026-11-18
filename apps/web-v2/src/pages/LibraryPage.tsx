@@ -1,13 +1,15 @@
 import type { Illustration, Mix, Sound } from '@dnd/shared';
 import { Check, Play, Plus, Square, type LucideIcon } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
-import { useLibrary, useLibraryEntry } from '../api/hooks';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useLibrary, useLibraryEntry, useSounds } from '../api/hooks';
 import { usePlayer } from '../audio/player';
 import { Thumb } from '../components/Illustration';
-import { FALLBACK_ICONS, MODE_LABELS } from '../components/kinds';
+import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { matches, NoMatch, Page, QueryGate } from '../components/Page';
-import { Button, EmptyState, IconButton, Lamp, Segmented } from '../components/ui';
+import { Button, cx, EmptyState, Icon, IconButton, Lamp, Segmented } from '../components/ui';
+import { licenseText } from '../editors/LicenseField';
 import { useI18n } from '../i18n';
+import { initials } from './ProfilePage';
 
 type Tab = 'sounds' | 'mixes';
 
@@ -18,8 +20,14 @@ export function LibraryPage() {
   const [tab, setTab] = useState<Tab>('sounds');
   const [query, setQuery] = useState('');
 
+  const own = useSounds().data;
   const sounds = library.data?.sounds ?? [];
   const mixes = library.data?.mixes ?? [];
+  // A public mix may use public sounds or the user's own: either can draw its stack.
+  const soundsById = useMemo(
+    () => new Map([...(own ?? []), ...(library.data?.sounds ?? [])].map((s) => [s.id, s])),
+    [own, library.data?.sounds],
+  );
   const searchable = (item: Sound | Mix) =>
     `${item.name} ${item.ownerName} ${item.description ?? ''}`;
   const shownSounds = sounds.filter((s) => matches(searchable(s), query));
@@ -84,7 +92,7 @@ export function LibraryPage() {
             ) : (
               <ul className="flex flex-col rounded-[16px] border border-line bg-card">
                 {shownMixes.map((mix) => (
-                  <MixRow key={mix.id} mix={mix} />
+                  <MixRow key={mix.id} mix={mix} soundsById={soundsById} />
                 ))}
               </ul>
             )}
@@ -99,12 +107,22 @@ function SoundRow({ sound }: { sound: Sound }) {
   const { t, duration } = useI18n();
   const player = usePlayer();
   const entry = useLibraryEntry('sounds');
+  const ModeIcon = MODE_ICONS[sound.defaultMode];
   return (
     <Row
       name={sound.name}
       illustration={sound.illustration}
       fallback={FALLBACK_ICONS.sound}
-      meta={`${t('library.by', { name: sound.ownerName })} · ${t(MODE_LABELS[sound.defaultMode])} · ${duration(sound.durationSec)}`}
+      what={
+        <>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ModeIcon size={14} strokeWidth={1.5} aria-hidden className="shrink-0" />
+            <span className="truncate">{t(MODE_LABELS[sound.defaultMode])}</span>
+          </span>
+          <span className="font-mono text-[12px] tabular-nums">{duration(sound.durationSec)}</span>
+        </>
+      }
+      owner={sound.ownerName}
       description={sound.description}
       license={sound.license}
       playing={player.isSoundPlaying(sound.id)}
@@ -121,16 +139,37 @@ function SoundRow({ sound }: { sound: Sound }) {
   );
 }
 
-function MixRow({ mix }: { mix: Mix }) {
-  const { t, tn } = useI18n();
+const MIX_THUMBS = 4;
+
+function MixRow({ mix, soundsById }: { mix: Mix; soundsById: Map<string, Sound> }) {
+  const { tn } = useI18n();
   const player = usePlayer();
   const entry = useLibraryEntry('mixes');
+  const inside = mix.items.slice(0, MIX_THUMBS).map((item) => soundsById.get(item.soundId));
   return (
     <Row
       name={mix.name}
       illustration={mix.illustration}
       fallback={FALLBACK_ICONS.mix}
-      meta={`${t('library.by', { name: mix.ownerName })} · ${tn('count.sounds', mix.items.length)}`}
+      what={
+        <>
+          {/* The sounds it is made of, as a small overlapping stack of their pictures. */}
+          {inside.length > 0 && (
+            <span className="flex shrink-0 items-center pl-1.5" aria-hidden>
+              {inside.map((sound, i) => (
+                <Thumb
+                  key={mix.items[i]!.id}
+                  value={sound?.illustration ?? { type: 'none' }}
+                  fallback={FALLBACK_ICONS.sound}
+                  className="-ml-1.5 size-5 rounded-[5px] ring-2 ring-card [&_svg]:size-3"
+                />
+              ))}
+            </span>
+          )}
+          <span className="truncate">{tn('count.sounds', mix.items.length)}</span>
+        </>
+      }
+      owner={mix.ownerName}
       description={mix.description}
       playing={player.isMixPlaying(mix.id)}
       onPlay={() => player.toggleMix(mix)}
@@ -150,7 +189,8 @@ function Row({
   name,
   illustration,
   fallback,
-  meta,
+  what,
+  owner,
   description,
   license,
   playing,
@@ -160,7 +200,10 @@ function Row({
   name: string;
   illustration: Illustration;
   fallback: LucideIcon;
-  meta: string;
+  /** What the item is, under its name: a sound's mode and length, a mix's sounds. */
+  what: ReactNode;
+  /** Who shared it, shown with their initials at the foot of the row. */
+  owner: string;
   description: string | null;
   license?: string | null;
   playing: boolean;
@@ -168,33 +211,63 @@ function Row({
   action: ReactNode;
 }) {
   const { t } = useI18n();
+  // Phones: the description and the bottom line use the full row width, under the
+  // thumbnail. From tablet width they line up with the name.
+  const below = 'col-span-3 md:col-start-2 md:col-end-4';
   return (
-    <li className="flex items-start gap-4 border-t border-line px-4 py-4 first:border-t-0 md:px-5">
-      <Thumb value={illustration} fallback={fallback} lit={playing} className="size-14 rounded-[10px]" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+    <li className="grid grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-t border-line px-4 py-3 first:border-t-0 md:grid-cols-[56px_minmax(0,1fr)_auto] md:gap-x-4 md:px-5 md:py-4">
+      <Thumb
+        value={illustration}
+        fallback={fallback}
+        lit={playing}
+        className="size-12 rounded-[10px] md:size-14"
+      />
+      <div className="flex min-w-0 flex-col">
         <span className="flex items-center gap-2">
           <Lamp on={playing} />
           <span className="truncate text-[15px] leading-6 font-medium">{name}</span>
         </span>
-        <span className="truncate pl-4 text-[13px] leading-5 text-ink-3 tabular-nums">{meta}</span>
-        {description && (
-          <p className="line-clamp-2 pl-4 text-[14px] leading-5 text-ink-2">{description}</p>
-        )}
-        {license && (
-          <p className="truncate pl-4 text-[13px] leading-5 text-ink-3">
-            {t('library.license', { license })}
-          </p>
-        )}
+        <span className="flex h-5 min-w-0 items-center gap-3 pl-4 text-[13px] leading-5 text-ink-3">
+          {what}
+        </span>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <IconButton
-          icon={playing ? Square : Play}
-          label={t(playing ? 'library.stop' : 'library.play', { name })}
-          aria-pressed={playing}
-          onClick={onPlay}
-          className={playing ? 'text-lamp hover:text-lamp' : undefined}
-        />
-        {action}
+      <IconButton
+        icon={playing ? Square : Play}
+        label={t(playing ? 'library.stop' : 'library.play', { name })}
+        aria-pressed={playing}
+        onClick={onPlay}
+        variant="secondary"
+        className={playing ? 'text-lamp hover:text-lamp' : undefined}
+      />
+      {description && (
+        <p className={cx(below, 'line-clamp-3 text-[14px] leading-5 text-ink-2 md:line-clamp-2')}>
+          {description}
+        </p>
+      )}
+      <div className={cx(below, 'flex min-h-11 items-center gap-3')}>
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            aria-hidden
+            className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-[10px] leading-none font-medium text-ink-2"
+          >
+            {initials(owner)}
+          </span>
+          <span className="sr-only">{t('library.by', { name: owner })}</span>
+          <span aria-hidden className="truncate text-[13px] leading-5 text-ink-2">
+            {owner}
+          </span>
+        </span>
+        {license && (
+          // Set like a small label stuck on the item, so it reads apart from the owner.
+          <span
+            title={t('library.license', { license: licenseText(license, t) })}
+            className="min-w-0 truncate rounded-[6px] border border-line px-1.5 text-[12px] leading-5 text-ink-3"
+          >
+            <span className="sr-only">{t('library.license', { license: licenseText(license, t) })}</span>
+            <span aria-hidden>{licenseText(license, t)}</span>
+          </span>
+        )}
+        <span className="ml-auto shrink-0">{action}</span>
       </div>
     </li>
   );
@@ -212,14 +285,16 @@ function AddButton({
   onAdd: () => void;
 }) {
   const { t } = useI18n();
+  // Yours and Added are states, not actions: quiet text, so only Add reads as a button.
   if (access === 'owner') {
-    return <span className="w-24 text-center text-[13px] leading-5 text-ink-3">{t('library.yours')}</span>;
+    return <span className="shrink-0 text-[13px] leading-5 text-ink-3">{t('library.yours')}</span>;
   }
   if (access === 'added') {
     return (
-      <Button variant="ghost" icon={Check} disabled className="w-24 px-3">
+      <span className="flex shrink-0 items-center gap-1.5 text-[13px] leading-5 text-ink-2">
+        <Icon icon={Check} />
         {t('library.added')}
-      </Button>
+      </span>
     );
   }
   return (
@@ -228,7 +303,7 @@ function AddButton({
       busy={busy}
       onClick={onAdd}
       aria-label={t('library.addItem', { name })}
-      className="w-24 px-3"
+      className="px-3"
     >
       {t('library.add')}
     </Button>

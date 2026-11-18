@@ -9,9 +9,10 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { useLibrary, useSounds } from '../api/hooks';
+import { useLibrary, useScenes, useSounds } from '../api/hooks';
+import { MixEditor, type ItemDraft } from '../editors/MixEditor';
 import { PlayerProvider } from '../audio/player';
 import { Credit, Mark, Wordmark } from '../components/Brand';
 import { StorageMeter } from '../components/StorageMeter';
@@ -57,6 +58,11 @@ export function AppShell({ me }: { me: Me }) {
   const own = useSounds().data;
   const library = useLibrary().data?.sounds;
   const sounds = useMemo(() => playableSounds(own ?? [], library ?? []), [own, library]);
+  const scenes = useScenes().data;
+  // A mix holds the user's own and added sounds only: a library sound played as a preview
+  // has to be added first.
+  const ownIds = useMemo(() => new Set((own ?? []).map((s) => s.id)), [own]);
+  const [newMixItems, setNewMixItems] = useState<ItemDraft[] | null>(null);
   const rail = [
     ...TABS.map((item) => ({ ...item, also: undefined })),
     ...RAIL_EXTRA,
@@ -67,7 +73,7 @@ export function AppShell({ me }: { me: Me }) {
 
   return (
     <PlayerProvider sounds={sounds}>
-      <div className="grid h-dvh grid-cols-1 md:grid-cols-[72px_minmax(0,1fr)_320px] lg:grid-cols-[232px_minmax(0,1fr)_344px]">
+      <div className="grid h-full grid-cols-1 md:grid-cols-[72px_minmax(0,1fr)_320px] lg:grid-cols-[232px_minmax(0,1fr)_344px]">
         <nav
           aria-label={t('app.name')}
           className="hidden flex-col border-r border-line bg-deep md:flex"
@@ -109,15 +115,26 @@ export function AppShell({ me }: { me: Me }) {
           </div>
         </nav>
 
-        <main className="scroll-quiet min-w-0 overflow-y-auto pb-[calc(120px+env(safe-area-inset-bottom))] md:pb-0">
+        {/* Its own stacking context: nothing in a page can paint over the player or the tab bar. */}
+        <main className="scroll-quiet relative z-0 min-w-0 overflow-y-auto pb-[calc(120px+var(--safe-bottom))] md:pb-0">
           <Outlet />
         </main>
 
-        <PlayerPanel sounds={sounds} />
+        <PlayerPanel sounds={sounds} onSaveAsMix={setNewMixItems} />
+        {newMixItems && (
+          <MixEditor
+            mix={null}
+            sounds={own ?? []}
+            scenes={scenes ?? []}
+            me={me}
+            initialItems={newMixItems.filter((item) => ownIds.has(item.soundId))}
+            onClose={() => setNewMixItems(null)}
+          />
+        )}
 
         <nav
           aria-label={t('app.name')}
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[var(--safe-bottom)] md:hidden"
         >
           <ul className="grid h-14 auto-cols-fr grid-flow-col">
             {TABS.map((item) => (

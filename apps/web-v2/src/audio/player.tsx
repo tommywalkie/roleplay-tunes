@@ -4,9 +4,18 @@ import {
   type EngineSnapshot,
   type LayerConfig,
   type LayerMode,
+  type LayerState,
   type SoundDescriptor,
 } from '@dnd/audio-engine';
-import type { Mix, PlayMode, Sound } from '@dnd/shared';
+import {
+  DEFAULT_INTERVAL_MAX_SEC,
+  DEFAULT_INTERVAL_MIN_SEC,
+  MIN_INTERVAL_SEC,
+  type Mix,
+  type MixItemInput,
+  type PlayMode,
+  type Sound,
+} from '@dnd/shared';
 import {
   createContext,
   useContext,
@@ -48,7 +57,8 @@ function toLayerMode(s: LayerSettings): LayerMode {
       volumeJitter: [1 - s.volumeVariation, 1],
     };
   }
-  return { type: 'loop' };
+  // The engine starts loops at a random point by default; here a loop always starts at its beginning.
+  return { type: 'loop', randomStart: false };
 }
 
 function toLayer(id: string, soundId: string, s: LayerSettings): LayerConfig {
@@ -63,12 +73,59 @@ const soundSettings = (sound: Sound): LayerSettings => ({
   volumeVariation: sound.volumeVariation,
 });
 
+/**
+ * What the player plays, as the items of a new mix: each sound once, with the mode,
+ * volume and pauses it plays with right now. One-shots in flight are not part of it.
+ */
+export function layersToMixItems(layers: LayerState[]): Required<MixItemInput>[] {
+  const seen = new Set<string>();
+  return layers.flatMap((layer) => {
+    if (seen.has(layer.soundId)) return [];
+    seen.add(layer.soundId);
+    const mode = layer.mode;
+    const recurring = mode.type === 'recurring';
+    return [
+      {
+        soundId: layer.soundId,
+        mode: recurring ? 'recurring' : 'loop',
+        volume: layer.volume,
+        intervalMinSec: recurring ? Math.max(MIN_INTERVAL_SEC, mode.minInterval) : DEFAULT_INTERVAL_MIN_SEC,
+        intervalMaxSec: recurring ? Math.max(MIN_INTERVAL_SEC, mode.maxInterval) : DEFAULT_INTERVAL_MAX_SEC,
+        volumeVariation: recurring ? 1 - (mode.volumeJitter?.[0] ?? 1) : 0,
+      },
+    ];
+  });
+}
+
+/** A way to play a sound, chosen at play time rather than saved on the sound. */
+export type SoundPlay =
+  | { mode: 'oneshot' }
+  | { mode: 'loop' }
+  | { mode: 'recurring'; intervalMinSec: number; intervalMaxSec: number };
+
+/** How the sound plays when started with no other choice: its own saved settings. */
+export const defaultPlay = (sound: Sound): SoundPlay =>
+  sound.defaultMode === 'recurring'
+    ? { mode: 'recurring', intervalMinSec: sound.intervalMinSec, intervalMaxSec: sound.intervalMaxSec }
+    : { mode: sound.defaultMode };
+
 export interface Player {
   snapshot: EngineSnapshot;
   /** Starts the mix, replacing what plays. Tapping the mix that plays stops it. */
   toggleMix: (mix: Mix) => void;
   /** One-shot sounds fire on every tap. Others switch on and off, on top of what plays. */
   toggleSound: (sound: Sound) => void;
+  /**
+   * Plays a sound the way the user picked, whatever its own mode. If it already plays,
+   * on its own or in a mix, it starts over in the new way instead of doubling.
+   */
+  playSoundAs: (sound: Sound, play: SoundPlay) => void;
+  /**
+   * Changes how a layer that plays repeats: as a loop, or with other random pauses. It
+   * keeps its place, its volume and its mute. Switching between loop and pauses restarts
+   * the sound; new pauses apply from the next play.
+   */
+  setLayerPlay: (layerId: string, sound: Sound, play: Exclude<SoundPlay, { mode: 'oneshot' }>) => void;
   /** Stops every layer and every one-shot. */
   stopAll: () => void;
   togglePause: () => void;
@@ -94,6 +151,11 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
   };
   const stopIfEmpty = () => {
     if (layers().length === 0) engine.stop();
+  };
+  const startLayer = (sound: Sound, settings: LayerSettings) => {
+    const layer = toLayer(`sound:${sound.id}`, sound.id, settings);
+    if (engine.getSnapshot().mix) engine.addLayer(layer);
+    else engine.playMix({ id: LOOSE_MIX_ID, name: '', layers: [layer] });
   };
 
   return {
@@ -127,9 +189,45 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
         stopIfEmpty();
         return;
       }
-      const layer = toLayer(`sound:${sound.id}`, sound.id, soundSettings(sound));
-      if (engine.getSnapshot().mix) engine.addLayer(layer);
-      else engine.playMix({ id: LOOSE_MIX_ID, name: '', layers: [layer] });
+      startLayer(sound, soundSettings(sound));
+    },
+    playSoundAs(sound, play) {
+      wake();
+      if (play.mode === 'oneshot') {
+        engine.playOneshot(sound.id);
+        return;
+      }
+      const replaced = layers().filter((l) => l.soundId === sound.id);
+      for (const layer of replaced) engine.removeLayer(layer.id);
+      startLayer(sound, {
+        ...soundSettings(sound),
+        // A sound that already plays keeps the volume it was given in the player.
+        volume: replaced[0]?.volume ?? sound.defaultVolume,
+        mode: play.mode,
+        ...(play.mode === 'recurring'
+          ? { intervalMinSec: play.intervalMinSec, intervalMaxSec: play.intervalMaxSec }
+          : {}),
+      });
+    },
+    setLayerPlay(layerId, sound, play) {
+      const current = layers().find((l) => l.id === layerId);
+      if (!current) return;
+      const jitter: [number, number] =
+        current.mode.type === 'recurring' && current.mode.volumeJitter
+          ? current.mode.volumeJitter
+          : [1 - sound.volumeVariation, 1];
+      wake();
+      engine.updateLayer(layerId, {
+        mode:
+          play.mode === 'loop'
+            ? { type: 'loop', randomStart: false }
+            : {
+                type: 'recurring',
+                minInterval: Math.min(play.intervalMinSec, play.intervalMaxSec),
+                maxInterval: Math.max(play.intervalMinSec, play.intervalMaxSec),
+                volumeJitter: jitter,
+              },
+      });
     },
     stopAll() {
       engine.stop();

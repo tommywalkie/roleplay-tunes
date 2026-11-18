@@ -8,6 +8,9 @@ import { App } from './App';
 import { ToastProvider } from './components/Toasts';
 import { I18nProvider } from './i18n';
 import './index.css';
+import { watchViewportShortfall } from './layout/viewport';
+
+watchViewportShortfall();
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineEvents } from '../src';
+import { encodeFakeAudio } from '../src/testing';
 import { flush, graphNodes, settled, setup } from './helpers';
 
 const sounds = {
@@ -113,6 +114,29 @@ describe('One-shots', () => {
     engine.setEffectsVolume(0.5);
     expect(settled(graphNodes(ctx).oneshot.gain)).toBeCloseTo(0.25);
     expect(engine.getSnapshot().effectsVolume).toBe(0.5);
+  });
+
+  it('stopAllOneshots drops a one-shot whose buffer is still loading', async () => {
+    const { engine, ctx, fetchSound } = setup({ sounds });
+    await engine.unlock();
+    let release!: () => void;
+    fetchSound.mockImplementationOnce(
+      () =>
+        new Promise<ArrayBuffer>((r) => {
+          release = () => r(encodeFakeAudio({ seconds: 1 }));
+        }),
+    );
+    engine.playOneshot('sword');
+    await flush();
+    engine.stopAllOneshots(0.1);
+    release();
+    await flush();
+    expect(ctx.playingSources()).toHaveLength(0);
+    expect(engine.getSnapshot().activeOneshotCount).toBe(0);
+
+    // Only the one-shots requested before the stop are dropped.
+    engine.playOneshot('sword');
+    expect(ctx.playingSources()).toHaveLength(1);
   });
 
   it('handle.setVolume adjusts individual voice gain live', async () => {

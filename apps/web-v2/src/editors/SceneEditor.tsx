@@ -6,7 +6,7 @@ import { Dialog } from '../components/Dialog';
 import type { IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { PickList } from '../components/PickList';
+import { PickField } from '../components/PickField';
 import { ErrorNote, Field, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
@@ -96,7 +96,7 @@ export function SceneEditor({
         maxImageBytes={me.limits.imageFileBytes}
       />
 
-      <PickList
+      <PickField
         label={t('nav.mixes')}
         items={mixes}
         selected={mixIds}
@@ -105,7 +105,7 @@ export function SceneEditor({
         emptyText={t('mixes.empty.title')}
       />
 
-      <PickList
+      <PickField
         label={t('nav.sounds')}
         items={sounds}
         selected={soundIds}

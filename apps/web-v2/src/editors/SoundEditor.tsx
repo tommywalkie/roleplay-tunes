@@ -1,6 +1,5 @@
 import {
   DESCRIPTION_MAX,
-  LICENSE_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
   type Me,
@@ -21,6 +20,7 @@ import { ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../compo
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { EditorFooter } from './EditorFooter';
+import { LicenseField } from './LicenseField';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
 const clampInterval = (n: number) =>
@@ -108,7 +108,7 @@ export function SoundEditor({
             onCancel={onClose}
             onDelete={() => unlink.mutate({ id: sound.id, add: false }, { onSuccess: onClose })}
             deleteLabel={t('share.remove')}
-            confirmLabel={t('share.confirmRemove')}
+            confirmText={t('share.confirmRemove')}
             saving={save.isPending}
             deleting={unlink.isPending}
           />
@@ -139,16 +139,7 @@ export function SoundEditor({
           error={fields?.description}
         />
 
-        <Field label={t('sounds.license')} hint={t('sounds.licenseHint')} error={fields?.license}>
-          {(id) => (
-            <TextInput
-              id={id}
-              value={license}
-              maxLength={LICENSE_MAX}
-              onChange={(e) => setLicense(e.target.value)}
-            />
-          )}
-        </Field>
+        <LicenseField value={license} onChange={setLicense} error={fields?.license} />
 
         <VisibilityField value={isPublic} onChange={setIsPublic} error={fields?.isPublic} />
 

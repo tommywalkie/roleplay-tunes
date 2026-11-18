@@ -1,4 +1,4 @@
-import { DESCRIPTION_MAX, type Me, type Mix, type MixItemInput, type PlayMode, type Scene, type Sound } from '@dnd/shared';
+import { DESCRIPTION_MAX, MAX_INTERVAL_SEC, MIN_INTERVAL_SEC, type Me, type Mix, type MixItemInput, type PlayMode, type Scene, type Sound } from '@dnd/shared';
 import { useMemo, useState } from 'react';
 import { ApiError } from '../api/client';
 import { useDelete, useLibraryEntry, useSaveMix, useSetMixVolumes } from '../api/hooks';
@@ -6,13 +6,52 @@ import { Dialog } from '../components/Dialog';
 import { Thumb, type IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
+import { PickField } from '../components/PickField';
 import { PickList } from '../components/PickList';
-import { ErrorNote, Fader, Field, Percent, TextInput } from '../components/ui';
+import { ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
-type ItemDraft = Required<MixItemInput>;
+export type ItemDraft = Required<MixItemInput>;
+
+const clampPause = (n: number) =>
+  Math.min(MAX_INTERVAL_SEC, Math.max(MIN_INTERVAL_SEC, Number.isFinite(n) ? n : MIN_INTERVAL_SEC));
+
+/** A pause bound in seconds. Kept as typed while editing; clamped when the mix is saved. */
+function PauseInput({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  return (
+    <Field label={label}>
+      {(id) => (
+        <TextInput
+          id={id}
+          type="number"
+          inputMode="numeric"
+          min={MIN_INTERVAL_SEC}
+          max={MAX_INTERVAL_SEC}
+          value={text}
+          disabled={disabled}
+          onChange={(e) => {
+            setText(e.target.value);
+            onChange(Number(e.target.value));
+          }}
+          className="font-mono tabular-nums disabled:opacity-45"
+        />
+      )}
+    </Field>
+  );
+}
 
 const fromSound = (sound: Sound): ItemDraft => ({
   soundId: sound.id,
@@ -33,12 +72,15 @@ export function MixEditor({
   scenes,
   me,
   onClose,
+  initialItems,
 }: {
   mix: Mix | null;
   sounds: Sound[];
   scenes: Scene[];
   me: Me;
   onClose: () => void;
+  /** Sounds a new mix starts with, such as what the player plays. */
+  initialItems?: ItemDraft[];
 }) {
   const { t, errorText } = useI18n();
   const save = useSaveMix();
@@ -62,7 +104,9 @@ export function MixEditor({
         intervalMinSec,
         intervalMaxSec,
         volumeVariation,
-      })) ?? [],
+      })) ??
+      initialItems ??
+      [],
   );
   const [sceneIds, setSceneIds] = useState(mix?.sceneIds ?? []);
 
@@ -101,7 +145,10 @@ export function MixEditor({
           name: name.trim(),
           description,
           isPublic,
-          items,
+          items: items.map((item) => {
+            const min = clampPause(item.intervalMinSec);
+            return { ...item, intervalMinSec: min, intervalMaxSec: Math.max(min, clampPause(item.intervalMaxSec)) };
+          }),
           sceneIds,
           ...(illustrationInput ? { illustration: illustrationInput } : {}),
         },
@@ -130,7 +177,7 @@ export function MixEditor({
             onCancel={onClose}
             onDelete={() => unlink.mutate({ id: mix.id, add: false }, { onSuccess: onClose })}
             deleteLabel={t('share.remove')}
-            confirmLabel={t('share.confirmRemove')}
+            confirmText={t('share.confirmRemove')}
             saving={save.isPending || setVolumes.isPending}
             deleting={unlink.isPending}
           />
@@ -177,7 +224,7 @@ export function MixEditor({
         />
 
         <div className="flex flex-col gap-2">
-          <PickList
+          <PickField
             label={t('mixes.sounds')}
             items={sounds}
             selected={items.map((i) => i.soundId)}
@@ -200,7 +247,8 @@ export function MixEditor({
               const sound = byId.get(item.soundId);
               const label = sound?.name ?? t('player.unknownSound');
               return (
-                <li key={item.soundId} className="flex min-h-16 items-center gap-3">
+                <li key={item.soundId} className="flex flex-col gap-2 py-1">
+                  <div className="flex min-h-16 items-center gap-3">
                   <Thumb value={sound?.illustration ?? { type: 'none' }} fallback={FALLBACK_ICONS.sound} />
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-[14px] leading-5">{label}</span>
@@ -213,19 +261,37 @@ export function MixEditor({
                       <Percent value={item.volume} />
                     </div>
                   </div>
-                  <select
+                  <Select
                     value={item.mode}
                     disabled={!owned}
                     onChange={(e) => patch(item.soundId, { mode: e.target.value as PlayMode })}
                     aria-label={`${t('sounds.playMode')}: ${label}`}
-                    className="h-11 w-32 shrink-0 rounded-[10px] border border-line bg-raised px-2 text-[14px] text-ink disabled:opacity-45"
+                    className="w-40 shrink-0 pr-8 text-[14px] disabled:opacity-45 sm:w-48"
                   >
                     {MODE_ORDER.map((m) => (
                       <option key={m} value={m}>
                         {t(MODE_LABELS[m])}
                       </option>
                     ))}
-                  </select>
+                  </Select>
+                  </div>
+                  {item.mode === 'recurring' && (
+                    // Under the name, past the thumbnail: the pauses belong to this sound.
+                    <div className="grid grid-cols-2 gap-3 pl-[52px]">
+                      <PauseInput
+                        label={t('sounds.gapMin')}
+                        value={item.intervalMinSec}
+                        disabled={!owned}
+                        onChange={(intervalMinSec) => patch(item.soundId, { intervalMinSec })}
+                      />
+                      <PauseInput
+                        label={t('sounds.gapMax')}
+                        value={item.intervalMaxSec}
+                        disabled={!owned}
+                        onChange={(intervalMaxSec) => patch(item.soundId, { intervalMaxSec })}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}

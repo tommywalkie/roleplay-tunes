@@ -6,7 +6,7 @@ import { Button, EmptyState, ErrorNote, Icon, SearchField, Spinner } from './ui'
 
 /**
  * Frame shared by every page: a title row whose action never moves, an optional search
- * field under it, then the content.
+ * field under it that stays at the top while the list scrolls, then the content.
  */
 export function Page({
   title,
@@ -52,15 +52,19 @@ export function Page({
         {description && (
           <p className="-mt-2 max-w-[60ch] text-[14px] leading-5 text-ink-2">{description}</p>
         )}
-        {search && (
+      </header>
+      {search && (
+        // A child of the whole page, not of the header, so it stays at the top of the
+        // scrolling area while the list moves under it. The band covers the list edge to edge.
+        <div className="sticky top-0 z-10 -mx-4 -my-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
           <SearchField
             value={search.value}
             onChange={search.onChange}
             label={t('common.search')}
             className="md:max-w-[360px]"
           />
-        )}
-      </header>
+        </div>
+      )}
       {children}
     </div>
   );

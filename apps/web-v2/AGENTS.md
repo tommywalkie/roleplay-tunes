@@ -64,8 +64,9 @@ Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) 
 | `player/PlayerPanel.tsx` | The always-visible player: column on tablet and desktop, dock on phones |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
-| `components/` | `Tile`, `Page`, `Dialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
-| `editors/` | Sound, mix and scene editors, upload dialog, shared footer |
+| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
+| `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField` |
+| `layout/viewport.ts` | Measures the installed iPhone app's shortened viewport (see Safe areas) |
 | `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Profile, Settings, Admin, ResetPassword |
 | `api/admin.ts` | Admin queries and mutations, password reset |
 | `i18n/` | `en.ts` is the source of keys, `fr.ts` must mirror it (a test checks this) |
@@ -87,6 +88,29 @@ nothing playing is a harmless no-op. `PlayerPanel.test.tsx` locks this in.
 - A "once" item inside a mix is played one time when the mix starts.
 - Any tap while paused resumes first, so a tap is never silent.
 - Removing the last layer stops the engine. Signing out stops everything.
+- A loop always starts at its beginning (`randomStart: false`).
+- Random pauses run from the end of one play to the start of the next, so plays of one
+  sound never overlap; the first play starts at once (engine, `graph/layer.ts`).
+- The sound tile menu plays a sound in any mode (`playSoundAs`), whatever its own. If the
+  sound already plays, alone or in a mix, it starts over in the new way, never doubled.
+- Stop all also drops "once" sounds still loading, so none starts after it.
+
+**Safe areas.** The status bar is `black-translucent`: the body is padded by the top and
+side insets, and screens fill the body with `h-full`, never `100dvh`. Use
+`var(--safe-bottom)` instead of `env(safe-area-inset-bottom)`: `layout/viewport.ts` takes
+off the part of the inset that an installed iPhone app's shortened viewport already covers.
+Entrance animations use fill mode `backwards`, and `main` is its own stacking context:
+on iOS Safari, a page element that keeps its last keyframe painted over the fixed player
+and dialogs.
+
+**Dialogs stack.** A `Dialog` opened from inside another hides the first's panel, which
+stays mounted with its form state; closing it shows the first again. The first dialog's
+dim layer stays for the whole stack, so the page never flashes between them. Delete
+confirmations (`EditorFooter`), the icon and image pickers (`IllustrationField`) and the
+lists of sounds and mixes to choose (`PickField`) open this way, to keep editors short.
+
+**Search stays on screen.** On list pages the search field sticks to the top of the
+scrolling area (`Page`); the title scrolls away.
 
 **Auth.** Sessions are cookies from Better Auth (`/api/auth/sign-in/email`,
 `/sign-up/email`, `/sign-out`). `useMe()` returns `null` on 401 and `App.tsx` shows the
@@ -161,13 +185,31 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Public library: sounds and mixes are private or public; public ones are listed on the
   Library page (preview, add). Added items keep their owner: their editor is greyed out
   except the user's own volume, scenes and "Remove from my library"
-- Description (sounds, mixes) and license (sounds)
+- Description (sounds, mixes) and license (sounds): a list of usual licenses, or "Other"
+  with free text. Options worded per language are saved as codes (`unknown`,
+  `private-use`) and shown through `licenseText`; license names are saved as they are
+- Mix editor: a "Random gaps" item shows its shortest and longest wait
+- Player: each playing sound has a button to switch it between loop and random pauses
+  (`setLayerPlay`), keeping its volume and its place in the mix
+- Sound tile menu: play with its own mode, once, as a loop, or with random pauses (a
+  dialog with Short, Medium and Very random suggestions), and edit
+- Player: "Save as a mix" opens a new mix with what loops right now (own and added sounds)
+- "Install the app" instructions on the Profile page and the sign-in page
+- Library rows readable on phones: description and license under the row, full width.
+  Under the name, what the item is (a sound's mode and length, a mix's stack of sound
+  pictures); at the foot, who shared it (initials and name) and the license as a tag
+- A playing "once" sound: its progress runs along the foot of its tile's picture; in the
+  player its row reads like a loop's, with "Once · length" where a loop has its fader
+- Icon and image pickers keep one height and scroll their own grid
 - "Choose image" reuses an image already shown on an own or added item
 - Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
   five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin
 - Dockerfile and `.dockerignore` at the repo root (written, not yet built: see Not done)
-- 77 tests: playback rules, player panel stability, API client, i18n, login, sign-out,
-  pick list, limit fields, admin page, password reset
+- 133 tests, all passing: playback rules, player panel stability, API client, i18n,
+  login, sign-out, pick list and pick field, limit fields, admin page, password reset,
+  sound tile menu and pauses dialog, dialog stack, license field and codes, changing how
+  a playing sound repeats, mix editor pauses, Library rows, icon picker. Tests that open
+  a `Menu` stub `window.matchMedia` (jsdom has none)
 
 ### Not done
 

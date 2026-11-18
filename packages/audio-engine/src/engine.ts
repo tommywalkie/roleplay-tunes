@@ -102,6 +102,8 @@ class Engine implements AudioEngine {
   private preview: LoopPreview | null = null;
   private mediaSession: MediaSessionController | null = null;
   private oneshotCounter = 0;
+  /** Bumped by stopAllOneshots: one-shots still loading from an earlier epoch are dropped. */
+  private oneshotEpoch = 0;
   private paused = false;
   private disposed = false;
   /** Set once when the AudioContext cannot be created; every later use rethrows it. */
@@ -563,9 +565,11 @@ class Engine implements AudioEngine {
     let voice: OneshotHandle | null = null;
     let voiceId: string | null = null;
     let cancelled = false;
+    const epoch = this.oneshotEpoch;
     this.loader.load(id).then(
       (loaded) => {
-        if (cancelled || this.disposed) return;
+        // Stopped while loading, one by one or by stopAllOneshots: it must not start late.
+        if (cancelled || this.disposed || epoch !== this.oneshotEpoch) return;
         if (this.now() - requestedAt > maxLatency) {
           this.emitter.emit('oneshotDropped', { soundId: id, reason: 'not-loaded' });
           return;
@@ -600,6 +604,7 @@ class Engine implements AudioEngine {
   }
 
   stopAllOneshots(fadeSec?: number) {
+    this.oneshotEpoch++;
     this.graph?.oneshot.stopAll(fadeSec);
   }
 

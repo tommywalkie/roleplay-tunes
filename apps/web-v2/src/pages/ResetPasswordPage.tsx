@@ -18,7 +18,7 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <main className="flex min-h-dvh flex-col justify-center gap-8 px-6 py-10 md:px-12">
+    <main className="flex min-h-full flex-col justify-center gap-8 px-6 py-10 md:px-12">
       <div className="flex flex-col gap-2">
         <span className="text-[15px] leading-5 text-ink-2">{t('app.name')}</span>
         <h1 className="text-[32px] leading-10 font-medium">

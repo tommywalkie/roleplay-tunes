@@ -106,6 +106,9 @@ const rowOf = (name: string) => screen.findByRole('button', { name: new RegExp(n
 
 const dialogOf = (name: string) => screen.findByRole('dialog', { name });
 
+/** Tests run without CSS: a dialog under another one is marked on its overlay. */
+const shown = (dialog: HTMLElement) => dialog.parentElement!.dataset.dialogState === 'shown';
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AdminPage', () => {
@@ -225,7 +228,7 @@ describe('AdminPage', () => {
     expect(link).toHaveValue('http://localhost:3000/reset-password?token=abc');
   });
 
-  it('hides delete for your own account and needs two taps to delete another user', async () => {
+  it('hides delete for your own account and confirms in a second dialog before deleting another user', async () => {
     const calls = stubFetch(routes());
     const user = renderAdmin();
 
@@ -235,12 +238,23 @@ describe('AdminPage', () => {
     await user.click(within(own).getByRole('button', { name: 'Close' }));
 
     await user.click(await rowOf('Sam Reed'));
-    const other = await dialogOf('Sam Reed');
-    await user.click(within(other).getByRole('button', { name: 'Delete' }));
-    const confirm = within(other).getByRole('button', { name: 'Tap again to delete' });
+    const editor = await dialogOf('Sam Reed');
+    await user.click(within(editor).getByRole('button', { name: 'Delete' }));
+    let confirm = await dialogOf('Delete');
+    expect(within(confirm).getByText('This cannot be undone.')).toBeInTheDocument();
+    expect(shown(confirm)).toBe(true);
+    expect(shown(editor)).toBe(false);
+    expect(editor).toBeInTheDocument();
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
 
-    await user.click(confirm);
+    await user.click(within(confirm).getByRole('button', { name: 'Back' }));
+    expect(screen.queryByRole('dialog', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(shown(editor)).toBe(true);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+
+    await user.click(within(editor).getByRole('button', { name: 'Delete' }));
+    confirm = await dialogOf('Delete');
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
     await waitFor(() =>
       expect(calls).toContainEqual(expect.objectContaining({ url: '/api/admin/users/u2', method: 'DELETE' })),
     );

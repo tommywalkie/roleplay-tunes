@@ -1,10 +1,11 @@
-import { LoaderCircle, Search, type LucideIcon } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Search, type LucideIcon } from 'lucide-react';
 import {
   useId,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
 } from 'react';
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
@@ -120,6 +121,23 @@ const INPUT =
 
 export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cx(INPUT, className)} {...rest} />;
+}
+
+/** The platform's own select (a wheel on phones), dressed like the text fields. */
+export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className="relative block">
+      <select className={cx(INPUT, 'appearance-none pr-10', className)} {...rest}>
+        {children}
+      </select>
+      <ChevronDown
+        size={18}
+        strokeWidth={1.5}
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-3"
+      />
+    </span>
+  );
 }
 
 export function SearchField({

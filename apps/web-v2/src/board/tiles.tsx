@@ -1,36 +1,73 @@
 import type { Mix, Scene, Sound } from '@dnd/shared';
-import { usePlayer } from '../audio/player';
+import { Pencil, Play } from 'lucide-react';
+import { useState } from 'react';
+import { defaultPlay, usePlayer } from '../audio/player';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import type { MenuItem } from '../components/Menu';
 import { Tile } from '../components/Tile';
+import { PausesDialog } from './PausesDialog';
 import { useI18n } from '../i18n';
 
-/** A sound on the board: tap to play (or to stop a loop that plays). */
+/**
+ * A sound on the board: tap to play (or to stop a loop that plays). Its corner menu plays
+ * it another way than its own mode, or opens the editor.
+ */
 export function SoundTile({ sound, onEdit }: { sound: Sound; onEdit: () => void }) {
   const { t, duration } = useI18n();
   const player = usePlayer();
+  const [askPauses, setAskPauses] = useState(false);
   const ModeIcon = MODE_ICONS[sound.defaultMode];
   // The newest run drives the bar when the same one-shot is fired several times.
   const shot = player.snapshot.activeOneshots.findLast((o) => o.soundId === sound.id);
 
+  const menu: MenuItem[] = [
+    {
+      label: t('play.default'),
+      hint: t('play.defaultHint', { mode: t(MODE_LABELS[sound.defaultMode]) }),
+      icon: Play,
+      onSelect: () => player.playSoundAs(sound, defaultPlay(sound)),
+    },
+    {
+      label: t('play.once'),
+      icon: MODE_ICONS.oneshot,
+      onSelect: () => player.playSoundAs(sound, { mode: 'oneshot' }),
+    },
+    {
+      label: t('play.loop'),
+      icon: MODE_ICONS.loop,
+      onSelect: () => player.playSoundAs(sound, { mode: 'loop' }),
+    },
+    {
+      label: t('play.randomPauses'),
+      icon: MODE_ICONS.recurring,
+      onSelect: () => setAskPauses(true),
+    },
+    { label: t('common.edit'), icon: Pencil, onSelect: onEdit },
+  ];
+
   return (
-    <Tile
-      name={sound.name}
-      illustration={sound.illustration}
-      fallback={FALLBACK_ICONS.sound}
-      active={player.isSoundPlaying(sound.id)}
-      progress={shot}
-      onPress={() => player.toggleSound(sound)}
-      onEdit={onEdit}
-      editLabel={t('common.editItem', { name: sound.name })}
-      meta={
-        <>
-          <ModeIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
-          <span className="truncate">
-            {t(MODE_LABELS[sound.defaultMode])} · {duration(sound.durationSec)}
-          </span>
-        </>
-      }
-    />
+    <>
+      {/* A portal: it renders in the body, so the grid keeps only list items. */}
+      {askPauses && <PausesDialog sound={sound} onClose={() => setAskPauses(false)} />}
+      <Tile
+        menu={menu}
+        name={sound.name}
+        illustration={sound.illustration}
+        fallback={FALLBACK_ICONS.sound}
+        active={player.isSoundPlaying(sound.id)}
+        progress={shot}
+        onPress={() => player.toggleSound(sound)}
+        editLabel={t('play.menu', { name: sound.name })}
+        meta={
+          <>
+            <ModeIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+            <span className="truncate">
+              {t(MODE_LABELS[sound.defaultMode])} · {duration(sound.durationSec)}
+            </span>
+          </>
+        }
+      />
+    </>
   );
 }
 

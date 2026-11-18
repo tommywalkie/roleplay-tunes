@@ -34,9 +34,12 @@
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --animate-enter: enter 320ms var(--ease-out) both;
-  --animate-sheet: sheet 320ms var(--ease-out) both;
-  --animate-fade: fade 200ms var(--ease-out) both;
+  /* `backwards`, not `both`: an element that keeps its last keyframe stays on its own
+     compositing layer, and iOS Safari then paints page content over the fixed player,
+     tab bar and dialogs. */
+  --animate-enter: enter 320ms var(--ease-out) backwards;
+  --animate-sheet: sheet 320ms var(--ease-out) backwards;
+  --animate-fade: fade 200ms var(--ease-out) backwards;
 
   @keyframes enter {
     from {
@@ -66,13 +69,37 @@
   }
 }
 
+/*
+ * Safe areas. The status bar style is black-translucent, so on an installed iPhone app the
+ * page starts under the status bar: the body is padded by the top and side insets, and
+ * every screen fills the body (h-full), never 100dvh, which would overflow by the inset.
+ *
+ * Bottom: some iOS releases shorten the installed app's viewport and let the system draw
+ * the strip under it, while still reporting the home indicator inset. --viewport-shortfall
+ * (set by layout/viewport.ts in installed mode) is how much of the screen the viewport
+ * misses; the part of the inset it already covers is not padded again.
+ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--viewport-shortfall, 0px)));
+}
+
 html,
 body,
 #root {
   height: 100%;
 }
 
+/* The canvas color is what iOS reuses for any strip it draws around the page: the color
+   of the tab bar, so such a strip reads as part of it. */
+html {
+  background: var(--color-deep);
+}
+
 body {
+  padding-top: var(--safe-top);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
   background: var(--color-page);
   color: var(--color-ink);
   font-family: var(--font-sans);

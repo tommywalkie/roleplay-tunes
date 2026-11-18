@@ -100,7 +100,12 @@ export class Layer {
     this.buffer = buffer;
     this.started = true;
     if (this.config.mode.type === 'loop') this.startLoop();
-    else this.scheduleNext(this.ctx.currentTime);
+    else {
+      // The first play starts right away, like any other mode; pauses only come between plays.
+      const now = this.ctx.currentTime;
+      this.queueEvent(now);
+      this.armTimer(now);
+    }
     this.applyFadeIn();
   }
 
@@ -197,7 +202,10 @@ export class Layer {
     return min + this.deps.rng() * (max - min);
   }
 
-  /** Queue the event following `from` (audio-clock seconds) and arm a timer for it. */
+  /**
+   * Queue the next event a random pause after `from` (audio-clock seconds: when the
+   * previous play ends) and arm a timer for it.
+   */
   private scheduleNext(from: number) {
     const mode = this.config.mode;
     if (mode.type !== 'recurring' || this.stopped || !this.buffer) return;
@@ -225,7 +233,8 @@ export class Layer {
       this.armTimer(this.nextWhen);
       return;
     }
-    this.scheduleNext(this.nextWhen);
+    // The pause runs from the end of the play that just started, so plays never overlap.
+    this.scheduleNext(this.nextWhen + (this.buffer?.duration ?? 0));
   }
 
   private queueEvent(when: number) {

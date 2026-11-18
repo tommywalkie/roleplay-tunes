@@ -24,14 +24,14 @@ export function App() {
 
   if (me.isLoading) {
     return (
-      <div className="flex h-dvh items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <Spinner label={t('common.loading')} />
       </div>
     );
   }
   if (me.error) {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-4 px-6">
+      <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
         <ErrorNote>{errorText(me.error)}</ErrorNote>
         <Button onClick={() => void me.refetch()}>{t('common.retry')}</Button>
       </div>

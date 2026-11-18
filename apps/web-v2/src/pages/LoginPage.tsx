@@ -1,8 +1,9 @@
-import { Beer, CloudRain, DoorOpen, Flame, Trees, Users, type LucideIcon } from 'lucide-react';
+import { Beer, CloudRain, DoorOpen, Download, Flame, Trees, Users, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { usePublicSettings, useSignIn, useSignUp } from '../api/hooks';
 import { Credit, Mark, Wordmark } from '../components/Brand';
+import { InstallDialog, runsInstalled } from '../components/InstallDialog';
 import { Button, cx, ErrorNote, Field, Lamp, TextInput } from '../components/ui';
 import { useI18n, type Locale } from '../i18n';
 
@@ -53,6 +54,7 @@ export function LoginPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [installing, setInstalling] = useState(false);
 
   const creating = mode === 'up';
   const active = creating ? signUp : signIn;
@@ -73,7 +75,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
+    <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
       <main className="flex flex-col px-6 py-10 md:px-12">
         <div className="my-auto flex flex-col gap-8">
         <div className="flex flex-col gap-2">
@@ -142,9 +144,20 @@ export function LoginPage() {
             </button>
           )}
         </form>
+        {!runsInstalled() && (
+          <Button
+            variant="ghost"
+            icon={Download}
+            onClick={() => setInstalling(true)}
+            className="-ml-3 self-start px-3"
+          >
+            {t('install.button')}
+          </Button>
+        )}
         </div>
         <Credit className="pt-10" />
       </main>
+      {installing && <InstallDialog onClose={() => setInstalling(false)} />}
 
       <div className="hidden items-center justify-center border-l border-line bg-deep p-12 lg:flex">
         <BoardPreview />

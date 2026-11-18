@@ -1,6 +1,8 @@
+import type { LayerState } from '@dnd/audio-engine';
+import { DEFAULT_INTERVAL_MAX_SEC, DEFAULT_INTERVAL_MIN_SEC } from '@dnd/shared';
 import { describe, expect, it } from 'vitest';
 import { makeFakeEngine, makeMix, makeSound } from '../test/fixtures';
-import { createPlayer, LOOSE_MIX_ID, toDescriptor } from './player';
+import { createPlayer, defaultPlay, layersToMixItems, LOOSE_MIX_ID, toDescriptor } from './player';
 
 function setup() {
   const fake = makeFakeEngine();
@@ -78,6 +80,12 @@ describe('toggleSound', () => {
     expect(engine.getSnapshot().mix?.layers.map((l) => l.soundId)).toEqual(['drip']);
   });
 
+  it('starts a loop at its beginning, not at a random point', () => {
+    const { player, engine } = setup();
+    player().toggleSound(loop);
+    expect(engine.getSnapshot().mix?.layers[0]?.mode).toEqual({ type: 'loop', randomStart: false });
+  });
+
   it('maps random gaps to a recurring layer with ordered bounds and volume jitter', () => {
     const { player, engine } = setup();
     player().toggleSound(drip);
@@ -104,6 +112,162 @@ describe('toggleSound', () => {
     player().togglePause();
     player().toggleSound(loop);
     expect(spies.resume).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('playSoundAs', () => {
+  it('fires a one-shot of any sound without touching the layers', () => {
+    const { player, spies, engine } = setup();
+    player().playSoundAs(loop, { mode: 'oneshot' });
+    expect(spies.playOneshot).toHaveBeenCalledWith('crowd');
+    expect(spies.playMix).not.toHaveBeenCalled();
+    expect(engine.getSnapshot().mix).toBeNull();
+  });
+
+  it('plays a random-gaps sound as a loop in place of its own layer', () => {
+    const { player, engine } = setup();
+    player().toggleSound(drip);
+    player().playSoundAs(drip, { mode: 'loop' });
+    expect(engine.getSnapshot().mix?.layers).toMatchObject([
+      { id: 'sound:drip', soundId: 'drip', mode: { type: 'loop', randomStart: false } },
+    ]);
+  });
+
+  it('replaces a sound that plays in a mix, with the given intervals, instead of doubling it', () => {
+    const { player, engine } = setup();
+    player().toggleMix(
+      makeMix({
+        id: 'm1',
+        items: [
+          { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+          { id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+        ],
+      }),
+    );
+    player().playSoundAs(loop, { mode: 'recurring', intervalMinSec: 3, intervalMaxSec: 12 });
+    const snapshot = engine.getSnapshot();
+    expect(snapshot.mix?.id).toBe('m1');
+    expect(snapshot.mix?.layers.map((l) => l.id)).toEqual(['item:i2', 'sound:crowd']);
+    expect(snapshot.mix?.layers[1]?.mode).toEqual({
+      type: 'recurring',
+      minInterval: 3,
+      maxInterval: 12,
+      volumeJitter: [1, 1],
+    });
+  });
+
+  it('starts a loose mix when nothing plays', () => {
+    const { player, engine } = setup();
+    player().playSoundAs(door, { mode: 'loop' });
+    expect(engine.getSnapshot().mix?.id).toBe(LOOSE_MIX_ID);
+    expect(engine.getSnapshot().mix?.layers).toMatchObject([
+      { soundId: 'door', volume: 0.8, mode: { type: 'loop' } },
+    ]);
+  });
+
+  it('keeps the volume the replaced layer was given in the player', () => {
+    const { player, engine } = setup();
+    player().toggleSound(loop);
+    player().setLayerVolume('sound:crowd', 0.3);
+    player().playSoundAs(loop, { mode: 'recurring', intervalMinSec: 2, intervalMaxSec: 8 });
+    expect(engine.getSnapshot().mix?.layers).toMatchObject([
+      { soundId: 'crowd', volume: 0.3, mode: { type: 'recurring' } },
+    ]);
+  });
+});
+
+describe('setLayerPlay', () => {
+  it('turns a playing layer into a loop that starts at its beginning, in place', () => {
+    const { player, spies, engine } = setup();
+    player().toggleSound(drip);
+    player().setLayerVolume('sound:drip', 0.3);
+    player().setLayerPlay('sound:drip', drip, { mode: 'loop' });
+    expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:drip', {
+      mode: { type: 'loop', randomStart: false },
+    });
+    expect(spies.removeLayer).not.toHaveBeenCalled();
+    expect(engine.getSnapshot().mix?.layers).toMatchObject([
+      { id: 'sound:drip', volume: 0.3, mode: { type: 'loop', randomStart: false } },
+    ]);
+  });
+
+  it('gives a loop random pauses with sorted bounds and the sound’s volume variation', () => {
+    const { player, spies } = setup();
+    const wind = makeSound({ id: 'wind', defaultMode: 'loop', volumeVariation: 0.4 });
+    player().toggleSound(wind);
+    player().setLayerPlay('sound:wind', wind, { mode: 'recurring', intervalMinSec: 30, intervalMaxSec: 10 });
+    expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:wind', {
+      mode: { type: 'recurring', minInterval: 10, maxInterval: 30, volumeJitter: [0.6, 1] },
+    });
+  });
+
+  it('keeps the volume jitter of a layer that already has random pauses', () => {
+    const { player, spies } = setup();
+    player().toggleSound(drip);
+    player().setLayerPlay('sound:drip', { ...drip, volumeVariation: 0.9 }, {
+      mode: 'recurring',
+      intervalMinSec: 2,
+      intervalMaxSec: 8,
+    });
+    expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:drip', {
+      mode: { type: 'recurring', minInterval: 2, maxInterval: 8, volumeJitter: [0.75, 1] },
+    });
+  });
+
+  it('resumes a paused engine', () => {
+    const { player, spies } = setup();
+    player().toggleSound(loop);
+    player().togglePause();
+    player().setLayerPlay('sound:crowd', loop, { mode: 'recurring', intervalMinSec: 2, intervalMaxSec: 8 });
+    expect(spies.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for a layer that no longer plays', () => {
+    const { player, spies } = setup();
+    player().setLayerPlay('sound:crowd', loop, { mode: 'loop' });
+    expect(spies.updateLayer).not.toHaveBeenCalled();
+    expect(spies.resume).not.toHaveBeenCalled();
+  });
+});
+
+describe('defaultPlay', () => {
+  it('follows the sound’s own mode, with its own pauses for random gaps', () => {
+    expect(defaultPlay(loop)).toEqual({ mode: 'loop' });
+    expect(defaultPlay(door)).toEqual({ mode: 'oneshot' });
+    expect(defaultPlay(drip)).toEqual({ mode: 'recurring', intervalMinSec: 5, intervalMaxSec: 30 });
+  });
+});
+
+describe('layersToMixItems', () => {
+  const layerOf = (over: Partial<LayerState> & Pick<LayerState, 'id' | 'soundId' | 'mode'>): LayerState => ({
+    volume: 1,
+    muted: false,
+    load: 'ready',
+    ...over,
+  });
+
+  it('keeps each sound once, with the mode, volume and pauses it plays with', () => {
+    const items = layersToMixItems([
+      layerOf({ id: 'a', soundId: 'crowd', volume: 0.6, mode: { type: 'loop', randomStart: false } }),
+      layerOf({
+        id: 'b',
+        soundId: 'drip',
+        volume: 0.4,
+        mode: { type: 'recurring', minInterval: 5, maxInterval: 30, volumeJitter: [0.75, 1] },
+      }),
+      layerOf({ id: 'c', soundId: 'crowd', volume: 0.2, mode: { type: 'loop' } }),
+    ]);
+    expect(items).toEqual([
+      {
+        soundId: 'crowd',
+        mode: 'loop',
+        volume: 0.6,
+        intervalMinSec: DEFAULT_INTERVAL_MIN_SEC,
+        intervalMaxSec: DEFAULT_INTERVAL_MAX_SEC,
+        volumeVariation: 0,
+      },
+      { soundId: 'drip', mode: 'recurring', volume: 0.4, intervalMinSec: 5, intervalMaxSec: 30, volumeVariation: 0.25 },
+    ]);
   });
 });
 

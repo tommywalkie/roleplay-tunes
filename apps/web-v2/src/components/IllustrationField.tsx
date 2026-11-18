@@ -4,9 +4,10 @@ import { Images, ImageUp, Shapes, Trash2, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReusableImages } from '../api/hooks';
 import { useI18n } from '../i18n';
+import { Dialog } from './Dialog';
 import { Illustration, type IllustrationDraft } from './Illustration';
 import { matches } from './Page';
-import { Button, cx, IconButton, SearchField, Spinner } from './ui';
+import { Button, cx, IconButton, SearchField, Select, Spinner } from './ui';
 
 interface IconLibrary {
   id: string;
@@ -129,23 +130,28 @@ export function IllustrationField({
       <p className={cx('text-[13px] leading-5', tooLarge ? 'text-danger' : 'text-ink-3')}>
         {t('illustration.imageHint', { size: bytes(maxImageBytes) })}
       </p>
+      {/* Pickers open over the editor, which keeps its size; picking returns to it. */}
       {picking === 'icon' && (
-        <IconPicker
-          selected={value.type === 'icon' ? value.iconId : null}
-          onPick={(iconId, svg) => {
-            onChange({ type: 'icon', iconId, svg });
-            setPicking(null);
-          }}
-        />
+        <Dialog title={t('illustration.icon')} onClose={() => setPicking(null)} fixedHeight>
+          <IconPicker
+            selected={value.type === 'icon' ? value.iconId : null}
+            onPick={(iconId, svg) => {
+              onChange({ type: 'icon', iconId, svg });
+              setPicking(null);
+            }}
+          />
+        </Dialog>
       )}
       {picking === 'image' && (
-        <ImagePicker
-          selected={value.type === 'image' ? value.url : null}
-          onPick={(url) => {
-            onChange({ type: 'image', url });
-            setPicking(null);
-          }}
-        />
+        <Dialog title={t('illustration.reuse')} onClose={() => setPicking(null)} fixedHeight>
+          <ImagePicker
+            selected={value.type === 'image' ? value.url : null}
+            onPick={(url) => {
+              onChange({ type: 'image', url });
+              setPicking(null);
+            }}
+          />
+        </Dialog>
       )}
     </div>
   );
@@ -163,15 +169,17 @@ function ImagePicker({
   const images = useReusableImages(true);
 
   return (
-    <div className="flex flex-col gap-3 rounded-[12px] border border-line bg-deep p-3">
+    <div className="scroll-quiet -mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
       {images.isLoading ? (
-        <Spinner label={t('common.loading')} />
+        <div className="flex h-full items-center justify-center">
+          <Spinner label={t('common.loading')} />
+        </div>
       ) : images.isError ? (
         <p className="text-[13px] leading-5 text-danger">{t('common.loadFailed')}</p>
       ) : images.data?.length === 0 ? (
         <p className="text-[13px] leading-5 text-ink-3">{t('illustration.noImages')}</p>
       ) : (
-        <ul className="scroll-quiet grid max-h-56 grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2 overflow-y-auto">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2">
           {images.data?.map((image) => (
             <li key={image.key}>
               <button
@@ -234,29 +242,31 @@ function IconPicker({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-[12px] border border-line bg-deep p-3">
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-        <select
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+        <Select
           value={current ?? ''}
           onChange={(e) => setLibraryId(e.target.value)}
           aria-label={t('illustration.icon')}
-          className="h-11 w-full rounded-[10px] border border-line bg-raised px-3 text-[15px] text-ink"
         >
           {libraries.data?.map((lib) => (
             <option key={lib.id} value={lib.id}>
               {lib.label}
             </option>
           ))}
-        </select>
+        </Select>
         <SearchField value={query} onChange={setQuery} label={t('common.search')} />
       </div>
+      {/* Only the icons scroll; the dialog keeps its height while a library loads. */}
+      <div className="scroll-quiet -mx-2 min-h-0 flex-1 overflow-y-auto px-2">
       {set.isLoading || libraries.isLoading ? (
-        <Spinner label={t('common.loading')} />
+        <div className="flex h-full items-center justify-center">
+          <Spinner label={t('common.loading')} />
+        </div>
       ) : set.isError ? (
         <p className="text-[13px] leading-5 text-danger">{t('illustration.iconsMissing')}</p>
       ) : (
-        <>
-          <ul className="scroll-quiet grid max-h-56 grid-cols-[repeat(auto-fill,minmax(44px,1fr))] gap-1 overflow-y-auto">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(44px,1fr))] gap-1">
             {found.slice(0, MAX_SHOWN).map(([slug, icon]) => {
               const iconId = `${current}:${slug}`;
               return (
@@ -284,15 +294,16 @@ function IconPicker({
               );
             })}
           </ul>
-          <p className="text-[12px] leading-4 text-ink-3 tabular-nums">
-            {query.trim() && found.length === 0
-              ? t('common.noMatch', { query: query.trim() })
-              : t('illustration.iconCount', {
-                  n: new Intl.NumberFormat(locale).format(found.length),
-                })}
-          </p>
-        </>
       )}
+      </div>
+      <p className="h-4 shrink-0 text-[12px] leading-4 text-ink-3 tabular-nums">
+        {set.data &&
+          (query.trim() && found.length === 0
+            ? t('common.noMatch', { query: query.trim() })
+            : t('illustration.iconCount', {
+                n: new Intl.NumberFormat(locale).format(found.length),
+              }))}
+      </p>
     </div>
   );
 }

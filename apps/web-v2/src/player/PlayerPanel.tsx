@@ -3,6 +3,7 @@ import {
   AudioLines,
   ChevronDown,
   ChevronUp,
+  ListPlus,
   LoaderCircle,
   Pause,
   Play,
@@ -12,9 +13,13 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { LOOSE_MIX_ID, usePlayer } from '../audio/player';
+import type { LayerState } from '@dnd/audio-engine';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { layersToMixItems, LOOSE_MIX_ID, usePlayer } from '../audio/player';
+import { PausesDialog } from '../board/PausesDialog';
 import { Thumb } from '../components/Illustration';
+import { MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import { Menu } from '../components/Menu';
 import { useToast } from '../components/Toasts';
 import { Button, cx, Fader, Icon, IconButton, Lamp, Percent } from '../components/ui';
 import { useI18n } from '../i18n';
@@ -26,8 +31,15 @@ import { useI18n } from '../i18n';
  * Nothing here appears or disappears with the playback state: pause, stop all and both
  * volume faders are always rendered, always in the same place, always tappable.
  */
-export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
-  const { t, tn } = useI18n();
+export function PlayerPanel({
+  sounds,
+  onSaveAsMix,
+}: {
+  sounds: Sound[];
+  /** Opens a new mix made of what plays. Without it, the player offers no such button. */
+  onSaveAsMix?: (items: ReturnType<typeof layersToMixItems>) => void;
+}) {
+  const { t, tn, duration } = useI18n();
   const player = usePlayer();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -73,8 +85,8 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
       aria-label={t('player.title')}
       className={cx(
         'z-30 flex flex-col border-line bg-deep',
-        'fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] max-h-[72dvh] border-t',
-        'md:static md:h-dvh md:max-h-none md:border-l md:border-t-0',
+        'fixed inset-x-0 bottom-[calc(56px+var(--safe-bottom))] max-h-[72dvh] border-t',
+        'md:static md:h-full md:max-h-none md:border-l md:border-t-0',
       )}
     >
       {/* Transport: identical in every state. */}
@@ -138,10 +150,24 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
         </div>
 
         <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3">
-          <h2 className="flex items-baseline justify-between px-2 pb-2 text-[13px] leading-5 text-ink-2">
-            {t('player.playing')}
-            <span className="font-mono text-[12px] text-ink-3 tabular-nums">{count}</span>
-          </h2>
+          <div className="flex items-center justify-between gap-2 pb-1 pl-2">
+            <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
+              {t('player.playing')}
+              <span className="font-mono text-[12px] text-ink-3 tabular-nums">{count}</span>
+            </h2>
+            {/* Always rendered, so the list never shifts; usable once something loops. */}
+            {onSaveAsMix && (
+              <Button
+                variant="ghost"
+                icon={ListPlus}
+                disabled={layers.length === 0}
+                onClick={() => onSaveAsMix(layersToMixItems(layers))}
+                className="h-9 px-2 text-[13px]"
+              >
+                {t('player.saveAsMix')}
+              </Button>
+            )}
+          </div>
           {count === 0 ? (
             <p className="px-2 py-6 text-[14px] leading-5 text-ink-3">{t('player.empty')}</p>
           ) : (
@@ -184,6 +210,7 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
                       </div>
                     </div>
                     <div className="flex shrink-0">
+                      {sound && <LayerModeButton layer={layer} sound={sound} name={name} />}
                       <IconButton
                         icon={layer.muted ? VolumeX : Volume2}
                         label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })}
@@ -203,22 +230,18 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
               })}
               {oneshots.map((shot) => (
                 <li key={shot.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
+                  {/* Laid out like a loop row; where a loop has its fader, a "once" sound
+                      says what it is. Its progress shows on its tile. */}
                   <Thumb
                     value={byId.get(shot.soundId)?.illustration ?? { type: 'none' }}
-                    fallback={Zap}
+                    fallback={AudioLines}
                     lit={!paused}
                   />
-                  <div className="flex min-w-0 flex-1 flex-col gap-3">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="truncate text-[14px] leading-5">{nameOf(shot.soundId)}</span>
-                    <span className="block h-1 overflow-hidden rounded-[2px] bg-line-strong" aria-hidden>
-                      <span
-                        className="block size-full origin-left bg-lamp"
-                        style={{
-                          animation: `fill ${shot.durationSec}s linear both`,
-                          animationDelay: `${Math.min(0, (shot.startedAt - Date.now()) / 1000)}s`,
-                          animationPlayState: paused ? 'paused' : 'running',
-                        }}
-                      />
+                    <span className="flex items-center gap-1.5 text-[12px] leading-4 text-ink-3 tabular-nums">
+                      <Zap size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+                      {t(MODE_LABELS.oneshot)} · {duration(shot.durationSec)}
                     </span>
                   </div>
                 </li>
@@ -228,6 +251,65 @@ export function PlayerPanel({ sounds }: { sounds: Sound[] }) {
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Shows how a playing sound repeats (loop or random pauses) and changes it in place: the
+ * sound keeps its volume and its place, in a saved mix or among loose sounds.
+ */
+function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sound; name: string }) {
+  const { t } = useI18n();
+  const player = usePlayer();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [askPauses, setAskPauses] = useState(false);
+  const closeMenu = useCallback(() => setAnchor(null), []);
+  const mode = layer.mode;
+  const recurring = mode.type === 'recurring';
+  const label = t('player.modeOf', { name });
+
+  return (
+    <>
+      <IconButton
+        icon={recurring ? MODE_ICONS.recurring : MODE_ICONS.loop}
+        label={label}
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        onClick={(e) => setAnchor(e.currentTarget)}
+        className="w-10"
+      />
+      {anchor && (
+        <Menu
+          title={name}
+          anchor={anchor}
+          onClose={closeMenu}
+          items={[
+            {
+              label: t('play.loop'),
+              icon: MODE_ICONS.loop,
+              hint: recurring ? undefined : t('player.current'),
+              onSelect: () => player.setLayerPlay(layer.id, sound, { mode: 'loop' }),
+            },
+            {
+              label: t('play.randomPauses'),
+              icon: MODE_ICONS.recurring,
+              hint: recurring ? `${t('player.current')} · ${mode.minInterval}–${mode.maxInterval} s` : undefined,
+              onSelect: () => setAskPauses(true),
+            },
+          ]}
+        />
+      )}
+      {askPauses && (
+        <PausesDialog
+          sound={sound}
+          initial={recurring ? { min: mode.minInterval, max: mode.maxInterval } : undefined}
+          onPlay={(intervalMinSec, intervalMaxSec) =>
+            player.setLayerPlay(layer.id, sound, { mode: 'recurring', intervalMinSec, intervalMaxSec })
+          }
+          onClose={() => setAskPauses(false)}
+        />
+      )}
+    </>
   );
 }
 

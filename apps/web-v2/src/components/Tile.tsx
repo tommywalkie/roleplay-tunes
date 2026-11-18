@@ -1,8 +1,9 @@
 import type { Illustration as IllustrationData } from '@dnd/shared';
 import { Ellipsis, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Illustration } from './Illustration';
+import { Menu, type MenuItem } from './Menu';
 import { cx, Icon, Lamp } from './ui';
 
 export interface TileProgress {
@@ -27,6 +28,8 @@ interface TileProps {
   to?: string;
   onEdit?: () => void;
   editLabel?: string;
+  /** When set, the corner button opens these actions instead of calling onEdit. */
+  menu?: MenuItem[];
 }
 
 const SURFACE =
@@ -49,7 +52,10 @@ export function Tile({
   to,
   onEdit,
   editLabel,
+  menu,
 }: TileProps) {
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => setMenuAnchor(null), []);
   const hasImage = illustration.type === 'image';
   const body = (
     <>
@@ -66,18 +72,6 @@ export function Tile({
           {meta}
         </span>
       </span>
-      <span className="absolute inset-x-0 bottom-0 block h-0.5" aria-hidden>
-        {progress && (
-          <span
-            key={progress.id}
-            className="block size-full origin-left bg-lamp"
-            style={{
-              animation: `fill ${progress.durationSec}s linear both`,
-              animationDelay: `${Math.min(0, (progress.startedAt - Date.now()) / 1000)}s`,
-            }}
-          />
-        )}
-      </span>
     </>
   );
   const surface = cx(SURFACE, active ? 'border-lamp/70' : 'border-line');
@@ -93,10 +87,12 @@ export function Tile({
           {body}
         </button>
       )}
-      {onEdit && (
+      {(onEdit || menu) && (
         <button
           type="button"
-          onClick={onEdit}
+          onClick={(e) => (menu ? setMenuAnchor(e.currentTarget) : onEdit?.())}
+          aria-haspopup={menu ? 'menu' : undefined}
+          aria-expanded={menu ? menuAnchor !== null : undefined}
           aria-label={editLabel}
           title={editLabel}
           className="absolute right-1 top-1 flex size-10 items-center justify-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:text-ink"
@@ -105,6 +101,9 @@ export function Tile({
             <Icon icon={Ellipsis} />
           </span>
         </button>
+      )}
+      {menu && menuAnchor && (
+        <Menu title={name} items={menu} anchor={menuAnchor} onClose={closeMenu} />
       )}
     </li>
   );
