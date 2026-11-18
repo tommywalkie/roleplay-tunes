@@ -1,5 +1,13 @@
 import type { Me } from '@dnd/shared';
-import { ChevronRight, Download, LogOut, Settings, ShieldCheck, type LucideIcon } from 'lucide-react';
+import {
+  ChevronRight,
+  Download,
+  LogOut,
+  Settings,
+  ShieldCheck,
+  Tags,
+  type LucideIcon,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useSignOut } from '../api/hooks';
@@ -40,6 +48,12 @@ export function ProfilePage({ me }: { me: Me }) {
 
       <ul className="flex flex-col overflow-hidden rounded-[16px] border border-line bg-card">
         <Row icon={Settings} title={t('nav.settings')} hint={t('profile.settings.hint')} to="/settings" />
+        <Row
+          icon={Tags}
+          title={t('categories.label')}
+          hint={t('profile.categories.hint')}
+          to="/categories"
+        />
         {me.role === 'admin' && (
           <Row
             icon={ShieldCheck}

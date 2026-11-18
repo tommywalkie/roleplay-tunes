@@ -67,7 +67,7 @@ Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) 
 | `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
 | `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField` |
 | `layout/viewport.ts` | Measures the installed iPhone app's shortened viewport (see Safe areas) |
-| `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Profile, Settings, Admin, ResetPassword |
+| `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Categories, Profile, Settings, Admin, ResetPassword |
 | `api/admin.ts` | Admin queries and mutations, password reset |
 | `i18n/` | `en.ts` is the source of keys, `fr.ts` must mirror it (a test checks this) |
 | `test/` | `fixtures.ts`: `makeSound`, `makeMix`, `makeMe`, `makeFakeEngine` |
@@ -118,8 +118,10 @@ synonyms the user sees on it (`searchText`), on pages, in the Library and in the
 or added (`TagFields` in every editor, owner or not, sends `synonyms` and `categoryIds`).
 On an item they see the owner's synonyms (no remove button) and their own; only their
 own categories. A duplicate is the exact same text. A synonym no item carries is deleted
-by the server; a category stays until its owner deletes it from its dialog. Categories
-are created and edited from the editor's field; the list pages filter by them
+by the server; a category stays until its owner deletes it from its dialog. Categories are
+created, changed and deleted through `CategoryDialog` only: from the editor's field, or
+from the Categories page (`/categories`, reached from Profile), which lists them as rows
+that open that dialog and has a "New category" action; the list pages filter by them
 (`CategoryFilter`: items carrying any of the chosen ones). A category's text color is
 derived from its background (`textOn`: white or dark slate).
 

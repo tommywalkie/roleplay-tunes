@@ -35,7 +35,12 @@ const TABS: NavItem[] = [
   { to: '/mixes', label: 'nav.mixes', icon: Layers },
   { to: '/sounds', label: 'nav.sounds', icon: AudioLines },
   { to: '/library', label: 'nav.library', icon: LibraryBig },
-  { to: '/profile', label: 'nav.profile', icon: CircleUserRound, also: ['/settings', '/admin'] },
+  {
+    to: '/profile',
+    label: 'nav.profile',
+    icon: CircleUserRound,
+    also: ['/settings', '/admin', '/categories'],
+  },
 ];
 /** The rail on wider screens has room for Settings and, for administrators, Admin. */
 const RAIL_EXTRA: NavItem[] = [{ to: '/settings', label: 'nav.settings', icon: Settings }];
