@@ -169,7 +169,7 @@ describe('CategoryDialog colors', () => {
 
     // The preview chip: light background, dark slate text.
     const preview = dialog.getByText('Sun').parentElement!;
-    expect(preview).toHaveStyle({ background: '#ffeeaa', color: '#1e293b' });
+    expect(preview).toHaveStyle({ backgroundColor: '#ffeeaa', color: '#1e293b' });
 
     await user.click(dialog.getByRole('button', { name: 'Save' }));
     expect(calls[0]?.body).toEqual({ name: 'Sun', color: '#ffeeaa', iconId: null });

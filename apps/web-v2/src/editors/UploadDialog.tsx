@@ -93,6 +93,7 @@ export function UploadDialog({
             minutes: Math.floor(me.limits.audioDurationSec / 60),
           })}
         </p>
+        <p className="text-[13px] leading-5 text-ink-3">{t('upload.libraryHint')}</p>
       </div>
 
       {rows.length > 0 && (

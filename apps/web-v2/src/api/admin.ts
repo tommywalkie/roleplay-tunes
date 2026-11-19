@@ -1,4 +1,5 @@
 import type {
+  ContactMessage,
   LimitKey,
   Limits,
   Role,
@@ -68,6 +69,7 @@ const adminKeys = {
   settings: ['admin', 'settings'] as const,
   terms: ['admin', 'terms'] as const,
   users: ['admin', 'users'] as const,
+  messages: ['admin', 'messages'] as const,
   usage: ['admin', 'usage'] as const,
 };
 
@@ -156,3 +158,18 @@ export const useResetPassword = () =>
     mutationFn: (body: { token: string; newPassword: string }) =>
       api('/api/auth/reset-password', { method: 'POST', json: body }),
   });
+
+/** Messages left through the contact form (local mode), newest first. */
+export const useAdminMessages = () =>
+  useQuery({
+    queryKey: adminKeys.messages,
+    queryFn: () => api<ContactMessage[]>('/api/admin/contact'),
+  });
+
+export const useSetMessageRead = () =>
+  useAdminMutation(({ id, read }: { id: string; read: boolean }) =>
+    api(`/api/admin/contact/${id}/read`, { method: 'PATCH', json: { read } }),
+  );
+
+export const useDeleteMessage = () =>
+  useAdminMutation((id: string) => api(`/api/admin/contact/${id}`, { method: 'DELETE' }));

@@ -394,8 +394,38 @@ export const meSchema = z.object({
   usage: usageSchema,
   /** When the user last accepted the server rules. Null while they never did. */
   termsAcceptedAt: z.string().nullable(),
+  /** The server has release notes newer than the last ones this user saw. */
+  changelogUnseen: z.boolean(),
 });
 export type Me = z.infer<typeof meSchema>;
+
+/** One release of the app: its notes in one language, as sanitized HTML. */
+export const releaseSchema = z.object({
+  /** `major.minor.patch`, as the manifests write it. */
+  version: z.string(),
+  /** `YYYY-MM-DD`, or empty when the file gives none. */
+  date: z.string(),
+  html: z.string(),
+});
+export type Release = z.infer<typeof releaseSchema>;
+
+/** Every release, newest first. */
+export const changelogSchema = z.object({
+  latest: z.string().nullable(),
+  releases: z.array(releaseSchema),
+});
+export type Changelog = z.infer<typeof changelogSchema>;
+
+/** Orders two `major.minor.patch` versions: negative when `a` comes first. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
 
 /** Deleting your own account requires typing its email. */
 export const deleteMeSchema = z.object({ email: z.string().min(1) }).strict();
@@ -481,6 +511,42 @@ export function termsAwait(
 ): boolean {
   return terms.enabled && terms.html !== '' && acceptedAt !== terms.updatedAt;
 }
+
+// Contact
+
+export const CONTACT_NAME_MAX = 100;
+export const CONTACT_EMAIL_MAX = 254;
+export const CONTACT_MESSAGE_MAX = 5000;
+
+/** A message left through the contact form; kept by the server in `local` mode. */
+export const contactMessageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string(),
+  message: z.string(),
+  createdAt: z.string(),
+  /** When an administrator marked it read. Null while it is new. */
+  readAt: z.string().nullable(),
+});
+export type ContactMessage = z.infer<typeof contactMessageSchema>;
+
+/**
+ * What the contact form sends in `local` mode. `_honeypot` is the bot trap: a real visitor
+ * leaves it empty, and the server quietly drops a message that fills it.
+ */
+export const contactSubmissionSchema = z
+  .object({
+    name: nameSchema,
+    email: z.string().trim().min(1).max(CONTACT_EMAIL_MAX).pipe(z.email()),
+    message: z.string().trim().min(1).max(CONTACT_MESSAGE_MAX),
+    _honeypot: z.string().max(200).default(''),
+  })
+  .strict();
+export type ContactSubmission = z.infer<typeof contactSubmissionSchema>;
+
+/** An administrator marks a message read or unread. */
+export const setContactReadSchema = z.object({ read: z.boolean() }).strict();
+export type SetContactReadRequest = z.infer<typeof setContactReadSchema>;
 
 // Errors
 

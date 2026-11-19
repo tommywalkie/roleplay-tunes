@@ -34,6 +34,13 @@ adds or removes a feature.
 If the dev server shows a blank page after several quick edits to one file, it served a
 stale transform: save the file once more or restart the dev server.
 
+Environment: dotenvx loads `apps/server/.env` and `apps/web-v2/.env` (gitignored) for the
+two dev scripts only; a variable set in the shell wins. Vite reads no env file itself
+(`envDir: false`). Tests read neither: the server suite clears every setting, runs on an
+in-memory database and `tmp/server-test-data`, and refuses to start outside its own Vitest
+config (`DND_SERVER_TEST_ISOLATED`, set by `src/test/setup.ts`); the web suite has no server
+to ask, so the contact form is off there.
+
 ## Deployment
 
 `Dockerfile` at the repo root builds one image (`node:22-bookworm-slim`): icon manifests,
@@ -54,7 +61,6 @@ file), TanStack Query, React Router, lucide-react for interface icons, vitest + 
 Testing Library. Workspace packages: `@dnd/shared` (types, limits, zod schemas) and
 `@dnd/audio-engine` (Web Audio engine). Tiptap (ProseMirror) backs the server-rules field
 on the Admin page only, behind a lazy import so it stays out of the board's bundle.
-
 ## Layout of `src/`
 
 | Path | Role |
@@ -65,7 +71,7 @@ on the Admin page only, behind a lazy import so it stays out of the board's bund
 | `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1024px), dock on phones and tablets |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
-| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `TermsDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
+| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `TermsDialog`, `ChangelogDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
 | `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField`, `RulesEditor`/`RulesCard` (server rules, lazy) |
 | `layout/viewport.ts` | Measures the installed iPhone app's shortened viewport (see Safe areas) |
 | `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Categories, Profile, Settings, Admin, ResetPassword |
@@ -133,12 +139,27 @@ sign-in page. Any 401 on any call sets "nobody" (see `main.tsx`). On sign-out, s
 observer and leaves the board on screen.
 
 **Illustrations.** The server returns `{ type: 'none' | 'icon' | 'image' }`. Icon SVG
-markup comes from the server's own copy of the icon sets and is rendered as HTML; never
-render markup from any other source that way. A client sends an icon by `iconId` only;
-an image is a separate multipart `PUT /api/<kind>/<id>/image`
-(`illustrationChanges` decides what to send). The one exception is the server rules: HTML
-an admin wrote, sanitized on the way in against `TERMS_TAGS`/`TERMS_ATTRIBUTES` in
-`@dnd/shared`, rendered by `TermsDialog` into `.rich-text`.
+markup comes from the server's own copy of the icon sets and is rendered as HTML. A client
+sends an icon by `iconId` only; an image is a separate multipart `PUT /api/<kind>/<id>/image`
+(`illustrationChanges` decides what to send).
+
+**Rendering HTML.** Any HTML set with `dangerouslySetInnerHTML` other than icon SVG comes
+from the server already sanitized against `TERMS_TAGS`/`TERMS_ATTRIBUTES` in `@dnd/shared`
+(`sanitizeRules` in `apps/server/src/terms.ts`), and shows in `.rich-text`: the server rules
+and the release notes. The app has no sanitizer of its own.
+
+**Release notes (changelog).** One Markdown file per version and language in
+`apps/server/changelog/` (`1.0.5.en.md`, `1.0.5.fr.md`), opening with a `date: YYYY-MM-DD`
+front matter. The server reads them (`apps/server/src/changelog.ts`, from its working
+directory like `drizzle/`; the Dockerfile copies the folder), turns them into HTML with
+`marked`, sanitizes it like the rules, and serves `GET /api/changelog/:locale`. A new
+version needs both files, and the same version in the root, web and server `package.json`.
+The server owns the seen state: it stores the newest version each user has seen, and
+`me.changelogUnseen` says whether a newer file exists. `AppShell` opens `ChangelogDialog`
+when it is true, only once the rules are loaded and answered; the dialog closes like any
+dialog, and closing it in any way calls `POST /api/me/changelog-seen`, where the server
+records its own newest version. New accounts see it too, after the rules. Profile offers it
+again under "What's new".
 
 **Server rules (terms of service).** One sanitized text per language, in the same
 key/value settings table as the sign-up toggle and the default limits, plus a version
@@ -147,7 +168,10 @@ stamp that moves only when the text really changed. `termsAwait(terms, me.termsA
 `AppShell` then shows `TermsDialog` with `dismissible={false}` — no close button, no
 backdrop, no Escape — offering accept or sign out. The sign-up page instead gates creation on
 a checkbox that only unlocks once the reader reaches the foot of the text (an
-`IntersectionObserver` sentinel in `TermsDialog`); the Profile page offers a read-only copy.
+`IntersectionObserver` sentinel in `TermsDialog`). While it is locked, a tap anywhere on its
+row opens the rules, in `agree` mode: Close, and an agree button greyed out and reading "Read
+the rules to the end first" until the foot is reached, which then ticks the box and closes.
+The Profile page offers a read-only copy.
 Switching language on the sign-up screen re-earns that unlock: another language is another
 text, and the box un-ticks.
 
@@ -239,6 +263,50 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Tiles on phones: a 70px picture band; an image shows whole over a blurred, darker copy
   of itself, an icon gets 4px of padding (`Illustration` with `tile`)
 - Library lists newest first (by `createdAt`, sorted in the client)
+- Pages of 30 (`usePages`, `Pagination` in `components/Page.tsx`) on the Scenes, Mixes,
+  Sounds and Library pages, under the list; turning a page scrolls back to the top. The
+  Admin users list shows 10 per page, with its pagination at the foot of its card. Back to
+  page 1 on a new search, filter or tab. Lists are plain grids and lists again;
+  `VirtualRows` is kept but unused
+- Release notes per version in English and French, shown once after each update and from
+  Profile (see "Release notes" above)
+- Credits on Profile (`CreditsDialog`), one deep card per work: each icon set from
+  `/icons/index.json` (source, version, count, licence; links in `ICON_LINKS`, keyed by set
+  id; Twemoji's card also credits emojibase-data for the emoji names), then the three fonts
+  (OFL-1.1, versions read from their packages by `vite.config.ts` into `VITE_FONT_VERSIONS`)
+- Contact form (`ContactDialog`) on the sign-in/sign-up screen and Profile, only when the
+  server is configured for one. The server owns `CONTACT_FORM_MODE` (`off`/`local`/`provider`)
+  and hands the app the mode, provider and endpoint at runtime through
+  `GET /api/settings/contact.js`; `index.html` loads that script before the app, so a restart
+  applies a change with no rebuild (and it works in development through the Vite proxy).
+  `local`: the dialog posts to this server (`POST /api/contact`, rate-limited and
+  honeypot-checked), which stores the message; the Admin page lists them under "Messages"
+  (read/unread, delete, no create), and the dialog shows "Message sent" in place. `provider`:
+  the dialog *is* the form the browser posts to `CONTACT_FORM_ENDPOINT`, using the chosen
+  provider's honeypot and redirect field names (`CONTACT_FORM_PROVIDER`; only `dsforms` has
+  been tried) — never `fetch`, since most form services answer no CORS. The browser leaves for
+  the service and comes back to the page it started from, marked `?contact=sent`;
+  `ContactSentNotice` in `App` then says "Message sent" once and takes the mark off the
+  address. Playback stops meanwhile, and the dialog says so. A provider endpoint's origin must
+  be allowed in `form-action` (`CONTACT_FORM_ENDPOINT` on the server), or the browser refuses
+  to submit. Name and email are filled in for a signed-in user.
+
+### Licensing
+
+- The repo is Apache-2.0 (`LICENSE` at the root, the verbatim text from apache.org).
+- The production build keeps third-party `@license` comments (`comments: { legal: true }`
+  in `vite.config.ts`): Vite strips them when minifying, and MIT/ISC ask for them in copies.
+- Docker image, to settle before publishing it: `sharp` ships libvips under LGPL-3.0-or-later
+  (`@img/sharp-libvips-*`), and dev dependencies kept in the image bring MPL-2.0
+  `lightningcss`. Their licence files travel in `node_modules`; a published image should
+  also point to the libvips source.
+- Removing an added mix from the Library is always possible. Its sounds still used by
+  another mix or scene of the user stay (the dialog says how many); unused ones are ticked
+  to leave with it. Every sound that stays is added on its own first, so the server's
+  `prune()` does not take it out with the mix
+- Empty sound and mix lists point to the Library: a "Browse the Library" button on the
+  Sounds, Mixes and empty Scene pages, a line in the pickers, the Upload sounds dialog and
+  the new mix editor
 - Library rows readable on phones: description and license under the row, full width.
   Under the name, what the item is (a sound's mode and length, a mix's stack of sound
   pictures); at the foot, who shared it (initials and name) and the license as a tag

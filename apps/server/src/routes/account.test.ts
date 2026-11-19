@@ -45,6 +45,7 @@ describe('GET /api/me', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual([
+      'changelogUnseen',
       'email',
       'id',
       'limits',

@@ -1,7 +1,7 @@
 import { licenseMark, LicenseGlyphs } from './licenseMarks';
 import { Popover } from './Popover';
 import { Icon, cx } from './ui';
-import { licenseText } from '../editors/LicenseField';
+import { licenseHint, licenseText } from '../editors/LicenseField';
 import { useI18n } from '../i18n';
 
 /**
@@ -25,9 +25,26 @@ export function LicenseBadge({
   const text = licenseText(value, t);
   const label = t('library.license', { license: text });
   const mark = licenseMark(value);
+  // A license nobody recorded shows no mark, and no popover to open.
+  if ('none' in mark) return null;
+
+  // Like the sound tile's play-mode note: the name, then what its terms mean.
+  const hintKey = licenseHint(value);
 
   return (
-    <Popover label={label} note={text}>
+    <Popover
+      label={label}
+      note={
+        hintKey ? (
+          <>
+            <span className="block font-medium text-ink">{text}</span>
+            {t(hintKey)}
+          </>
+        ) : (
+          text
+        )
+      }
+    >
       {'marks' in mark ? (
         <span className="flex shrink-0 items-center gap-0.5">
           <LicenseGlyphs marks={mark.marks} className={cx(size, 'shrink-0')} />

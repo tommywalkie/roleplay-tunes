@@ -1,10 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readdir, stat, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   roleSchema,
+  setContactReadSchema,
   setTermsSchema,
   TERMS_RULES_MAX,
   termsPreviewSchema,
@@ -15,7 +16,7 @@ import type { UserRow } from '../auth.js';
 import { requireAdmin } from '../auth.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
-import { sessions, users, verifications, storageSnapshots } from '../db/schema.js';
+import { contactMessages, sessions, users, verifications, storageSnapshots } from '../db/schema.js';
 import { invalid, parse } from '../errors.js';
 import {
   defaultLimits,
@@ -359,6 +360,7 @@ export function adminRoutes(app: FastifyInstance) {
           banExpires: users.banExpires,
           lastActiveAt: users.lastActiveAt,
           termsAcceptedAt: users.termsAcceptedAt,
+          changelogSeenVersion: users.changelogSeenVersion,
           limitStorageBytes: users.limitStorageBytes,
           limitAudioFileBytes: users.limitAudioFileBytes,
           limitAudioDurationSec: users.limitAudioDurationSec,
@@ -705,6 +707,101 @@ export function adminRoutes(app: FastifyInstance) {
         .run();
       const history = db.select().from(storageSnapshots).orderBy(storageSnapshots.day).all();
       return { current, history };
+    },
+  );
+
+  // Contact messages (`local` mode): the admin reads, marks read and deletes. There is no
+  // create: the contact form is the only way in.
+  app.get(
+    '/api/admin/contact',
+    {
+      schema: {
+        tags: ['admin'],
+        summary: 'List contact messages',
+        description: 'Returns every contact message, newest first.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                email: { type: 'string' },
+                message: { type: 'string' },
+                createdAt: { type: 'string', format: 'date-time' },
+                readAt: { type: 'string', format: 'date-time', nullable: true },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      await requireAdmin(request);
+      return db.select().from(contactMessages).orderBy(desc(contactMessages.createdAt)).all();
+    },
+  );
+
+  app.patch(
+    '/api/admin/contact/:id/read',
+    {
+      schema: {
+        tags: ['admin'],
+        summary: 'Mark a contact message read',
+        description: 'Marks a message read or unread.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'Message ID' } },
+        },
+        body: {
+          type: 'object',
+          required: ['read'],
+          properties: { read: { type: 'boolean' } },
+        },
+        response: { 204: { type: 'null', description: 'Message updated' } },
+      },
+    },
+    async (request, reply) => {
+      await requireAdmin(request);
+      const { id } = parse(z.object({ id: z.string() }), request.params);
+      const { read } = parse(setContactReadSchema, request.body);
+      const existing = db.select().from(contactMessages).where(eq(contactMessages.id, id)).get();
+      if (!existing) throw invalid('Message not found');
+      db.update(contactMessages)
+        .set({ readAt: read ? new Date() : null })
+        .where(eq(contactMessages.id, id))
+        .run();
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete(
+    '/api/admin/contact/:id',
+    {
+      schema: {
+        tags: ['admin'],
+        summary: 'Delete a contact message',
+        description: 'Permanently deletes a contact message.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'Message ID' } },
+        },
+        response: { 204: { type: 'null', description: 'Message deleted' } },
+      },
+    },
+    async (request, reply) => {
+      await requireAdmin(request);
+      const { id } = parse(z.object({ id: z.string() }), request.params);
+      const existing = db.select().from(contactMessages).where(eq(contactMessages.id, id)).get();
+      if (!existing) throw invalid('Message not found');
+      db.delete(contactMessages).where(eq(contactMessages.id, id)).run();
+      return reply.code(204).send();
     },
   );
 }

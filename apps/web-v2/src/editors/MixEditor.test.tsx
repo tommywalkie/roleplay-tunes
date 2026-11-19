@@ -107,14 +107,16 @@ describe('MixEditor pauses', () => {
 describe('MixEditor sounds', () => {
   it('adds a sound picked in the Choose dialog with its own settings', async () => {
     const { user, row } = renderEditor({ mix: null });
-    expect(screen.getByText('None yet')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Choose' }));
+    // Two pickers share the editor (sounds, then scenes): work in the sounds one.
+    const sounds = within(screen.getByText('Sounds in this mix').parentElement!);
+    expect(sounds.getByText('None yet')).toBeInTheDocument();
+    await user.click(sounds.getByRole('button', { name: 'Choose Sounds in this mix' }));
     const picker = within(screen.getByRole('dialog', { name: 'Sounds in this mix' }));
     await user.click(picker.getByRole('checkbox', { name: /Drip/ }));
     await user.click(picker.getByRole('button', { name: 'Done' }));
 
     expect(screen.queryByRole('dialog', { name: 'Sounds in this mix' })).not.toBeInTheDocument();
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    expect(sounds.getByText('1 selected')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Play mode: Drip' })).toHaveDisplayValue('Random gaps');
     expect(row('Drip').getByLabelText(MIN)).toHaveValue(5);
     expect(row('Drip').getByLabelText(MAX)).toHaveValue(30);

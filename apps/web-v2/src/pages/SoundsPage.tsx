@@ -5,7 +5,16 @@ import { useScenes, useSounds } from '../api/hooks';
 import { SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
-import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import {
+  LibraryButton,
+  matches,
+  NoMatch,
+  Page,
+  Pagination,
+  QueryGate,
+  searchText,
+  usePages,
+} from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { SoundEditor } from '../editors/SoundEditor';
@@ -22,7 +31,8 @@ export function SoundsPage({ me }: { me: Me }) {
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = sounds.data ?? [];
-  const shown = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
+  const found = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
+  const pages = usePages(found, `${query}\n${categoryIds.join()}`);
   const editing = all.find((s) => s.id === editingId);
   const uploadButton = (
     <Button variant="primary" icon={Upload} onClick={() => setUploading(true)}>
@@ -45,15 +55,19 @@ export function SoundsPage({ me }: { me: Me }) {
             icon={FALLBACK_ICONS.sound}
             title={t('sounds.empty.title')}
             body={t('sounds.empty.body')}
+            action={<LibraryButton />}
           />
-        ) : shown.length === 0 ? (
+        ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.sounds', shown.length)}>
-            {shown.map((sound) => (
-              <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
-            ))}
-          </TileGrid>
+          <>
+            <TileGrid label={tn('count.sounds', found.length)}>
+              {pages.shown.map((sound) => (
+                <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
+              ))}
+            </TileGrid>
+            <Pagination pages={pages} toTop className="self-center" />
+          </>
         )}
       </QueryGate>
 

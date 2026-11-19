@@ -54,12 +54,16 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     WEB_DIST=/app/web
 
-# The server resolves `drizzle/` from its working directory.
+# The contact form's settings, and the rest of `.env.example`, arrive as ordinary
+# environment variables: docker run -e CONTACT_FORM_MODE=local … (or a stack's environment).
+
+# The server resolves `drizzle/` and `changelog/` from its working directory.
 WORKDIR /app/server
 COPY --from=build /out/package.json ./
 COPY --from=build /out/node_modules node_modules
 COPY --from=build /out/dist dist
 COPY --from=build /out/drizzle drizzle
+COPY --from=build /repo/apps/server/changelog changelog
 COPY --from=build /repo/apps/web-v2/dist /app/web
 
 # Database, audio files and images. Mount a volume here and back it up.

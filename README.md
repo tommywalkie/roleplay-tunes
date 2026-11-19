@@ -67,3 +67,11 @@ docker run -d -p 3000:3000 -v ambiance-data:/data \
 - **Set your own `ADMIN_EMAIL` and register it right after the first start, before sharing the address.** Sign-up is public and no email is verified, so whoever registers that address first becomes the administrator. You can close sign-ups from the Admin page afterwards.
 
 All server settings are listed and explained in `.env.example`. The server checks them at start and refuses to run on an invalid value.
+
+The contact form has two modes, set with `CONTACT_FORM_MODE`. The server reads these at start and hands them to the app at runtime, so a restart applies a change (no rebuild, and nothing to pass at build time). `local` keeps the messages on this server, and an administrator reads them in the Admin page. `provider` posts them to a form service: give `CONTACT_FORM_PROVIDER` (`dsforms`, `formspree` or `web3forms`; only `dsforms` has been tried) and `CONTACT_FORM_ENDPOINT`. Left unset, the app shows no contact form.
+
+## License
+
+Roleplay Tunes is open source, licensed under the **Apache License, Version 2.0** (`Apache-2.0`): see [`LICENSE`](LICENSE). The source lives at <https://github.com/tommywalkie/roleplay-tunes>.
+
+The icon sets and fonts the app ships keep their own licences, listed in the app under Profile → Credits.

@@ -1,20 +1,28 @@
 import type { Me } from '@dnd/shared';
 import {
+  Award,
   ChevronRight,
   Download,
+  Lock,
   LogOut,
+  Mail,
   ScrollText,
   Settings,
   ShieldCheck,
+  Sparkles,
   Tags,
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useSignOut, useTerms } from '../api/hooks';
+import { useChangelog, useSignOut, useTerms } from '../api/hooks';
 import { Credit } from '../components/Brand';
+import { ChangelogDialog } from '../components/ChangelogDialog';
+import { CONTACT_FORM_ENABLED, ContactDialog } from '../components/ContactDialog';
+import { CreditsDialog } from '../components/CreditsDialog';
 import { InstallDialog, runsInstalled } from '../components/InstallDialog';
 import { initials } from '../components/OwnerBadge';
+import { PrivacyDialog } from '../components/PrivacyDialog';
 import { TermsDialog } from '../components/TermsDialog';
 import { Button, ErrorNote, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
@@ -25,7 +33,10 @@ export function ProfilePage({ me }: { me: Me }) {
   const signOut = useSignOut();
   const [installing, setInstalling] = useState(false);
   const [reading, setReading] = useState(false);
+  const [readingNotes, setReadingNotes] = useState(false);
+  const [open, setOpen] = useState<'credits' | 'contact' | 'privacy' | null>(null);
   const terms = useTerms(locale);
+  const notes = useChangelog(locale);
   // Nothing to read while the administrator has not written the rules for this language.
   const hasTerms = Boolean(terms.data?.enabled && terms.data.html !== '');
 
@@ -60,6 +71,32 @@ export function ProfilePage({ me }: { me: Me }) {
             title={t('terms.title')}
             hint={t('profile.terms.hint')}
             onClick={() => setReading(true)}
+          />
+        )}
+        <Row
+          icon={Sparkles}
+          title={t('changelog.title')}
+          hint={t('profile.changelog.hint', { version: notes.data?.latest ?? '' })}
+          onClick={() => setReadingNotes(true)}
+        />
+        <Row
+          icon={Award}
+          title={t('credits.title')}
+          hint={t('profile.credits.hint')}
+          onClick={() => setOpen('credits')}
+        />
+        <Row
+          icon={Lock}
+          title={t('privacy.title')}
+          hint={t('profile.privacy.hint')}
+          onClick={() => setOpen('privacy')}
+        />
+        {CONTACT_FORM_ENABLED && (
+          <Row
+            icon={Mail}
+            title={t('contact.title')}
+            hint={t('profile.contact.hint')}
+            onClick={() => setOpen('contact')}
           />
         )}
         {me.role === 'admin' && (
@@ -97,6 +134,10 @@ export function ProfilePage({ me }: { me: Me }) {
       {reading && (
         <TermsDialog mode={{ kind: 'read' }} updating={false} onClose={() => setReading(false)} />
       )}
+      {readingNotes && <ChangelogDialog onClose={() => setReadingNotes(false)} />}
+      {open === 'credits' && <CreditsDialog onClose={() => setOpen(null)} />}
+      {open === 'privacy' && <PrivacyDialog onClose={() => setOpen(null)} />}
+      {open === 'contact' && <ContactDialog me={me} onClose={() => setOpen(null)} />}
     </div>
   );
 }

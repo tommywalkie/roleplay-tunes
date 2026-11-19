@@ -167,17 +167,18 @@ describe('LibraryPage', () => {
     expect(owner).toHaveTextContent('GH');
     expect(owner).toHaveTextContent('Grace Hopper');
 
-    expect(row.getByRole('button', { name: 'License: Private use only' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'License: Copyrighted' })).toBeInTheDocument();
   });
 
-  it('shows license codes translated and license names as they are', async () => {
+  it('marks a named license and leaves an unrecorded one unmarked', async () => {
     renderLibrary();
-    expect(
-      (await rowOf('Cold wind')).getByRole('button', { name: 'License: Unknown' }),
-    ).toBeInTheDocument();
     expect(
       (await rowOf('My rain')).getByRole('button', { name: 'License: CC BY 4.0' }),
     ).toBeInTheDocument();
+    // A license nobody recorded shows no mark at all.
+    expect(
+      (await rowOf('Cold wind')).queryByRole('button', { name: /^License:/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('offers Add for what the user lacks, Remove for what they added, and nothing for their own', async () => {
@@ -268,8 +269,13 @@ describe('LibraryPage', () => {
     // Cold wind is in another mix of theirs, and the rain is their own: neither can come out.
     expect(within(dialog.getByText('Cold wind').closest('li')!).queryByRole('checkbox')).toBeNull();
     expect(within(dialog.getByText('My rain').closest('li')!).queryByRole('checkbox')).toBeNull();
+    // The dialog says why Cold wind stays.
+    expect(
+      dialog.getByText('1 of its sounds is used in your other mixes or scenes. It stays in your library.'),
+    ).toBeInTheDocument();
 
-    // Unticking keeps it: the mix still goes, the sound stays in the library.
+    // Unticking keeps it: the mix still goes, the sound stays in the library, added on its
+    // own first so it does not leave with the mix.
     await user.click(within(gong).getByRole('checkbox'));
     expect(dialog.getByText(/with the mix \(0 of 1\)/)).toBeInTheDocument();
     await user.click(dialog.getByRole('button', { name: 'Remove the mix' }));
@@ -277,7 +283,14 @@ describe('LibraryPage', () => {
       '/api/library/mixes/pm2',
       expect.objectContaining({ method: 'DELETE' }),
     );
-    expect(fetchMock).not.toHaveBeenCalledWith('/api/library/sounds/pub3', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/library/sounds/pub3',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/library/sounds/pub3',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
   });
 
   it('removes an unused added sound at once, with no dialog', async () => {

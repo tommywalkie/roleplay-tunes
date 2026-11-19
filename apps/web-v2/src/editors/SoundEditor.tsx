@@ -15,7 +15,7 @@ import { Dialog } from '../components/Dialog';
 import type { IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
-import { PickList } from '../components/PickList';
+import { PickField } from '../components/PickField';
 import { ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
@@ -229,7 +229,7 @@ export function SoundEditor({
         </OwnerOnly>
       )}
 
-      <PickList
+      <PickField
         label={t('sounds.inScenes')}
         items={scenes}
         selected={sceneIds}

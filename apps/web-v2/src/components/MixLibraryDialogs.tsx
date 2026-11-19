@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Mix, Sound } from '@dnd/shared';
+import { AlertTriangle } from 'lucide-react';
 import { useLibraryEntry } from '../api/hooks';
 import { Dialog } from './Dialog';
 import { MixContents } from './MixContents';
-import { Button, ErrorNote } from './ui';
+import { Button, ErrorNote, Icon } from './ui';
 import { useI18n } from '../i18n';
 
 /** The head of both dialogs: the mix as the library shows it, then what it holds. */
@@ -117,26 +118,33 @@ export function AddMixDialog({
 /**
  * Removing a mix the user added, and deciding what happens to the sounds it brought.
  *
- * Only a sound that no other mix or scene of theirs uses can be taken out, and only a
- * sound they do not own: their own sounds are not in the library, they are theirs. The
- * mix goes first, because the server refuses to remove a sound while a mix of the library
- * holds it; the sounds the user did not keep follow.
+ * The mix can always go. Only a sound that no other mix or scene of theirs uses can go
+ * with it, and only a sound they do not own: their own sounds are not in the library,
+ * they are theirs. Sounds still in use stay, and the dialog says so.
+ *
+ * Every added sound that stays is first added on its own: one that reached the user only
+ * through this mix would otherwise leave with it, and the server would take it out of the
+ * mixes and scenes that use it. Then the mix goes, because the server refuses to remove a
+ * sound while a mix of the library holds it; the sounds the user did not keep follow.
  */
 export function RemoveMixDialog({
   mix,
   byId,
   heldIds,
-  /** Sounds that may come out with the mix: added, and used nowhere else of theirs. */
-  removableIds,
+  fate,
   onClose,
 }: {
   mix: Mix;
   byId: Map<string, Sound>;
   heldIds: Set<string>;
-  removableIds: Set<string>;
+  /**
+   * The mix's added sounds: those that may come out with it (used nowhere else of
+   * theirs), and those another mix or scene of theirs still uses.
+   */
+  fate: { removable: Set<string>; used: Set<string> };
   onClose: () => void;
 }) {
-  const { t, errorText } = useI18n();
+  const { t, tn, errorText } = useI18n();
   const entry = useLibraryEntry('mixes');
   const sounds = useLibraryEntry('sounds');
   const pending = entry.isPending || sounds.isPending;
@@ -144,21 +152,22 @@ export function RemoveMixDialog({
   // Keeping a sound is the unusual choice: the box starts on everything that can come out.
   const [keep, setKeep] = useState<Set<string>>(() => new Set());
 
+  const removable = [...fate.removable];
+  const dropping = removable.filter((id) => !keep.has(id));
+  const staying = [...fate.used, ...keep];
+
   const submit = async () => {
+    for (const id of staying) await sounds.mutateAsync({ id, add: true });
     await entry.mutateAsync({ id: mix.id, add: false });
-    for (const item of mix.items) {
-      if (!removableIds.has(item.soundId) || keep.has(item.soundId)) continue;
+    for (const id of dropping) {
       try {
-        await sounds.mutateAsync({ id: item.soundId, add: false });
+        await sounds.mutateAsync({ id, add: false });
       } catch {
         // The mix is gone either way; a sound that refused stays in the library.
       }
     }
     onClose();
   };
-
-  const removable = [...removableIds];
-  const dropping = removable.filter((id) => !keep.has(id));
 
   return (
     <Dialog
@@ -174,7 +183,7 @@ export function RemoveMixDialog({
             type="submit"
             variant="danger"
             busy={pending}
-            disabled={pending || removable.length === 0}
+            disabled={pending}
           >
             {t('library.removeMix.confirm')}
           </Button>
@@ -182,6 +191,12 @@ export function RemoveMixDialog({
       }
     >
       {error && <ErrorNote>{errorText(error)}</ErrorNote>}
+      {fate.used.size > 0 && (
+        <p className="flex items-start gap-2 rounded-[10px] border border-line bg-deep px-3 py-3 text-[14px] leading-5 text-ink-2">
+          <Icon icon={AlertTriangle} className="mt-0.5 text-ink-3" />
+          {tn('library.removeMix.used', fate.used.size)}
+        </p>
+      )}
       <p className="text-[14px] leading-5 text-ink-2">
         {removable.length === 0
           ? t('library.removeMix.none')
@@ -209,7 +224,7 @@ export function RemoveMixDialog({
         mix={mix}
         byId={byId}
         heldIds={heldIds}
-        selectable={removableIds}
+        selectable={fate.removable}
         // The box means "comes out with the mix", so it is the inverse of `keep`.
         chosen={new Set(removable.filter((id) => !keep.has(id)))}
         onChosen={(dropping) => setKeep(new Set(removable.filter((id) => !dropping.has(id))))}

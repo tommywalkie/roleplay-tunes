@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile, SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
-import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import { LibraryButton, matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { MixEditor } from '../editors/MixEditor';
@@ -80,9 +80,12 @@ export function ScenePage({ me }: { me: Me }) {
             title={t('scenes.contentEmpty.title')}
             body={t('scenes.contentEmpty.body')}
             action={
-              <Button variant="primary" icon={Plus} onClick={() => setEditing({ kind: 'scene' })}>
-                {t('scenes.addContent')}
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="primary" icon={Plus} onClick={() => setEditing({ kind: 'scene' })}>
+                  {t('scenes.addContent')}
+                </Button>
+                <LibraryButton />
+              </div>
             }
           />
         ) : shownMixes.length + shownSounds.length === 0 ? (

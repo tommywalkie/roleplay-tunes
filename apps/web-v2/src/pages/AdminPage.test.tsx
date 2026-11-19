@@ -1,3 +1,4 @@
+import type { ContactMessage } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -70,6 +71,25 @@ const users: AdminUser[] = [
   },
 ];
 
+const messages: ContactMessage[] = [
+  {
+    id: 'c1',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    message: 'The tavern loop is perfect.\nMore please.',
+    createdAt: '2026-11-10T09:00:00.000Z',
+    readAt: null,
+  },
+  {
+    id: 'c2',
+    name: 'Grace Hopper',
+    email: 'grace@example.com',
+    message: 'A question about licences.',
+    createdAt: '2026-11-09T09:00:00.000Z',
+    readAt: '2026-11-09T10:00:00.000Z',
+  },
+];
+
 const routes = (): Record<string, () => Response> => ({
   '/api/admin/settings': () => json(200, { signupsOpen: false, defaults: makeMe().limits }),
   '/api/admin/usage': () =>
@@ -78,6 +98,7 @@ const routes = (): Record<string, () => Response> => ({
       history: [],
     }),
   '/api/admin/users': () => json(200, users),
+  '/api/admin/contact': () => json(200, []),
   '/api/admin/settings/signups': empty,
   '/api/admin/settings/defaults': empty,
   '/api/admin/users/u2/role': empty,
@@ -257,6 +278,49 @@ describe('AdminPage', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
     await waitFor(() =>
       expect(calls).toContainEqual(expect.objectContaining({ url: '/api/admin/users/u2', method: 'DELETE' })),
+    );
+  });
+
+  it('lists the contact messages', async () => {
+    stubFetch({ ...routes(), '/api/admin/contact': () => json(200, messages) });
+    renderAdmin();
+    expect(await screen.findByRole('button', { name: /Ada Lovelace/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Grace Hopper/ })).toBeInTheDocument();
+  });
+
+  it('marks an unread message read when it is opened, and leaves a read one alone', async () => {
+    const calls = stubFetch({ ...routes(), '/api/admin/contact': () => json(200, messages) });
+    const user = renderAdmin();
+
+    await user.click(await screen.findByRole('button', { name: /Ada Lovelace/ }));
+    const dialog = await dialogOf('Ada Lovelace');
+    expect(within(dialog).getByText(/The tavern loop is perfect/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(calls).toContainEqual(
+        expect.objectContaining({ url: '/api/admin/contact/c1/read', method: 'PATCH', body: { read: true } }),
+      ),
+    );
+    await user.keyboard('{Escape}');
+
+    await user.click(await screen.findByRole('button', { name: /Grace Hopper/ }));
+    await dialogOf('Grace Hopper');
+    expect(calls.some((c) => c.url === '/api/admin/contact/c2/read')).toBe(false);
+  });
+
+  it('confirms in place before deleting a message', async () => {
+    const calls = stubFetch({ ...routes(), '/api/admin/contact': () => json(200, messages) });
+    const user = renderAdmin();
+
+    await user.click(await screen.findByRole('button', { name: /Ada Lovelace/ }));
+    const dialog = await dialogOf('Ada Lovelace');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Click again to delete' }));
+    await waitFor(() =>
+      expect(calls).toContainEqual(
+        expect.objectContaining({ url: '/api/admin/contact/c1', method: 'DELETE' }),
+      ),
     );
   });
 });

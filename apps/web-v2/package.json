@@ -1,10 +1,17 @@
 {
   "name": "@dnd/web-v2",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Tom Bazarnik",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tommywalkie/roleplay-tunes.git",
+    "directory": "apps/web-v2"
+  },
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "dotenvx run -f .env --ignore=MISSING_ENV_FILE -- vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -27,6 +34,7 @@
     "react-router": "^8.4.0"
   },
   "devDependencies": {
+    "@dotenvx/dotenvx": "^2.38.2",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.0",

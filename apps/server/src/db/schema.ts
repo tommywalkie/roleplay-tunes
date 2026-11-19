@@ -26,6 +26,8 @@ export const users = sqliteTable('users', {
   /** When the user accepted the server rules. Null while they never did, or accepted an
    * older version: the current version is a server setting, not a copy of this. */
   termsAcceptedAt: timestamp('termsAcceptedAt'),
+  /** The newest changelog version the user has seen. Only moves forward. */
+  changelogSeenVersion: text('changelogSeenVersion'),
   // Per-user limit overrides. Null means "use the server default".
   limitStorageBytes: integer('limitStorageBytes'),
   limitAudioFileBytes: integer('limitAudioFileBytes'),
@@ -393,3 +395,18 @@ export const storageSnapshots = sqliteTable('storage_snapshots', {
   databaseBytes: integer('databaseBytes').notNull(),
   freeBytes: integer('freeBytes').notNull(),
 });
+
+/** A message left through the contact form, kept in `local` mode. */
+export const contactMessages = sqliteTable(
+  'contact_messages',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    message: text('message').notNull(),
+    createdAt: timestamp('createdAt').notNull(),
+    /** When an administrator marked it read. Null while it is new. */
+    readAt: timestamp('readAt'),
+  },
+  (t) => [index('contact_messages_created_idx').on(t.createdAt)],
+);

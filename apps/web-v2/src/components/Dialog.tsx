@@ -40,6 +40,7 @@ export function Dialog({
   children,
   fixedHeight = false,
   dismissible = true,
+  post,
 }: {
   title: string;
   onClose: () => void;
@@ -54,6 +55,12 @@ export function Dialog({
   fixedHeight?: boolean;
   /** False for a dialog that must be answered: no close button, no backdrop, no Escape. */
   dismissible?: boolean;
+  /**
+   * Makes the dialog a plain HTML form posted to this address by the browser itself, with
+   * the browser's own validation: nothing intercepts the submission, and the page leaves
+   * for that address. `onSubmit`, when given, only observes it.
+   */
+  post?: string;
 }) {
   const { t } = useI18n();
   const titleId = useId();
@@ -90,8 +97,8 @@ export function Dialog({
   }, [onTop, dismissible]);
 
   const submit = (e: FormEvent) => {
-    e.preventDefault();
     e.stopPropagation();
+    if (!post) e.preventDefault();
     onSubmit?.();
   };
 
@@ -114,7 +121,9 @@ export function Dialog({
         aria-labelledby={titleId}
         tabIndex={-1}
         onSubmit={submit}
-        noValidate
+        method={post ? 'POST' : undefined}
+        action={post}
+        noValidate={!post}
         className={cx(
           'relative max-h-[92dvh] w-full animate-sheet flex-col rounded-t-[20px] border border-line bg-card outline-none md:max-h-[86dvh] md:max-w-[560px] md:rounded-[20px]',
           onTop ? 'flex' : 'hidden',

@@ -64,7 +64,7 @@ describe('PickField', () => {
 
   it('opens the checklist over the editor, applies ticks at once, and Done returns', async () => {
     const { user, editor, field } = setup(['anvil']);
-    await user.click(field.getByRole('button', { name: 'Choose' }));
+    await user.click(field.getByRole('button', { name: 'Choose Sounds in this mix' }));
 
     const picker = screen.getByRole('dialog', { name: 'Sounds in this mix' });
     expect(shown(picker)).toBe(true);
@@ -84,6 +84,6 @@ describe('PickField', () => {
 
   it('cannot be opened when disabled', () => {
     const { field } = setup([], true);
-    expect(field.getByRole('button', { name: 'Choose' })).toBeDisabled();
+    expect(field.getByRole('button', { name: 'Choose Sounds in this mix' })).toBeDisabled();
   });
 });

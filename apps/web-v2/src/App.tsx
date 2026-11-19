@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router';
 import { useMe } from './api/hooks';
+import { ContactSentNotice } from './components/ContactDialog';
 import { Button, ErrorNote, Spinner } from './components/ui';
 import { useI18n } from './i18n';
 import { AppShell } from './layout/AppShell';
@@ -40,29 +41,35 @@ export function App() {
   }
   if (!me.data) {
     return (
-      <Routes>
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="*" element={<LoginPage />} />
-      </Routes>
+      <>
+        <Routes>
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="*" element={<LoginPage />} />
+        </Routes>
+        <ContactSentNotice />
+      </>
     );
   }
 
   const user = me.data;
   return (
-    <Routes>
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route element={<AppShell me={user} />}>
-        {user.role === 'admin' && <Route path="/admin" element={<AdminPage me={user} />} />}
-        <Route path="/scenes" element={<ScenesPage me={user} />} />
-        <Route path="/scenes/:id" element={<ScenePage me={user} />} />
-        <Route path="/mixes" element={<MixesPage me={user} />} />
-        <Route path="/sounds" element={<SoundsPage me={user} />} />
-        <Route path="/library" element={<LibraryPage />} />
-        <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/profile" element={<ProfilePage me={user} />} />
-        <Route path="/settings" element={<SettingsPage me={user} />} />
-        <Route path="*" element={<Navigate to="/scenes" replace />} />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route element={<AppShell me={user} />}>
+          {user.role === 'admin' && <Route path="/admin" element={<AdminPage me={user} />} />}
+          <Route path="/scenes" element={<ScenesPage me={user} />} />
+          <Route path="/scenes/:id" element={<ScenePage me={user} />} />
+          <Route path="/mixes" element={<MixesPage me={user} />} />
+          <Route path="/sounds" element={<SoundsPage me={user} />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/profile" element={<ProfilePage me={user} />} />
+          <Route path="/settings" element={<SettingsPage me={user} />} />
+          <Route path="*" element={<Navigate to="/scenes" replace />} />
+        </Route>
+      </Routes>
+      <ContactSentNotice />
+    </>
   );
 }

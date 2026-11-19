@@ -64,10 +64,10 @@ describe('VirtualRows', () => {
 
     main.scrollTop = 2500;
     fireEvent.scroll(main);
-    await waitFor(() => expect(mounted()[0]).toBe(48));
-    // The view spans 2500..2700, so rows 50..53 are on screen; two rows of overscan open
-    // the window at 48 and close it at 55.
-    expect(mounted()).toEqual([48, 49, 50, 51, 52, 53, 54, 55]);
+    await waitFor(() => expect(mounted()[0]).toBe(47));
+    // The view spans 2500..2700, so rows 50..53 are on screen; three rows of overscan open
+    // the window at 47 and close it at 56.
+    expect(mounted()).toEqual([47, 48, 49, 50, 51, 52, 53, 54, 55, 56]);
   });
 
   it('stops at the last row rather than padding past the end', async () => {
@@ -77,44 +77,45 @@ describe('VirtualRows', () => {
     main.scrollTop = 4800;
     fireEvent.scroll(main);
     // The view spans 4800..5000, the whole list: rows 96..99 are on screen, overscan
-    // opens the window at 94, and nothing is asked for past the end.
-    await waitFor(() => expect(mounted()).toEqual([94, 95, 96, 97, 98, 99]));
+    // opens the window at 93, and nothing is asked for past the end.
+    await waitFor(() => expect(mounted()).toEqual([93, 94, 95, 96, 97, 98, 99]));
   });
 
-  it('tracks its own scroll when the list is the scroller', async () => {
-    // The users box: a capped height that scrolls inside the card, not with the page.
+  it('tracks the scroll of its own box when given one', async () => {
+    // A capped height that scrolls inside a card, not with the page.
     render(
       <main>
         <VirtualRows
           label="Rows"
           count={COUNT}
-          className="max-h-[200px] overflow-y-auto"
+          scrollClassName="h-[200px] overflow-y-auto"
           renderItem={(i) => <li key={i}>row {i}</li>}
         />
       </main>,
     );
     const ul = screen.getByRole('list');
-    // jsdom runs no stylesheet, so the class means nothing: set what the component reads.
-    ul.style.overflowY = 'auto';
+    const box = ul.parentElement as HTMLElement;
     Object.defineProperty(HTMLLIElement.prototype, 'offsetHeight', {
       get: () => ROW,
       configurable: true,
     });
     Object.defineProperty(ul, 'clientWidth', { value: 600, configurable: true });
-    Object.defineProperty(ul, 'clientHeight', { value: VIEW, configurable: true });
+    Object.defineProperty(box, 'clientHeight', { value: VIEW, configurable: true });
+    box.getBoundingClientRect = () => rect(0);
+    ul.getBoundingClientRect = () => rect(-box.scrollTop);
     const mounted = () =>
       [...ul.querySelectorAll('li')].map((li) => Number(/row (\d+)/.exec(li.textContent ?? '')![1]));
 
-    fireEvent.scroll(ul);
-    await waitFor(() => expect(mounted()[0]).toBe(0));
+    fireEvent.scroll(box);
+    await waitFor(() => expect(mounted().length).toBeLessThan(COUNT));
     // The box holds 200px of 50px rows: a window of four, plus overscan, and the rest of
     // the 100 rows is padding, not markup.
-    expect(mounted()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(mounted()).toEqual([0, 1, 2, 3, 4, 5, 6]);
 
-    ul.scrollTop = 2500;
-    fireEvent.scroll(ul);
-    await waitFor(() => expect(mounted()[0]).toBe(48));
-    expect(mounted()).toEqual([48, 49, 50, 51, 52, 53, 54, 55]);
+    box.scrollTop = 2500;
+    fireEvent.scroll(box);
+    await waitFor(() => expect(mounted()[0]).toBe(47));
+    expect(mounted()).toEqual([47, 48, 49, 50, 51, 52, 53, 54, 55, 56]);
   });
 
   it('holds the whole list when nothing can be measured', () => {

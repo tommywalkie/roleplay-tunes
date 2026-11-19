@@ -13,6 +13,7 @@ export const fr: Messages = {
   'library.title': 'Librairie',
   'library.empty.title': 'Rien de partagé pour l’instant',
   'library.empty.body': 'Revenez plus tard pour voir ce que les autres partagent',
+  'library.browse': 'Parcourir la librairie',
   'library.description':
     'Les sons et les mix partagés sur ce serveur. Écoutez d’abord, puis ajoutez à votre table ce qu’il vous faut',
   'library.noSounds.title': 'Aucun son public pour l’instant',
@@ -39,6 +40,10 @@ export const fr: Messages = {
     'Tous ses sons restent dans votre bibliothèque : ils vous appartiennent, ou servent déjà dans un autre de vos mix ou de vos scènes.',
   'library.removeMix.summary':
     'Les sons cochés seront retirés de votre bibliothèque avec le mix ({n} sur {total}). Décochez ceux que vous voulez garder.',
+  'library.removeMix.used_one':
+    '{n} de ses sons sert dans un autre de vos mix ou de vos scènes. Il reste dans votre librairie.',
+  'library.removeMix.used_other':
+    '{n} de ses sons servent dans d’autres de vos mix ou de vos scènes. Ils restent dans votre librairie.',
   'library.removeMix.dropAll': 'Tout cocher',
   'library.removeMix.keepAll': 'Tout décocher',
   'library.removeSound.title': 'Retirer ce son',
@@ -102,11 +107,13 @@ export const fr: Messages = {
   'terms.title': 'Conditions d’utilisation',
   'terms.updated.title': 'Conditions d’utilisation mises à jour',
   'terms.intro.app':
-    'Roleplay Tunes est une table de mixage pour jeux de rôle : les sons sont assemblés en mix, regroupés en scènes, et joués à la table depuis une tablette ou un téléphone.',
+    'Roleplay Tunes est une table de mixage pour jeux de rôle. Elle est livrée sans aucun son ni musique ; vous ajoutez les vôtres.',
   'terms.intro.selfhost':
-    'Roleplay Tunes est auto-hébergé : chaque serveur est géré par un ou plusieurs administrateurs, et non par une entreprise centrale. Les règles ci-dessous sont celles qui s\'appliquent ce serveur.',
+    'Roleplay Tunes est un logiciel libre destiné à l\'auto-hébergement, publié sous la {license} : chaque serveur est géré par ses propres administrateurs.',
+  'terms.intro.rules': 'Les règles ci-dessous sont celles de ce serveur.',
   'terms.intro.changed':
     'Les règles de ce serveur ont changé. Relisez-les et acceptez-les pour continuer à l’utiliser.',
+  'terms.intro.license': 'licence Apache, version 2.0',
   'terms.empty': 'Aucune règle n’a encore été écrite dans cette langue',
   'terms.accept': 'J’accepte',
   'terms.signOut': 'Se déconnecter',
@@ -116,16 +123,86 @@ export const fr: Messages = {
   'terms.link': 'conditions d’utilisation',
   'terms.readHint': 'Lisez d’abord les règles jusqu’au bout',
   'license.unknown': 'Inconnue',
-  'license.private': 'Usage privé uniquement',
+  'license.intro':
+    'Indique d’où vient le son et s’il peut être utilisé en stream — jouer pour un public sort du cadre privé.',
+  'license.effect': 'Effet :',
+  'license.private': 'Sous droit d’auteur',
+  'license.private.hint': 'Ce son ne devrait être utilisé que dans un cadre privé.',
   'license.custom': 'Autre',
   'license.customLabel': 'Votre licence',
-  'sounds.licenseHint': 'Par exemple CC BY 4.0, avec l’auteur s’il demande à être cité',
+  'license.unknown.hint':
+    'Aucune licence n’a été renseignée. Considérez-la comme tous droits réservés tant que vous n’en savez pas plus.',
+  'license.pixabay.hint':
+    'Libre d’utilisation, même commerciale, sans crédit ; ne le revendez pas tel quel et n’en faites pas un service concurrent.',
+  'license.cc0.hint':
+    'Domaine public. Utilisez-le comme vous voulez, y compris dans des streams monétisés, sans crédit.',
+  'license.by.hint':
+    'Utilisez-le comme vous voulez, y compris commercialement, mais créditez l’auteur.',
+  'license.bySa.hint':
+    'Usage commercial autorisé, créditez l’auteur ; tout ce que vous en tirez doit garder la même licence.',
+  'license.byNc.hint':
+    'Créditez l’auteur, et pas d’usage commercial — pas pour des streams monétisés.',
+  'license.byNcSa.hint':
+    'Crédit, pas d’usage commercial, et partagez ce que vous en tirez sous la même licence.',
+  'license.byNd.hint':
+    'Créditez l’auteur et utilisez-le tel quel, usage commercial compris ; pas de remix ni de modification.',
+  'license.byNcNd.hint': 'Crédit, pas d’usage commercial et pas de modification.',
 
   'profile.title': 'Profil',
   'profile.label': 'Mon profil',
   'profile.settings.hint': 'Stockage, limites et langue',
   'profile.categories.hint': 'Renommez, recolorez ou supprimez vos catégories',
   'profile.terms.hint': 'Les règles fixées par la personne qui gère ce serveur',
+  'profile.changelog.hint': 'Version {version}, et ce qui a changé à chaque mise à jour',
+  'changelog.title': 'Nouveautés',
+  'changelog.latest': 'Dernière',
+  'profile.credits.hint': 'Les jeux d’icônes et les polices sur lesquels repose cette app',
+  'profile.privacy.hint': 'Ce que ce serveur conserve sur vous',
+  'credits.title': 'Crédits',
+  'credits.intro':
+    'Roleplay Tunes repose sur les jeux d’icônes et les polices open source ci-dessous, chacun sous sa propre licence. Merci à leurs auteurs.',
+  'credits.icons': 'Icônes',
+  'credits.fonts': 'Polices',
+  'credits.marks': 'Pictogrammes de licence',
+  'credits.marks.pressKit': 'Kit de presse',
+  'credits.marks.cc': 'Marques de Creative Commons',
+  'credits.marks.logo': 'Logo',
+  'credits.marks.pixabay': 'Domaine public',
+  'credits.emojiNames': 'Noms des émojis tirés de',
+  'credits.count_one': '{n} icône',
+  'credits.count_other': '{n} icônes',
+  'profile.contact.hint': 'Une question, une idée ou un problème',
+  'contact.title': 'Contact',
+  'contact.intro':
+    'Une question, une idée ou un problème ? Votre message part chez la personne qui gère cette app.',
+  'contact.name': 'Nom',
+  'contact.emailHint': 'La réponse arrivera à cette adresse',
+  'contact.message': 'Message',
+  'contact.send': 'Envoyer',
+  'contact.required': 'Remplissez ce champ',
+  'contact.invalidEmail': 'Saisissez une adresse e-mail valide',
+  'contact.leaving':
+    'L’envoi ouvre un instant le service de formulaire, puis vous ramène ici. Ce qui joue s’arrête.',
+  'contact.sent.title': 'Message envoyé',
+  'contact.sent.body': 'Merci. La réponse arrivera par e-mail.',
+  'contact.failed': 'Le message n’a pas pu être envoyé. Réessayez.',
+  'privacy.title': 'Confidentialité',
+  'privacy.updated': 'Dernière mise à jour {date}',
+  'privacy.overview.title': 'Aperçu',
+  'privacy.overview.body':
+    'Cet avis de confidentialité explique ce que ce serveur conserve sur vous. {app} est une table de sons pour jeux de rôle, auto-hébergée sur {host}.',
+  'privacy.data.title': 'Ce que ce serveur conserve',
+  'privacy.data.account': 'Votre pseudonyme et votre adresse e-mail',
+  'privacy.data.session': 'Un cookie de session qui vous garde connecté',
+  'privacy.data.language': 'La langue que vous choisissez, conservée dans votre navigateur',
+  'privacy.data.items': 'Les sons, mix, scènes et images que vous ajoutez',
+  'privacy.data.visibility':
+    'Dans l’app, un élément privé est masqué aux autres utilisateurs ; un son ou un mix public est visible par tout utilisateur connecté ici.',
+  'privacy.analytics.title': 'Analytique',
+  'privacy.analytics.body': 'Ce serveur n’utilise actuellement aucune analytique.',
+  'privacy.contact.title': 'Contact',
+  'privacy.contact.body':
+    'Les messages envoyés via le formulaire de contact parviennent à la personne qui gère ce serveur, et ne sont conservés que pour y répondre. Utilisez-le pour toute question sur vos données.',
   'profile.admin': 'Administration',
   'profile.admin.hint': 'Utilisateurs, limites et inscriptions',
   'profile.credit': 'Développé avec ❤️ par',
@@ -169,6 +246,11 @@ export const fr: Messages = {
   'common.apply': 'Appliquer',
   'common.done': 'Terminé',
 
+  'pages.label': 'Pages',
+  'pages.previous': 'Page précédente',
+  'pages.next': 'Page suivante',
+  'pages.current': 'Page {page} sur {count}',
+
   'count.sounds_one': '{n} son',
   'count.sounds_other': '{n} sons',
   'count.mixes_one': '{n} mix',
@@ -202,7 +284,10 @@ export const fr: Messages = {
   'sounds.title': 'Sons',
   'sounds.upload': 'Importer',
   'sounds.empty.title': 'Aucun son pour l’instant',
-  'sounds.empty.body': 'Importez votre premier fichier audio pour commencer',
+  'sounds.empty.body':
+    'Importez votre premier fichier audio, ou ajoutez des sons partagés depuis la librairie',
+  'sounds.pickEmpty':
+    'Aucun son pour l’instant. Importez-en depuis la page Sons, ou ajoutez des sons partagés depuis la librairie',
   'sounds.description': 'Les fichiers audio qui composent vos mix et vos scènes',
   'sounds.edit': 'Modifier le son',
   'sounds.volume': 'Volume',
@@ -217,6 +302,8 @@ export const fr: Messages = {
   'upload.title': 'Importer des sons',
   'upload.pick': 'Choisir des fichiers audio',
   'upload.formats': 'MP3, M4A, AAC, OGG, WAV, FLAC ou WebM, jusqu’à {size} et {minutes} min chacun',
+  'upload.libraryHint':
+    'Vous pouvez aussi ajouter des sons partagés par d’autres depuis la librairie, sans utiliser votre espace',
   'upload.uploading': 'Envoi en cours',
   'upload.done': 'Importé',
   'upload.waiting': 'En attente',
@@ -226,7 +313,12 @@ export const fr: Messages = {
   'mixes.new': 'Nouveau mix',
   'mixes.edit': 'Modifier le mix',
   'mixes.empty.title': 'Aucun mix pour l’instant',
-  'mixes.empty.body': 'Créez votre premier mix pour commencer',
+  'mixes.empty.body':
+    'Créez votre premier mix, ou ajoutez des mix partagés par d’autres depuis la librairie',
+  'mixes.pickEmpty':
+    'Aucun mix pour l’instant. Créez-en un depuis la page Mix, ou ajoutez des mix partagés depuis la librairie',
+  'mixes.libraryHint':
+    'Vous pouvez aussi ajouter des mix partagés par d’autres, prêts à jouer, depuis la librairie',
   'mixes.description': 'Un mix joue plusieurs sons ensemble, chacun à son propre volume',
   'mixes.sounds': 'Sons de ce mix',
   'mixes.addSounds': 'Ajouter des sons',
@@ -251,7 +343,8 @@ export const fr: Messages = {
   'scenes.empty.body': 'Créez votre première scène pour commencer',
   'scenes.description': 'Une scène regroupe les mix et les sons utiles pour un lieu ou un moment',
   'scenes.contentEmpty.title': 'Cette scène est vide',
-  'scenes.contentEmpty.body': 'Ajoutez les mix et les sons que vous voulez garder sous la main',
+  'scenes.contentEmpty.body':
+    'Ajoutez les mix et les sons que vous voulez garder sous la main, les vôtres ou ceux de la librairie',
   'scenes.addContent': 'Ajouter des mix et des sons',
   'scenes.notFound': 'Cette scène n’existe plus',
 
@@ -339,6 +432,8 @@ export const fr: Messages = {
   'login.name.hint': 'Visible par les autres sur ce que vous partagez. Inutile d’y mettre votre vrai nom',
   'login.submit': 'Se connecter',
   'login.toSignUp': 'Créer un compte',
+  'login.legal': 'Informations sur cette app',
+  'login.source': 'Code source',
   'signup.title': 'Créer un compte',
   'signup.submit': 'Créer le compte',
   'signup.toLogin': 'J’ai déjà un compte',
@@ -387,6 +482,12 @@ export const fr: Messages = {
   'admin.terms.preview': 'Aperçu',
   'admin.users': 'Utilisateurs',
   'admin.users.hint': 'Chaque compte de ce serveur, du plus ancien au plus récent',
+  'admin.contact': 'Messages',
+  'admin.contact.hint':
+    'Les messages laissés via le formulaire de contact, du plus récent au plus ancien',
+  'admin.contact.search': 'Rechercher des messages',
+  'admin.contact.empty': 'Aucun message pour le moment',
+  'admin.message.confirmDelete': 'Cliquez encore pour supprimer',
   'admin.user.role': 'Rôle',
   'admin.user.access': 'Accès',
   'admin.user.enabled': 'Activé',

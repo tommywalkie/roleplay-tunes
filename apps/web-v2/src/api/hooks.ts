@@ -1,5 +1,6 @@
 import type {
   Category,
+  Changelog,
   CreateCategoryRequest,
   CreateMixRequest,
   UpdateCategoryRequest,
@@ -33,6 +34,7 @@ export const keys = {
   synonyms: ['synonyms'] as const,
   categories: ['categories'] as const,
   terms: ['terms'] as const,
+  changelog: ['changelog'] as const,
 };
 
 export type Kind = 'sounds' | 'mixes' | 'scenes';
@@ -96,6 +98,24 @@ export function useAcceptTerms() {
   return useMutation({
     mutationFn: () => api('/api/terms/accept', { method: 'POST', json: {} }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+/** The release notes in one language, newest first. They change only with a deploy. */
+export function useChangelog(locale: Locale) {
+  return useQuery({
+    queryKey: [...keys.changelog, locale],
+    queryFn: () => api<Changelog>(`/api/changelog/${locale}`),
+    staleTime: Infinity,
+  });
+}
+
+/** Records that the user has seen every release note the server has. */
+export function useChangelogSeen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<Me>('/api/me/changelog-seen', { method: 'POST', json: {} }),
+    onSuccess: (me) => qc.setQueryData(keys.me, me),
   });
 }
 

@@ -5,7 +5,15 @@ import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { SceneTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
-import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import {
+  matches,
+  NoMatch,
+  Page,
+  Pagination,
+  QueryGate,
+  searchText,
+  usePages,
+} from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { SceneEditor } from '../editors/SceneEditor';
@@ -22,7 +30,8 @@ export function ScenesPage({ me }: { me: Me }) {
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = scenes.data ?? [];
-  const shown = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
+  const found = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
+  const pages = usePages(found, `${query}\n${categoryIds.join()}`);
   const editing = all.find((s) => s.id === editingId);
 
   return (
@@ -45,14 +54,17 @@ export function ScenesPage({ me }: { me: Me }) {
             title={t('scenes.empty.title')}
             body={t('scenes.empty.body')}
           />
-        ) : shown.length === 0 ? (
+        ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.scenes', shown.length)}>
-            {shown.map((scene) => (
-              <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
-            ))}
-          </TileGrid>
+          <>
+            <TileGrid label={tn('count.scenes', found.length)}>
+              {pages.shown.map((scene) => (
+                <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
+              ))}
+            </TileGrid>
+            <Pagination pages={pages} toTop className="self-center" />
+          </>
         )}
       </QueryGate>
 

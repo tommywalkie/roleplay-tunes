@@ -24,7 +24,6 @@ import { Thumb, type IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
-import { PickList } from '../components/PickList';
 import { Button, ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
@@ -254,6 +253,8 @@ export function MixEditor({
 
         {mix && !owned && <OwnerNote name={mix.ownerName} />}
 
+        {!mix && <p className="text-[13px] leading-5 text-ink-3">{t('mixes.libraryHint')}</p>}
+
         <OwnerOnly locked={!owned}>
           <Field label={t('common.name')} error={fields?.name}>
             {(id) => (
@@ -296,7 +297,7 @@ export function MixEditor({
               selected={items.map((i) => i.soundId)}
               onChange={setMembers}
               fallback={FALLBACK_ICONS.sound}
-              emptyText={t('sounds.empty.title')}
+              emptyText={t('sounds.pickEmpty')}
               max={me.limits.mixItems}
             />
             <p
@@ -310,6 +311,15 @@ export function MixEditor({
             </p>
           </div>
         </OwnerOnly>
+
+        <PickField
+          label={t('sounds.inScenes')}
+          items={scenes}
+          selected={sceneIds}
+          onChange={setSceneIds}
+          fallback={FALLBACK_ICONS.scene}
+          emptyText={t('sounds.noScenes')}
+        />
 
         <TagFields draft={tags} ownerName={owned ? undefined : mix?.ownerName} errors={fields} />
 
@@ -375,15 +385,6 @@ export function MixEditor({
             </ul>
           </div>
         )}
-
-        <PickList
-          label={t('sounds.inScenes')}
-          items={scenes}
-          selected={sceneIds}
-          onChange={setSceneIds}
-          fallback={FALLBACK_ICONS.scene}
-          emptyText={t('sounds.noScenes')}
-        />
 
         {publishing && (
           <Dialog

@@ -1,11 +1,10 @@
 import type { Illustration as IllustrationData } from '@dnd/shared';
 import { Ellipsis, type LucideIcon } from 'lucide-react';
-import { Children, useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Illustration } from './Illustration';
 import { Menu, type MenuItem } from './Menu';
-import { VirtualRows } from './VirtualRows';
-import { cx, Icon, Lamp, useMedia } from './ui';
+import { cx, Icon, Lamp } from './ui';
 
 export interface TileProgress {
   /** Changes for every new run, so the bar restarts. */
@@ -116,27 +115,13 @@ export function Tile({
 }
 
 /** The mosaic: tiles as wide as fits, never narrower than a thumb can hit. */
-const TILE_GAP = 12;
-const TILE_MIN = 148;
-const TILE_MIN_WIDE = 164;
-const TABLET = '(min-width: 768px)';
-
-/**
- * The mosaic, virtualised: only the rows a reader can reach are mounted, so a board of a
- * thousand sounds costs the same DOM as a dozen. The column count comes from the width the
- * list actually has, which is what the CSS grid it replaced worked out too.
- */
 export function TileGrid({ children, label }: { children: ReactNode; label: string }) {
-  const wide = useMedia(TABLET);
-  const tiles = Children.toArray(children);
   return (
-    <VirtualRows
-      label={label}
-      className="grid"
-      count={tiles.length}
-      minCell={wide ? TILE_MIN_WIDE : TILE_MIN}
-      gap={TILE_GAP}
-      renderItem={(i) => tiles[i]}
-    />
+    <ul
+      aria-label={label}
+      className="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-3 md:grid-cols-[repeat(auto-fill,minmax(164px,1fr))]"
+    >
+      {children}
+    </ul>
   );
 }

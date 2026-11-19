@@ -10,7 +10,15 @@ import { AddMixDialog, RemoveMixDialog } from '../components/MixLibraryDialogs';
 import { RemoveSoundDialog, soundUsage } from '../components/RemoveSoundDialog';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
-import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import {
+  matches,
+  NoMatch,
+  Page,
+  Pagination,
+  QueryGate,
+  searchText,
+  usePages,
+} from '../components/Page';
 import { Button, EmptyState, IconButton, Lamp, Segmented, cx } from '../components/ui';
 import { useI18n } from '../i18n';
 
@@ -73,6 +81,10 @@ export function LibraryPage() {
   const shownSounds = sounds.filter(keep);
   const shownMixes = mixes.filter(keep);
   const empty = sounds.length + mixes.length === 0;
+  const filterKey = `${tab}\n${query}\n${categoryIds.join()}`;
+  const soundPages = usePages(shownSounds, filterKey);
+  const mixPages = usePages(shownMixes, filterKey);
+  const pages = tab === 'sounds' ? soundPages : mixPages;
 
   return (
     <Page
@@ -117,7 +129,7 @@ export function LibraryPage() {
                 <NoMatch query={query.trim()} />
               ) : (
                 <ul className="flex flex-col rounded-[16px] border border-line bg-card">
-                  {shownSounds.map((sound) => (
+                  {soundPages.shown.map((sound) => (
                     <SoundRow
                       key={sound.id}
                       sound={sound}
@@ -151,7 +163,7 @@ export function LibraryPage() {
               <NoMatch query={query.trim()} />
             ) : (
               <ul className="flex flex-col rounded-[16px] border border-line bg-card">
-                {shownMixes.map((mix) => (
+                {mixPages.shown.map((mix) => (
                   <MixRow
                     key={mix.id}
                     mix={mix}
@@ -162,6 +174,7 @@ export function LibraryPage() {
                 ))}
               </ul>
             )}
+            <Pagination pages={pages} toTop className="self-center" />
           </div>
         )}
       </QueryGate>
@@ -174,7 +187,7 @@ export function LibraryPage() {
           mix={removing}
           byId={byId}
           heldIds={heldIds}
-          removableIds={removableWith(removing, {
+          fate={removableWith(removing, {
             own: own.data ?? [],
             ownMixes: ownMixes.data ?? [],
             scenes: ownScenes.data ?? [],
@@ -198,9 +211,12 @@ export function LibraryPage() {
 }
 
 /**
- * The sounds of `mix` that may be taken out of the library with it: ones the user added
- * rather than owns, and that no other mix or scene of theirs still uses. Everything else
- * stays, because removing it would break something the user kept.
+ * What happens to the sounds of `mix` when it leaves the library.
+ * - `removable`: added rather than owned, and used by no other mix or scene of theirs. They
+ *   may go with it.
+ * - `used`: added rather than owned, but another mix or scene of theirs still uses them.
+ *   They stay, because removing them would break something the user kept.
+ * The mix itself never counts as a use: it is the thing leaving.
  */
 function removableWith(
   mix: Mix,
@@ -211,7 +227,7 @@ function removableWith(
     libraryMixes: Mix[];
     addedSoundIds: Set<string>;
   },
-): Set<string> {
+): { removable: Set<string>; used: Set<string> } {
   const ownIds = new Set(board.own.map((s) => s.id));
   const usedElsewhere = new Set<string>();
   // Only the mixes the user actually holds protect a sound: a public mix of somebody else
@@ -233,11 +249,13 @@ function removableWith(
   }
   for (const scene of board.scenes) for (const id of scene.soundIds) usedElsewhere.add(id);
 
-  return new Set(
-    mix.items
-      .map((item) => item.soundId)
-      .filter((id) => board.addedSoundIds.has(id) && !ownIds.has(id) && !usedElsewhere.has(id)),
-  );
+  const added = mix.items
+    .map((item) => item.soundId)
+    .filter((id) => board.addedSoundIds.has(id) && !ownIds.has(id));
+  return {
+    removable: new Set(added.filter((id) => !usedElsewhere.has(id))),
+    used: new Set(added.filter((id) => usedElsewhere.has(id))),
+  };
 }
 
 function SoundRow({

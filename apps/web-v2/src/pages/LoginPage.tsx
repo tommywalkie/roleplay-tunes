@@ -5,6 +5,7 @@ import {
   DoorOpen,
   Download,
   Flame,
+  Mail,
   Trees,
   Users,
   type LucideIcon,
@@ -13,7 +14,10 @@ import { useEffect, useId, useState } from 'react';
 import { ApiError } from '../api/client';
 import { useAcceptTerms, usePublicSettings, useSignIn, useSignUp, useTerms } from '../api/hooks';
 import { Credit, Mark, Wordmark } from '../components/Brand';
+import { CONTACT_FORM_ENABLED, ContactDialog } from '../components/ContactDialog';
+import { CreditsDialog } from '../components/CreditsDialog';
 import { InstallDialog, runsInstalled } from '../components/InstallDialog';
+import { PrivacyDialog } from '../components/PrivacyDialog';
 import { TermsDialog } from '../components/TermsDialog';
 import { Button, cx, ErrorNote, Field, Lamp, Segmented, TextInput } from '../components/ui';
 import { LOCALES, LOCALE_NAMES, useI18n, type Locale } from '../i18n';
@@ -63,6 +67,10 @@ function BoardPreview() {
   );
 }
 
+/** The quiet text links at the foot of the sign-in column. */
+const LEGAL_LINK =
+  'underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline';
+
 export function LoginPage() {
   const { t, errorText, locale, setLocale } = useI18n();
   const termsId = useId();
@@ -76,7 +84,10 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [installing, setInstalling] = useState(false);
-  const [reading, setReading] = useState(false);
+  const [contacting, setContacting] = useState(false);
+  const [termsView, setTermsView] = useState<null | 'agree' | 'read'>(null);
+  const [privacy, setPrivacy] = useState(false);
+  const [credits, setCredits] = useState(false);
   // The reader reached the foot of the rules, and then said so with the checkbox.
   const [readToEnd, setReadToEnd] = useState(false);
   const [read, setRead] = useState(false);
@@ -192,7 +203,13 @@ export function LoginPage() {
             </Field>
             {mustRead && (
               <div className="flex flex-col gap-1">
-                <div className="flex min-h-11 items-start gap-3">
+                {/* Until the rules have been read, a tap anywhere on the row opens them:
+                    the locked box alone gave no clue where to go. The link stays the way
+                    in for the keyboard. */}
+                <div
+                  onClick={readToEnd ? undefined : () => setTermsView('agree')}
+                  className={cx('flex min-h-11 items-start gap-3', !readToEnd && 'cursor-pointer')}
+                >
                   <input
                     id={termsId}
                     type="checkbox"
@@ -209,7 +226,7 @@ export function LoginPage() {
                     className={cx(
                       'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-[6px] border transition-colors duration-150',
                       read ? 'border-ink bg-ink text-deep' : 'border-line-strong bg-deep',
-                      readToEnd ? 'cursor-pointer' : 'cursor-default opacity-50',
+                      readToEnd ? 'cursor-pointer' : 'opacity-50',
                     )}
                   >
                     {read && <Check size={14} strokeWidth={2} aria-hidden />}
@@ -220,7 +237,10 @@ export function LoginPage() {
                     </label>{' '}
                     <button
                       type="button"
-                      onClick={() => setReading(true)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTermsView('agree');
+                      }}
                       className="underline underline-offset-4 transition-colors duration-150 hover:text-white"
                     >
                       {t('terms.link')}
@@ -248,28 +268,69 @@ export function LoginPage() {
               </button>
             )}
           </form>
-          {!runsInstalled() && (
-            <Button
-              variant="ghost"
-              icon={Download}
-              onClick={() => setInstalling(true)}
-              className="-ml-3 self-start px-3"
-            >
-              {t('install.button')}
-            </Button>
+          {(!runsInstalled() || CONTACT_FORM_ENABLED) && (
+            <div className="-ml-3 flex flex-wrap gap-1">
+              {!runsInstalled() && (
+                <Button variant="ghost" icon={Download} onClick={() => setInstalling(true)} className="px-3">
+                  {t('install.button')}
+                </Button>
+              )}
+              {CONTACT_FORM_ENABLED && (
+                <Button variant="ghost" icon={Mail} onClick={() => setContacting(true)} className="px-3">
+                  {t('contact.title')}
+                </Button>
+              )}
+            </div>
           )}
         </div>
-        <Credit className="pt-10" />
+        <nav
+          aria-label={t('login.legal')}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-10 text-[12px] leading-4 text-ink-3"
+        >
+          {hasTerms && (
+            <button type="button" onClick={() => setTermsView('read')} className={LEGAL_LINK}>
+              {t('terms.title')}
+            </button>
+          )}
+          <button type="button" onClick={() => setPrivacy(true)} className={LEGAL_LINK}>
+            {t('privacy.title')}
+          </button>
+          <button type="button" onClick={() => setCredits(true)} className={LEGAL_LINK}>
+            {t('credits.title')}
+          </button>
+          <a
+            href="https://github.com/tommywalkie/roleplay-tunes"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={LEGAL_LINK}
+          >
+            {t('login.source')}
+          </a>
+        </nav>
+        <Credit className="pt-3" />
       </main>
       {installing && <InstallDialog onClose={() => setInstalling(false)} />}
-      {reading && (
+      {contacting && <ContactDialog onClose={() => setContacting(false)} />}
+      {termsView === 'agree' && (
         <TermsDialog
-          mode={{ kind: 'read' }}
+          mode={{
+            kind: 'agree',
+            readToEnd,
+            onAgree: () => {
+              setRead(true);
+              setTermsView(null);
+            },
+          }}
           updating={false}
-          onClose={() => setReading(false)}
+          onClose={() => setTermsView(null)}
           onReadToEnd={() => setReadToEnd(true)}
         />
       )}
+      {termsView === 'read' && (
+        <TermsDialog mode={{ kind: 'read' }} updating={false} onClose={() => setTermsView(null)} />
+      )}
+      {privacy && <PrivacyDialog onClose={() => setPrivacy(false)} />}
+      {credits && <CreditsDialog onClose={() => setCredits(false)} />}
 
       <div className="hidden items-center justify-center border-l border-line bg-deep p-12 lg:flex">
         <BoardPreview />

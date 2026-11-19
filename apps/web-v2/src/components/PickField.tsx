@@ -48,7 +48,13 @@ export function PickField({
       </span>
       <div className="flex min-h-14 items-center gap-3 rounded-[12px] border border-line bg-raised/40 py-2 pl-4 pr-2">
         <span className="min-w-0 flex-1 truncate text-[14px] leading-5 text-ink-2">{summary}</span>
-        <Button icon={ListChecks} disabled={disabled} onClick={() => setOpen(true)} className="px-3">
+        <Button
+          icon={ListChecks}
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+          aria-label={`${t('common.choose')} ${label}`}
+          className="px-3"
+        >
           {t('common.choose')}
         </Button>
       </div>

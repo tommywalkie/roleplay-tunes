@@ -68,6 +68,8 @@ export function makeMe(over: Partial<Me> = {}): Me {
     },
     usage: { storageBytes: 125 * MB, sounds: 12, mixes: 3, scenes: 2 },
     termsAcceptedAt: null,
+    // Up to date, so the release notes do not open over the board under test.
+    changelogUnseen: false,
     ...over,
   };
 }

@@ -1,10 +1,17 @@
 {
   "name": "@dnd/server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Tom Bazarnik",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tommywalkie/roleplay-tunes.git",
+    "directory": "apps/server"
+  },
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "dotenvx run -f .env --ignore=MISSING_ENV_FILE -- tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsup",
     "test": "vitest run",
@@ -22,12 +29,14 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.5",
+    "marked": "^18.2.1",
     "music-metadata": "^12.5.0",
     "sanitize-html": "^2.18.2",
     "sharp": "^0.35.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@dotenvx/dotenvx": "^2.38.2",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@types/sanitize-html": "^2.16.2",

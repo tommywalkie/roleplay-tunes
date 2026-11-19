@@ -8,6 +8,7 @@ import {
   type PublicSettings,
 } from '@dnd/shared';
 import { requireUser, type UserRow } from '../auth.js';
+import { changelogUnseen, markChangelogSeen } from '../changelog.js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { invalid, parse } from '../errors.js';
@@ -24,8 +25,26 @@ export function toMe(user: UserRow): Me {
     limits: effectiveLimits(user),
     usage: usageOf(user.id),
     termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+    changelogUnseen: changelogUnseen(user.changelogSeenVersion ?? null),
   };
 }
+
+/** What `/api/me` returns. Every key must be named, or the serializer strips it. */
+const meResponse = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    email: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['user', 'admin'] },
+    limits: { type: 'object', additionalProperties: true },
+    usage: { type: 'object', additionalProperties: true },
+    // Stripped, the rules dialog would never close: the client would read the
+    // acceptance as missing forever. The same goes for the changelog.
+    termsAcceptedAt: { type: 'string', format: 'date-time', nullable: true },
+    changelogUnseen: { type: 'boolean' },
+  },
+} as const;
 
 /** Removes a user, every row they own (by cascade) and every file they own. */
 export async function deleteUser(userId: string): Promise<void> {
@@ -71,24 +90,24 @@ export function accountRoutes(app: FastifyInstance) {
       tags: ['account'],
       summary: 'Current user',
       description: 'Returns the authenticated user profile and limits.',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            email: { type: 'string' },
-            name: { type: 'string' },
-            role: { type: 'string', enum: ['user', 'admin'] },
-            limits: { type: 'object', additionalProperties: true },
-            usage: { type: 'object', additionalProperties: true },
-            // Must be named or the serializer strips it, and the rules dialog never
-            // closes: the client would read the acceptance as missing forever.
-            termsAcceptedAt: { type: 'string', format: 'date-time', nullable: true },
-          },
-        },
-      },
+      response: { 200: meResponse },
     },
   }, async (request) => toMe(await requireUser(request)));
+
+  app.post('/api/me/changelog-seen', {
+    schema: {
+      tags: ['account'],
+      summary: 'Mark the changelog as seen',
+      description:
+        'Records that the user has seen every release note this server has now. The server ' +
+        'decides which version that is, so a client that has not reloaded cannot set an old one.',
+      response: { 200: meResponse },
+    },
+  }, async (request) => {
+    const user = await requireUser(request);
+    markChangelogSeen(user.id);
+    return toMe(db.select().from(users).where(eq(users.id, user.id)).get() ?? user);
+  });
 
   app.patch('/api/me', {
     schema: {
@@ -101,20 +120,7 @@ export function accountRoutes(app: FastifyInstance) {
         required: ['name'],
         properties: { name: { type: 'string', maxLength: 100 } },
       },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            email: { type: 'string' },
-            name: { type: 'string' },
-            role: { type: 'string', enum: ['user', 'admin'] },
-            limits: { type: 'object', additionalProperties: true },
-            usage: { type: 'object', additionalProperties: true },
-            termsAcceptedAt: { type: 'string', format: 'date-time', nullable: true },
-          },
-        },
-      },
+      response: { 200: meResponse },
     },
   }, async (request) => {
     const user = await requireUser(request);

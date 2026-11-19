@@ -1,20 +1,22 @@
-import type { Limits, Me } from '@dnd/shared';
+import type { ContactMessage, Limits, Me } from '@dnd/shared';
 import { ChevronRight } from 'lucide-react';
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 import {
+  useAdminMessages,
   useAdminSettings,
   useAdminUsage,
   useAdminUsers,
   useSetDefaultLimits,
+  useSetMessageRead,
   useSetSignups,
   type AdminUser,
   type DiskSplit,
 } from '../api/admin';
 import { fromLimitInputs, LimitFields, toLimitInputs } from '../components/LimitFields';
-import { matches, NoMatch, Page, QueryGate } from '../components/Page';
+import { matches, NoMatch, Page, Pagination, QueryGate, usePages } from '../components/Page';
 import { Button, cx, ErrorNote, Icon, SearchField, Segmented } from '../components/ui';
+import { ContactMessageDialog } from '../editors/ContactMessageDialog';
 import { UserDialog } from '../editors/UserDialog';
-import { VirtualRows } from '../components/VirtualRows';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 
@@ -193,24 +195,87 @@ function UserRow({
   );
 }
 
+/** Rows of the users list per page: each one is tall, and the list sits under four cards. */
+const USERS_PER_PAGE = 10;
+
+/** Rows of the messages list per page. */
+const MESSAGES_PER_PAGE = 10;
+
+function MessageRow({ message, onOpen }: { message: ContactMessage; onOpen: () => void }) {
+  const { locale } = useI18n();
+  const unread = message.readAt === null;
+  const when = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
+    new Date(message.createdAt),
+  );
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-16 w-full items-center gap-4 rounded-[10px] px-3 py-2 text-left transition-colors duration-150 hover:bg-raised"
+      >
+        <span
+          aria-hidden
+          className={cx('size-2 shrink-0 rounded-full', unread ? 'bg-ink-2' : 'bg-transparent')}
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className={cx('truncate text-[15px] leading-5', unread ? 'font-medium text-ink' : 'text-ink-2')}>
+            {message.name}
+          </span>
+          <span className="truncate text-[13px] leading-5 text-ink-2">{message.email}</span>
+          <span className="truncate text-[12px] leading-4 text-ink-3">
+            {message.message.split('\n')[0]}
+          </span>
+        </span>
+        <span className="shrink-0 text-[12px] leading-4 text-ink-3">{when}</span>
+        <Icon icon={ChevronRight} className="text-ink-3" />
+      </button>
+    </li>
+  );
+}
+
 export function AdminPage({ me }: { me: Me }) {
   const { t } = useI18n();
   const settings = useAdminSettings();
   const users = useAdminUsers();
+  const messages = useAdminMessages();
   const usage = useAdminUsage();
+  const setRead = useSetMessageRead();
   const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [messageQuery, setMessageQuery] = useState('');
+  const [openMessageId, setOpenMessageId] = useState<string | null>(null);
 
   const all = users.data ?? [];
-  const shown = all.filter((u) => matches(`${u.name} ${u.email}`, query));
+  const found = all.filter((u) => matches(`${u.name} ${u.email}`, query));
+  const pages = usePages(found, query, USERS_PER_PAGE);
   const opened = all.find((u) => u.id === openId);
+
+  const allMessages = messages.data ?? [];
+  const foundMessages = allMessages.filter((m) =>
+    matches(`${m.name} ${m.email} ${m.message}`, messageQuery),
+  );
+  const messagePages = usePages(foundMessages, messageQuery, MESSAGES_PER_PAGE);
+  const openedMessage = allMessages.find((m) => m.id === openMessageId);
+  // Opening a new message reads it; the list shows the rest as unread.
+  const openMessage = (message: ContactMessage) => {
+    if (message.readAt === null) setRead.mutate({ id: message.id, read: true });
+    setOpenMessageId(message.id);
+  };
 
   return (
     <Page title={t('admin.title')}>
       <QueryGate
-        loading={settings.isLoading || users.isLoading || usage.isLoading}
-        error={settings.error ?? users.error ?? usage.error}
-        onRetry={() => void Promise.all([settings.refetch(), users.refetch(), usage.refetch()])}
+        loading={settings.isLoading || users.isLoading || messages.isLoading || usage.isLoading}
+        error={settings.error ?? users.error ?? messages.error ?? usage.error}
+        onRetry={() =>
+          void Promise.all([
+            settings.refetch(),
+            users.refetch(),
+            messages.refetch(),
+            usage.refetch(),
+          ])
+        }
       >
         {settings.data && usage.data && (
           <div className="flex max-w-[960px] flex-col gap-4">
@@ -242,35 +307,62 @@ export function AdminPage({ me }: { me: Me }) {
                   className="w-full sm:w-[280px]"
                 />
               </div>
-              {shown.length === 0 ? (
+              {found.length === 0 ? (
                 <NoMatch query={query.trim()} />
               ) : (
-                // One row per user, all the same height: mounted only around what the
-                // administrator can see, so a server with thousands of accounts scrolls
-                // as cheaply as one with a dozen.
-                // The box holds its height at 500px: a longer list scrolls inside the
-                // card instead of pushing the page out. The box scrolls, the list inside
-                // it carries the padding that stands in for unmounted rows.
-                <VirtualRows
-                  label={t('admin.users')}
-                  scrollClassName="-mx-3 h-[500px] overflow-y-auto overscroll-contain scroll-quiet"
-                  className="flex flex-col"
-                  count={shown.length}
-                  gap={2}
-                  renderItem={(i) => {
-                    const user = shown[i]!;
-                    return (
-                      <UserRow
-                        key={user.id}
-                        user={user}
-                        defaults={settings.data.defaults}
-                        isSelf={user.id === me.id}
-                        onOpen={() => setOpenId(user.id)}
-                      />
-                    );
-                  }}
-                />
+                // As tall as its rows: no box of its own, so the page is the one thing
+                // that scrolls.
+                <ul aria-label={t('admin.users')} className="-mx-3 flex flex-col gap-0.5">
+                  {pages.shown.map((user) => (
+                    <UserRow
+                      key={user.id}
+                      user={user}
+                      defaults={settings.data.defaults}
+                      isSelf={user.id === me.id}
+                      onOpen={() => setOpenId(user.id)}
+                    />
+                  ))}
+                </ul>
               )}
+              <Pagination pages={pages} className="self-center" />
+            </section>
+
+            <section className="flex flex-col gap-3 rounded-[16px] border border-line bg-card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
+                    {t('admin.contact')}
+                    <span className="font-mono text-[12px] text-ink-3 tabular-nums">
+                      {allMessages.length}
+                    </span>
+                  </h2>
+                  <p className="text-[13px] leading-5 text-ink-3">{t('admin.contact.hint')}</p>
+                </div>
+                <SearchField
+                  value={messageQuery}
+                  onChange={setMessageQuery}
+                  label={t('admin.contact.search')}
+                  className="w-full sm:w-[280px]"
+                />
+              </div>
+              {allMessages.length === 0 ? (
+                <p className="px-3 py-6 text-center text-[13px] leading-5 text-ink-3">
+                  {t('admin.contact.empty')}
+                </p>
+              ) : foundMessages.length === 0 ? (
+                <NoMatch query={messageQuery.trim()} />
+              ) : (
+                <ul aria-label={t('admin.contact')} className="-mx-3 flex flex-col gap-0.5">
+                  {messagePages.shown.map((message) => (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      onOpen={() => openMessage(message)}
+                    />
+                  ))}
+                </ul>
+              )}
+              <Pagination pages={messagePages} className="self-center" />
             </section>
           </div>
         )}
@@ -284,6 +376,10 @@ export function AdminPage({ me }: { me: Me }) {
           isSelf={opened.id === me.id}
           onClose={() => setOpenId(null)}
         />
+      )}
+
+      {openedMessage && (
+        <ContactMessageDialog message={openedMessage} onClose={() => setOpenMessageId(null)} />
       )}
     </Page>
   );

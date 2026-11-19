@@ -2,6 +2,13 @@
   "name": "@dnd/audio-engine",
   "version": "0.0.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Tom Bazarnik",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tommywalkie/roleplay-tunes.git",
+    "directory": "packages/audio-engine"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

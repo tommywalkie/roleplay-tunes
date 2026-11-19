@@ -97,12 +97,6 @@ export function SettingsPage({ me }: { me: Me }) {
 
         <Card title={t('settings.account')}>
           <NameForm me={me} />
-          <div className="flex flex-col gap-1">
-            <span className="truncate text-[14px] leading-5 text-ink-2">{me.email}</span>
-            <span className="text-[13px] leading-5 text-ink-3">
-              {t(me.role === 'admin' ? 'settings.role.admin' : 'settings.role.user')}
-            </span>
-          </div>
         </Card>
 
         <Card title={t('settings.language')}>

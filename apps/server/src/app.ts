@@ -21,6 +21,8 @@ import { scenesRoutes } from './routes/scenes.js';
 import { soundsRoutes } from './routes/sounds.js';
 import { tagsRoutes } from './routes/tags.js';
 import { termsRoutes } from './routes/terms.js';
+import { changelogRoutes } from './routes/changelog.js';
+import { contactRoutes } from './routes/contact.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -53,7 +55,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         baseUri: ["'self'"],
-        formAction: ["'self'"],
+        // A provider contact form posts straight to the form service; its origin must be
+        // allowed here or the browser refuses to submit.
+        formAction: ["'self'", ...(config.contactFormOrigin ? [config.contactFormOrigin] : [])],
         // Only meaningful over HTTPS; the reverse proxy terminates TLS.
         upgradeInsecureRequests: null,
       },
@@ -142,6 +146,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   scenesRoutes(app);
   tagsRoutes(app);
   termsRoutes(app);
+  changelogRoutes(app);
+  contactRoutes(app);
 
   serveWebApp(app);
 

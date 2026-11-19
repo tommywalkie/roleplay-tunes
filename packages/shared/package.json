@@ -2,6 +2,13 @@
   "name": "@dnd/shared",
   "version": "0.0.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Tom Bazarnik",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tommywalkie/roleplay-tunes.git",
+    "directory": "packages/shared"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

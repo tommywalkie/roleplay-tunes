@@ -12,6 +12,7 @@ export const en = {
   'library.title': 'Library',
   'library.empty.title': 'Nothing shared yet',
   'library.empty.body': 'Come back later to see what people share',
+  'library.browse': 'Browse the Library',
   'library.description':
     'Sounds and mixes shared on this server. Listen first, then add what you need to your board',
   'library.noSounds.title': 'No public sounds yet',
@@ -36,6 +37,10 @@ export const en = {
     'All of its sounds stay: each one is yours, or is used by another of your mixes or scenes.',
   'library.removeMix.summary':
     'Ticked sounds leave your library with the mix ({n} of {total}). Untick the ones you want to keep.',
+  'library.removeMix.used_one':
+    '{n} of its sounds is used in your other mixes or scenes. It stays in your library.',
+  'library.removeMix.used_other':
+    '{n} of its sounds are used in your other mixes or scenes. They stay in your library.',
   'library.removeMix.dropAll': 'Tick all',
   'library.removeMix.keepAll': 'Untick all',
   'library.removeSound.title': 'Remove this sound',
@@ -98,11 +103,13 @@ export const en = {
   'terms.title': 'Terms of service',
   'terms.updated.title': 'Updated terms of service',
   'terms.intro.app':
-    'Roleplay Tunes is a soundboard for tabletop games: sounds are built into mixes, gathered into scenes, and played at the table from a tablet or a phone.',
+    'Roleplay Tunes is a soundboard for tabletop games. It comes with no sounds or music of its own: you add your own.',
   'terms.intro.selfhost':
-    'Roleplay Tunes is self-hosted: each server is run by its own administrator(s), not by a central company. The rules below are those of this server.',
+    'Roleplay Tunes is self-hostable free software, released under the {license}: each server is run by its own administrator(s).',
+  'terms.intro.rules': 'The rules below are those of this server.',
   'terms.intro.changed':
     'The rules of this server have changed. Read them again and accept them to keep using it.',
+  'terms.intro.license': 'Apache License, Version 2.0',
   'terms.empty': 'No rules have been written in this language yet',
   'terms.accept': 'I accept',
   'terms.signOut': 'Sign out',
@@ -112,16 +119,83 @@ export const en = {
   'terms.link': 'terms of service',
   'terms.readHint': 'Read the rules to the end first',
   'license.unknown': 'Unknown',
-  'license.private': 'Private use only',
+  'license.intro':
+    'Records where the sound came from and whether you may use it in a stream — playing for an audience is outside a private setting.',
+  'license.effect': 'Effect:',
+  'license.private': 'Copyrighted',
+  'license.private.hint': 'This sound should be used only in a private setting.',
   'license.custom': 'Other',
   'license.customLabel': 'Your license',
-  'sounds.licenseHint': 'For example CC BY 4.0, with the author if it asks for credit',
+  'license.unknown.hint':
+    'No license was recorded. Treat it as all rights reserved until you know more.',
+  'license.pixabay.hint':
+    'Free to use, even commercially, with no credit; do not resell it as-is or build a competing service from it.',
+  'license.cc0.hint':
+    'Public domain. Use it any way, including in monetized streams, no credit needed.',
+  'license.by.hint': 'Use it any way, including commercially, but credit the author.',
+  'license.bySa.hint':
+    'Commercially fine, credit the author; anything you build from it must carry the same license.',
+  'license.byNc.hint': 'Credit the author, and no commercial use — not for streams you monetize.',
+  'license.byNcSa.hint':
+    'Credit, no commercial use, and share anything you build from it under the same license.',
+  'license.byNd.hint':
+    'Credit the author and use it as-is, commercially fine; no remixing or edits.',
+  'license.byNcNd.hint': 'Credit, no commercial use and no edits.',
 
   'profile.title': 'Profile',
   'profile.label': 'My profile',
   'profile.settings.hint': 'Storage, limits and language',
   'profile.categories.hint': 'Rename, recolor or delete your categories',
   'profile.terms.hint': 'The rules set by whoever runs this server',
+  'profile.changelog.hint': 'Version {version}, and what changed in each release',
+  'changelog.title': "What's new",
+  'changelog.latest': 'Latest',
+  'profile.credits.hint': 'The icon sets and fonts this app is built on',
+  'profile.privacy.hint': 'What this server keeps about you',
+  'credits.title': 'Credits',
+  'credits.intro':
+    'Roleplay Tunes is built on the open source icon sets and fonts below, each under its own licence. Thanks to their authors.',
+  'credits.icons': 'Icons',
+  'credits.fonts': 'Fonts',
+  'credits.marks': 'License marks',
+  'credits.marks.pressKit': 'Press kit',
+  'credits.marks.cc': 'Trademarks of Creative Commons',
+  'credits.marks.logo': 'Logo',
+  'credits.marks.pixabay': 'Public domain',
+  'credits.emojiNames': 'Emoji names from',
+  'credits.count_one': '{n} icon',
+  'credits.count_other': '{n} icons',
+  'profile.contact.hint': 'A question, an idea or a problem',
+  'contact.title': 'Contact',
+  'contact.intro': 'A question, an idea or a problem? Your message goes to whoever runs this app.',
+  'contact.name': 'Name',
+  'contact.emailHint': 'The answer comes to this address',
+  'contact.message': 'Message',
+  'contact.send': 'Send',
+  'contact.required': 'Fill in this field',
+  'contact.invalidEmail': 'Enter a valid email address',
+  'contact.leaving':
+    'Sending opens the form service for a moment, then brings you back here. What is playing stops.',
+  'contact.sent.title': 'Message sent',
+  'contact.sent.body': 'Thank you. The answer will come by email.',
+  'contact.failed': 'The message could not be sent. Try again.',
+  'privacy.title': 'Privacy',
+  'privacy.updated': 'Last updated {date}',
+  'privacy.overview.title': 'Overview',
+  'privacy.overview.body':
+    'This privacy notice explains what this server keeps about you. {app} is a soundboard for tabletop games, self-hosted at {host}.',
+  'privacy.data.title': 'What this server keeps',
+  'privacy.data.account': 'Your pseudonym and email address',
+  'privacy.data.session': 'A session cookie that keeps you signed in',
+  'privacy.data.language': 'Your language choice, kept in your browser',
+  'privacy.data.items': 'The sounds, mixes, scenes and images you add',
+  'privacy.data.visibility':
+    'In the app, a private item is hidden from other users; a public sound or mix is visible to every signed-in user here.',
+  'privacy.analytics.title': 'Analytics',
+  'privacy.analytics.body': 'This server currently uses no analytics.',
+  'privacy.contact.title': 'Contact',
+  'privacy.contact.body':
+    'Messages sent through the contact form reach whoever runs this server, and are kept only to reply. Use it for any question about your data.',
   'profile.admin': 'Administration',
   'profile.admin.hint': 'Users, limits and sign-ups',
   'profile.credit': 'Made with ❤️ by',
@@ -165,6 +239,11 @@ export const en = {
   'common.apply': 'Apply',
   'common.done': 'Done',
 
+  'pages.label': 'Pages',
+  'pages.previous': 'Previous page',
+  'pages.next': 'Next page',
+  'pages.current': 'Page {page} of {count}',
+
   'count.sounds_one': '{n} sound',
   'count.sounds_other': '{n} sounds',
   'count.mixes_one': '{n} mix',
@@ -198,7 +277,10 @@ export const en = {
   'sounds.title': 'Sounds',
   'sounds.upload': 'Upload',
   'sounds.empty.title': 'No sounds yet',
-  'sounds.empty.body': 'Upload your first audio file to get started',
+  'sounds.empty.body':
+    'Upload your first audio file, or add sounds other people shared from the Library',
+  'sounds.pickEmpty':
+    'No sounds yet. Upload some on the Sounds page, or add shared ones from the Library',
   'sounds.description': 'The audio files your mixes and scenes are built from',
   'sounds.edit': 'Edit sound',
   'sounds.volume': 'Volume',
@@ -213,6 +295,8 @@ export const en = {
   'upload.title': 'Upload sounds',
   'upload.pick': 'Choose audio files',
   'upload.formats': 'MP3, M4A, AAC, OGG, WAV, FLAC or WebM, up to {size} and {minutes} min each',
+  'upload.libraryHint':
+    'Sounds other people shared can also be added from the Library, without using your storage',
   'upload.uploading': 'Uploading',
   'upload.done': 'Uploaded',
   'upload.waiting': 'Waiting',
@@ -222,7 +306,10 @@ export const en = {
   'mixes.new': 'New mix',
   'mixes.edit': 'Edit mix',
   'mixes.empty.title': 'No mixes yet',
-  'mixes.empty.body': 'Create your first mix to get started',
+  'mixes.empty.body': 'Create your first mix, or add mixes other people shared from the Library',
+  'mixes.pickEmpty':
+    'No mixes yet. Create one on the Mixes page, or add shared ones from the Library',
+  'mixes.libraryHint': 'Mixes other people shared can also be added, ready to play, from the Library',
   'mixes.description': 'A mix plays several sounds together, each at its own volume',
   'mixes.sounds': 'Sounds in this mix',
   'mixes.addSounds': 'Add sounds',
@@ -247,7 +334,8 @@ export const en = {
   'scenes.empty.body': 'Create your first scene to get started',
   'scenes.description': 'A scene gathers the mixes and sounds you need for one place or moment',
   'scenes.contentEmpty.title': 'This scene is empty',
-  'scenes.contentEmpty.body': 'Add the mixes and sounds you want within reach',
+  'scenes.contentEmpty.body':
+    'Add the mixes and sounds you want within reach, your own or ones from the Library',
   'scenes.addContent': 'Add mixes and sounds',
   'scenes.notFound': 'This scene no longer exists',
 
@@ -334,6 +422,8 @@ export const en = {
   'login.name.hint': 'Others see it on what you share. No need for your real name',
   'login.submit': 'Sign in',
   'login.toSignUp': 'Create an account',
+  'login.legal': 'Information about this app',
+  'login.source': 'Source code',
   'signup.title': 'Create an account',
   'signup.submit': 'Create account',
   'signup.toLogin': 'I already have an account',
@@ -382,6 +472,11 @@ export const en = {
   'admin.terms.preview': 'Preview',
   'admin.users': 'Users',
   'admin.users.hint': 'Every account on this server, oldest first',
+  'admin.contact': 'Messages',
+  'admin.contact.hint': 'Messages left through the contact form, newest first',
+  'admin.contact.search': 'Search messages',
+  'admin.contact.empty': 'No messages yet',
+  'admin.message.confirmDelete': 'Click again to delete',
   'admin.user.role': 'Role',
   'admin.user.access': 'Access',
   'admin.user.enabled': 'Enabled',

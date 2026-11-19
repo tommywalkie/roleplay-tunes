@@ -65,16 +65,22 @@ export function OwnerOnly({ locked, children }: { locked: boolean; children: Rea
 /** An optional multi-line text, such as a description. */
 export function TextArea({
   label,
+  name,
   value,
   onChange,
   maxLength,
+  required,
   hint,
   error,
 }: {
   label: string;
+  /** The form field name, when the textarea is part of a form the browser posts. */
+  name?: string;
   value: string;
   onChange: (value: string) => void;
   maxLength: number;
+  /** The browser's own validation: the form does not post while it is empty. */
+  required?: boolean;
   hint?: string;
   error?: string;
 }) {
@@ -83,7 +89,9 @@ export function TextArea({
       {(id) => (
         <textarea
           id={id}
+          name={name}
           value={value}
+          required={required}
           maxLength={maxLength}
           rows={3}
           onChange={(e) => onChange(e.target.value)}

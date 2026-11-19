@@ -43,6 +43,17 @@ const envSchema = z.object({
   /** Set when running behind a reverse proxy, so client addresses are read correctly. */
   TRUST_PROXY: bool(false),
   RATE_LIMIT: bool(true),
+  /**
+   * How the contact form works. `local`: this server stores the messages, and an
+   * administrator reads them in the admin page. `provider`: the page posts the form to
+   * CONTACT_FORM_ENDPOINT, whose origin must then join the Content-Security-Policy's
+   * `form-action`. Empty (the default): no contact form at all.
+   */
+  CONTACT_FORM_MODE: z.enum(['', 'local', 'provider']).optional(),
+  /** Which provider's field names `provider` mode posts with. Only `dsforms` is tried. */
+  CONTACT_FORM_PROVIDER: z.enum(['dsforms', 'formspree', 'web3forms']).optional(),
+  /** The form service's endpoint, in `provider` mode only. */
+  CONTACT_FORM_ENDPOINT: z.url().optional().or(z.literal('').transform(() => undefined)),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
 });
 
@@ -67,6 +78,14 @@ export interface Config {
   trustProxy: boolean;
   rateLimit: boolean;
   logLevel: string;
+  /** How the contact form runs; `off` hides it. */
+  contactFormMode: 'off' | 'local' | 'provider';
+  /** The field-name convention `provider` mode posts with. */
+  contactFormProvider: 'dsforms' | 'formspree' | 'web3forms';
+  /** The form service's endpoint in `provider` mode. Null otherwise. */
+  contactFormEndpoint: string | null;
+  /** Origin of that endpoint, allowed as a form target. Null unless `provider`. */
+  contactFormOrigin: string | null;
 }
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
@@ -79,11 +98,36 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   const isProduction = env.NODE_ENV === 'production';
   const isTest = env.NODE_ENV === 'test';
 
+  // Vitest started without `apps/server/vitest.config.ts` (from the repo root, say) skips
+  // `src/test/setup.ts`, which isolates the suite: files would land in the development data
+  // folder, or the database would be a file. Only that setup sets the marker.
+  if (source.VITEST && (!isTest || source.DND_SERVER_TEST_ISOLATED !== '1')) {
+    throw new Error(
+      'Server tests must run through apps/server/vitest.config.ts (`pnpm --filter @dnd/server ' +
+        'test`), which keeps the development data out of reach',
+    );
+  }
+
   if (isProduction && !env.AUTH_SECRET) {
     throw new Error('Invalid server settings:\n  AUTH_SECRET: required in production');
   }
   if (isProduction && env.AUTH_SECRET === DEV_SECRET) {
     throw new Error('Invalid server settings:\n  AUTH_SECRET: the development secret is refused');
+  }
+
+  const contactFormMode =
+    env.CONTACT_FORM_MODE === 'local' || env.CONTACT_FORM_MODE === 'provider'
+      ? env.CONTACT_FORM_MODE
+      : 'off';
+  if (contactFormMode === 'provider' && !env.CONTACT_FORM_PROVIDER) {
+    throw new Error(
+      'Invalid server settings:\n  CONTACT_FORM_PROVIDER: required when CONTACT_FORM_MODE=provider',
+    );
+  }
+  if (contactFormMode === 'provider' && !env.CONTACT_FORM_ENDPOINT) {
+    throw new Error(
+      'Invalid server settings:\n  CONTACT_FORM_ENDPOINT: required when CONTACT_FORM_MODE=provider',
+    );
   }
 
   const dataDir = resolve(env.DATA_DIR);
@@ -114,6 +158,13 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: env.TRUST_PROXY,
     rateLimit: isTest ? source.RATE_LIMIT === 'true' : env.RATE_LIMIT,
     logLevel: env.LOG_LEVEL ?? (isTest ? 'silent' : 'info'),
+    contactFormMode,
+    contactFormProvider: env.CONTACT_FORM_PROVIDER ?? 'dsforms',
+    contactFormEndpoint: contactFormMode === 'provider' ? (env.CONTACT_FORM_ENDPOINT ?? null) : null,
+    contactFormOrigin:
+      contactFormMode === 'provider' && env.CONTACT_FORM_ENDPOINT
+        ? new URL(env.CONTACT_FORM_ENDPOINT).origin
+        : null,
   };
 }
 

@@ -107,7 +107,7 @@ export function SceneEditor({
         selected={mixIds}
         onChange={setMixIds}
         fallback={FALLBACK_ICONS.mix}
-        emptyText={t('mixes.empty.title')}
+        emptyText={t('mixes.pickEmpty')}
       />
 
       <PickField
@@ -116,7 +116,7 @@ export function SceneEditor({
         selected={soundIds}
         onChange={setSoundIds}
         fallback={FALLBACK_ICONS.sound}
-        emptyText={t('sounds.empty.title')}
+        emptyText={t('sounds.pickEmpty')}
       />
     </Dialog>
   );

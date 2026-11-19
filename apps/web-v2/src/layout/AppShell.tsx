@@ -18,6 +18,7 @@ import { PlayerProvider } from '../audio/player';
 import { Credit, Mark, Wordmark } from '../components/Brand';
 import { StorageMeter } from '../components/StorageMeter';
 import { TermsDialog } from '../components/TermsDialog';
+import { ChangelogDialog } from '../components/ChangelogDialog';
 import { cx, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
@@ -71,6 +72,13 @@ export function AppShell({ me }: { me: Me }) {
   const signOut = useSignOut();
   // The rules an administrator changed since this user accepted them, or never did.
   const pending = terms.data ? termsAwait(terms.data, me.termsAcceptedAt) : false;
+  // Release notes newer than the last ones this user saw, after the rules: only once the
+  // rules are known (loaded, or failed to load) and none await, or the notes would open
+  // for a moment and give way to the rules. Closed once, they stay closed for this visit
+  // even before the server has recorded it.
+  const [notesClosed, setNotesClosed] = useState(false);
+  const rulesSettled = terms.isSuccess || terms.isError;
+  const showNotes = rulesSettled && !pending && !notesClosed && me.changelogUnseen;
   // A mix holds the user's own and added sounds only: a library sound played as a preview
   // has to be added first.
   const ownIds = useMemo(() => new Set((own ?? []).map((s) => s.id)), [own]);
@@ -160,6 +168,9 @@ export function AppShell({ me }: { me: Me }) {
             }}
           />
         )}
+
+        {/* What changed since the last visit, once the rules are out of the way. */}
+        {showNotes && <ChangelogDialog onClose={() => setNotesClosed(true)} />}
 
         <nav
           aria-label={t('app.name')}

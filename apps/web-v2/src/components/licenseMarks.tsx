@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { CircleQuestionMark, Lock, Signature } from 'lucide-react';
+import { DollarSign, Scale } from 'lucide-react';
 
 /**
  * The marks a license is shown by, so a row can carry the license without spelling it out.
@@ -91,18 +91,23 @@ const SUITE: Record<string, VendorMark[]> = {
 /**
  * What a saved license shows. The names in `SUITE` come from the editor's list and are
  * saved as they are; the codes are worded per language and have no mark of their own, so
- * they take one from the interface set: a lock for use that is private, a question mark for
- * a license nobody recorded, and a pen for the text an admin typed.
+ * they take one from the interface set: a dollar sign for the usage-restricted one, nothing
+ * for a license nobody recorded, and the scales for the text an admin typed.
  */
-export type LicenseMarkSpec = { marks: VendorMark[] } | { icon: LucideIcon };
+export type LicenseMarkSpec =
+  | { marks: VendorMark[] }
+  | { icon: LucideIcon }
+  /** No mark at all: a license nobody recorded shows nothing. */
+  | { none: true };
 
 export function licenseMark(value: string): LicenseMarkSpec {
   const marks = SUITE[value];
   if (marks) return { marks };
-  if (value === 'private-use') return { icon: Lock };
-  // Empty is a sound saved before the license field existed: it reads as unknown.
-  if (value === '' || value === 'unknown') return { icon: CircleQuestionMark };
-  return { icon: Signature };
+  if (value === 'private-use') return { icon: DollarSign };
+  // Empty is a sound saved before the license field existed: it reads as unknown, with no mark.
+  if (value === '' || value === 'unknown') return { none: true };
+  // Anything else is the text an admin typed.
+  return { icon: Scale };
 }
 
 /**

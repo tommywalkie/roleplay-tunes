@@ -5,7 +5,16 @@ import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
-import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import {
+  LibraryButton,
+  matches,
+  NoMatch,
+  Page,
+  Pagination,
+  QueryGate,
+  searchText,
+  usePages,
+} from '../components/Page';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { MixEditor } from '../editors/MixEditor';
@@ -22,7 +31,8 @@ export function MixesPage({ me }: { me: Me }) {
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
 
   const all = mixes.data ?? [];
-  const shown = all.filter((m) => matches(searchText(m), query) && inCategories(m, categoryIds));
+  const found = all.filter((m) => matches(searchText(m), query) && inCategories(m, categoryIds));
+  const pages = usePages(found, `${query}\n${categoryIds.join()}`);
   const editing = all.find((m) => m.id === editingId);
 
   return (
@@ -44,15 +54,19 @@ export function MixesPage({ me }: { me: Me }) {
             icon={FALLBACK_ICONS.mix}
             title={t('mixes.empty.title')}
             body={t('mixes.empty.body')}
+            action={<LibraryButton />}
           />
-        ) : shown.length === 0 ? (
+        ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.mixes', shown.length)}>
-            {shown.map((mix) => (
-              <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
-            ))}
-          </TileGrid>
+          <>
+            <TileGrid label={tn('count.mixes', found.length)}>
+              {pages.shown.map((mix) => (
+                <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
+              ))}
+            </TileGrid>
+            <Pagination pages={pages} toTop className="self-center" />
+          </>
         )}
       </QueryGate>
 

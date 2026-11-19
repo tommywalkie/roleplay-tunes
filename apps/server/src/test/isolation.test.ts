@@ -14,6 +14,13 @@ describe('test isolation', () => {
     expect(sqlite.memory).toBe(true);
   });
 
+  it('ignores the settings a development shell or apps/server/.env would bring', () => {
+    expect(config.contactFormOrigin).toBeNull();
+    expect(config.webDist).toBeUndefined();
+    expect(config.trustProxy).toBe(false);
+    expect(config.publicUrl).toBe('http://localhost:3000');
+  });
+
   it('stores audio and images in a throwaway folder, never in the development data', () => {
     const devData = resolve(import.meta.dirname, '../../../../tmp/dev-data');
     for (const dir of [config.dataDir, config.audioDir, config.imageDir, config.tmpDir]) {

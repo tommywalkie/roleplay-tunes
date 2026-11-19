@@ -93,7 +93,7 @@ describe('SoundEditor', () => {
   it('saves the options worded per language as codes', async () => {
     const { user, saves } = renderEditor(makeSound({ license: 'CC0 1.0' }));
     const license = screen.getByLabelText('License');
-    await user.selectOptions(license, 'Private use only');
+    await user.selectOptions(license, 'Copyrighted');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(saves()[0].body).toMatchObject({ license: 'private-use' });
 

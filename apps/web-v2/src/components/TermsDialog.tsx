@@ -10,9 +10,12 @@ import { Button, ErrorNote, Spinner } from './ui';
  * - `read`: someone asked to see them. Closing is enough.
  * - `accept`: the rules stand between the user and the app. Not closable: it offers
  *   acceptance, or the way out through signing out.
+ * - `agree`: the sign-up form asks for them. Its agree button stays greyed, and says why,
+ *   until the reader reaches the foot of the text; closing is always offered beside it.
  */
 export type TermsMode =
   | { kind: 'read' }
+  | { kind: 'agree'; readToEnd: boolean; onAgree: () => void }
   | {
       kind: 'accept';
       onAccept: () => void;
@@ -62,6 +65,12 @@ export function TermsDialog({
     preview ? 'terms.preview.title' : updating ? 'terms.updated.title' : 'terms.title',
   );
 
+  // The self-hosting sentence holds the licence name between `{license}`; the link wraps
+  // that name, pointing at Apache's own licence page.
+  const license = t('terms.intro.license');
+  const [beforeLicense, afterLicense] = t('terms.intro.selfhost').split('{license}');
+  const licensePage = 'https://www.apache.org/licenses/LICENSE-2.0';
+
   // One pass of the sentinel is enough: the checkbox stays unlocked for this visit.
   useEffect(() => {
     if (!onReadToEnd || loading || html === '') return;
@@ -87,7 +96,7 @@ export function TermsDialog({
       <Dialog
         title={title}
         onClose={onClose}
-        dismissible={mode.kind === 'read'}
+        dismissible={mode.kind !== 'accept'}
         footer={
           <Button variant="primary" onClick={onClose} className="ml-auto">
             {t('common.close')}
@@ -103,7 +112,7 @@ export function TermsDialog({
     <Dialog
       title={title}
       onClose={onClose}
-      dismissible={mode.kind === 'read'}
+      dismissible={mode.kind !== 'accept'}
       footer={
         mode.kind === 'accept' ? (
           <>
@@ -129,6 +138,15 @@ export function TermsDialog({
               {t('terms.accept')}
             </Button>
           </>
+        ) : mode.kind === 'agree' ? (
+          <>
+            <Button variant="ghost" onClick={onClose} className="ml-auto">
+              {t('common.close')}
+            </Button>
+            <Button variant="primary" disabled={!mode.readToEnd} onClick={mode.onAgree}>
+              {t(mode.readToEnd ? 'terms.accept' : 'terms.readHint')}
+            </Button>
+          </>
         ) : (
           <Button variant="primary" onClick={onClose} className="ml-auto">
             {t('terms.done')}
@@ -139,7 +157,17 @@ export function TermsDialog({
     >
       <p className="text-[14px] leading-5 text-ink-2">{t('terms.intro.app')}</p>
       <p className="-mt-3 text-[14px] leading-5 text-ink-2">
-        {t(updating ? 'terms.intro.changed' : 'terms.intro.selfhost')}
+        {beforeLicense}
+        <a
+          href={licensePage}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-4 transition-colors duration-150 hover:text-ink"
+        >
+          {license}
+        </a>
+        {afterLicense}{' '}
+        {t(updating ? 'terms.intro.changed' : 'terms.intro.rules')}
       </p>
 
       {mode.kind === 'accept' && mode.error && <ErrorNote>{mode.error}</ErrorNote>}

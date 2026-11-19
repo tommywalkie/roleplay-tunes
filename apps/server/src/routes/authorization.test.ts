@@ -73,6 +73,8 @@ const PROTECTED: RouteCase[] = [
   { method: 'GET', route: '/api/me' },
   { method: 'PATCH', route: '/api/me', body: { name: 'Hijacked' } },
   { method: 'DELETE', route: '/api/me', body: { email: 'x@example.com' } },
+  { method: 'POST', route: '/api/me/changelog-seen' },
+  { method: 'GET', route: '/api/changelog/:locale' },
   { method: 'GET', route: '/api/sounds' },
   { method: 'POST', route: '/api/sounds' },
   { method: 'GET', route: '/api/sounds/:id', resource: 'sound' },
@@ -127,10 +129,21 @@ const ADMIN_ROUTES: RouteCase[] = [
   { method: 'POST', route: '/api/admin/users/:id/reset-password' },
   { method: 'DELETE', route: '/api/admin/users/:id' },
   { method: 'GET', route: '/api/admin/usage' },
+  { method: 'GET', route: '/api/admin/contact' },
+  { method: 'PATCH', route: '/api/admin/contact/:id/read', body: { read: true } },
+  { method: 'DELETE', route: '/api/admin/contact/:id' },
 ];
 
-// The rules are read before anyone has an account, so the locale route is public.
-const PUBLIC_ROUTES = ['GET /api/health', 'GET /api/settings/public', 'GET /api/terms/:locale'];
+// The rules are read before anyone has an account, so the locale route is public. The
+// contact form is public too: someone may write before creating an account, and the script
+// that carries its settings is loaded by the page before anyone signs in.
+const PUBLIC_ROUTES = [
+  'GET /api/health',
+  'GET /api/settings/public',
+  'GET /api/settings/contact.js',
+  'GET /api/terms/:locale',
+  'POST /api/contact',
+];
 
 /** Parses `app.printRoutes()` (a radix tree) into "METHOD /full/path" entries. */
 function registeredApiRoutes(): string[] {
