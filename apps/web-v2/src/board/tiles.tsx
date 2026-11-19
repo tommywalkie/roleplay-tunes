@@ -2,8 +2,10 @@ import type { Mix, Scene, Sound } from '@dnd/shared';
 import { Pencil, Play } from 'lucide-react';
 import { useState } from 'react';
 import { defaultPlay, usePlayer } from '../audio/player';
-import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import { FALLBACK_ICONS, MODE_HINTS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import { LicenseBadge } from '../components/LicenseBadge';
 import type { MenuItem } from '../components/Menu';
+import { Popover } from '../components/Popover';
 import { Tile } from '../components/Tile';
 import { PausesDialog } from './PausesDialog';
 import { useI18n } from '../i18n';
@@ -60,10 +62,21 @@ export function SoundTile({ sound, onEdit }: { sound: Sound; onEdit: () => void 
         editLabel={t('play.menu', { name: sound.name })}
         meta={
           <>
-            <ModeIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
-            <span className="truncate">
-              {t(MODE_LABELS[sound.defaultMode])} · {duration(sound.durationSec)}
-            </span>
+            <Popover
+              label={t(MODE_LABELS[sound.defaultMode])}
+              note={
+                <>
+                  <span className="block font-medium text-ink">
+                    {t(MODE_LABELS[sound.defaultMode])}
+                  </span>
+                  {t(MODE_HINTS[sound.defaultMode])}
+                </>
+              }
+            >
+              <ModeIcon size={12} strokeWidth={1.5} aria-hidden />
+            </Popover>
+            <span className="min-w-0 truncate">{duration(sound.durationSec)}</span>
+            {sound.license && <LicenseBadge value={sound.license} size="size-3.5" />}
           </>
         }
       />

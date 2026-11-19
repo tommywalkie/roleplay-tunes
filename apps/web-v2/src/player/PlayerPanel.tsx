@@ -15,19 +15,24 @@ import {
 } from 'lucide-react';
 import type { LayerState } from '@dnd/audio-engine';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { layersToMixItems, LOOSE_MIX_ID, usePlayer } from '../audio/player';
+import { layersToMixItems, LOOSE_MIX_ID, usePlayer, useSleepTimer } from '../audio/player';
 import { PausesDialog } from '../board/PausesDialog';
 import { Thumb } from '../components/Illustration';
 import { MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { Marquee } from '../components/Marquee';
 import { Menu } from '../components/Menu';
+import { Popover } from '../components/Popover';
 import { useToast } from '../components/Toasts';
 import { Button, cx, Fader, Icon, IconButton, Lamp, Percent } from '../components/ui';
 import { useI18n } from '../i18n';
+import { SleepTimerRow, useClock } from './SleepTimer';
+
+/** Below the `lg` breakpoint the player is docked at the bottom and opens upward. */
+const DOCKED = '(max-width: 1023.98px)';
 
 /**
- * What plays right now, and the controls to shape it. A column on the right from tablet
- * width up; a dock above the tab bar on phones, which opens upward.
+ * What plays right now, and the controls to shape it. A column on the right from desktop
+ * width up; a dock above the tab bar on phones and tablets, which opens upward.
  *
  * Nothing here appears or disappears with the playback state: pause, stop all and both
  * volume faders are always rendered, always in the same place, always tappable.
@@ -42,6 +47,8 @@ export function PlayerPanel({
 }) {
   const { t, tn, duration } = useI18n();
   const player = usePlayer();
+  const timer = useSleepTimer();
+  const clock = useClock();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const { snapshot } = player;
@@ -75,11 +82,15 @@ export function PlayerPanel({
     : oneshots.length > 0
       ? t('player.custom')
       : t('player.nothing');
-  const status = paused
+  const base = paused
     ? t('player.paused')
     : snapshot.status === 'locked' && count > 0
       ? t('player.locked')
       : tn('count.sounds', count);
+  // The timer shows on the status line too: on phones the player is usually folded away.
+  const status = timer.plan
+    ? `${base} · ${t('timer.stopsAt', { time: clock(timer.plan.stopAt) })}`
+    : base;
 
   return (
     <aside
@@ -92,7 +103,15 @@ export function PlayerPanel({
     >
       {/* Transport: identical in every state. */}
       {/* One row on phones and tablets; on desktop the title sits above two equal buttons. */}
-      <div className="flex h-16 shrink-0 items-center gap-2 pl-4 pr-3 lg:h-auto lg:flex-col lg:items-stretch lg:gap-4 lg:p-4">
+      {/* Docked at the bottom, the whole row opens and closes the player, not only the
+          chevron: a tap anywhere but on a button. The chevron stays the keyboard's way. */}
+      <div
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          if (window.matchMedia(DOCKED).matches) setOpen((v) => !v);
+        }}
+        className="flex h-16 shrink-0 cursor-pointer items-center gap-2 pl-4 pr-3 select-none lg:h-auto lg:cursor-auto lg:flex-col lg:items-stretch lg:gap-4 lg:p-4 lg:select-auto"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-10 lg:flex-none">
           <Lamp on={sounding} />
           <div className="flex min-w-0 flex-col">
@@ -141,15 +160,18 @@ export function PlayerPanel({
           <VolumeRow
             icon={Volume2}
             label={t('player.master')}
+            note={t('player.master.hint')}
             value={snapshot.masterVolume}
             onChange={player.setMasterVolume}
           />
           <VolumeRow
             icon={Zap}
             label={t('player.effects')}
+            note={t('player.effects.hint')}
             value={snapshot.effectsVolume}
             onChange={player.setEffectsVolume}
           />
+          <SleepTimerRow />
         </div>
 
         <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3">
@@ -218,19 +240,25 @@ export function PlayerPanel({
                     </div>
                     <div className="flex shrink-0">
                       {sound && <LayerModeButton layer={layer} sound={sound} name={name} />}
-                      <IconButton
-                        icon={layer.muted ? VolumeX : Volume2}
-                        label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })}
-                        aria-pressed={layer.muted}
-                        onClick={() => player.setLayerMuted(layer.id, !layer.muted)}
-                        className="w-10"
-                      />
-                      <IconButton
-                        icon={X}
-                        label={t('common.removeItem', { name })}
-                        onClick={() => player.removeLayer(layer.id)}
-                        className="w-10"
-                      />
+                      <Popover wrap label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })} note={t('player.mute.hint')}>
+                        <IconButton
+                          icon={layer.muted ? VolumeX : Volume2}
+                          label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })}
+                          title={undefined}
+                          aria-pressed={layer.muted}
+                          onClick={() => player.setLayerMuted(layer.id, !layer.muted)}
+                          className="w-10"
+                        />
+                      </Popover>
+                      <Popover wrap label={t('common.removeItem', { name })} note={t('player.remove.hint')}>
+                        <IconButton
+                          icon={X}
+                          label={t('common.removeItem', { name })}
+                          title={undefined}
+                          onClick={() => player.removeLayer(layer.id)}
+                          className="w-10"
+                        />
+                      </Popover>
                     </div>
                   </li>
                 );
@@ -277,14 +305,21 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
 
   return (
     <>
-      <IconButton
-        icon={recurring ? MODE_ICONS.recurring : MODE_ICONS.loop}
+      <Popover
+        wrap
         label={label}
-        aria-haspopup="menu"
-        aria-expanded={anchor !== null}
-        onClick={(e) => setAnchor(e.currentTarget)}
-        className="w-10"
-      />
+        note={t(recurring ? 'player.mode.recurring.hint' : 'player.mode.loop.hint')}
+      >
+        <IconButton
+          icon={recurring ? MODE_ICONS.recurring : MODE_ICONS.loop}
+          label={label}
+          title={undefined}
+          aria-haspopup="menu"
+          aria-expanded={anchor !== null}
+          onClick={(e) => setAnchor(e.currentTarget)}
+          className="w-10"
+        />
+      </Popover>
       {anchor && (
         <Menu
           title={name}
@@ -323,17 +358,21 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
 function VolumeRow({
   icon,
   label,
+  note,
   value,
   onChange,
 }: {
   icon: typeof Volume2;
   label: string;
+  note: string;
   value: number;
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="flex h-10 items-center gap-3" title={label}>
-      <Icon icon={icon} className="text-ink-3" />
+    <div className="flex h-10 items-center gap-3">
+      <Popover label={label} note={note}>
+        <Icon icon={icon} className="text-ink-3" />
+      </Popover>
       <Fader value={value} onChange={onChange} label={label} />
       <Percent value={value} />
     </div>

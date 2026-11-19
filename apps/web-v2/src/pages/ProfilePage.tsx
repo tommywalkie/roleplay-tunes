@@ -14,16 +14,10 @@ import { Link } from 'react-router';
 import { useSignOut, useTerms } from '../api/hooks';
 import { Credit } from '../components/Brand';
 import { InstallDialog, runsInstalled } from '../components/InstallDialog';
+import { initials } from '../components/OwnerBadge';
 import { TermsDialog } from '../components/TermsDialog';
 import { Button, ErrorNote, Icon } from '../components/ui';
 import { useI18n } from '../i18n';
-
-/** Up to two letters for the avatar: the first letters of the first two words of the name. */
-export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.slice(0, 2).map((w) => [...w][0] ?? '');
-  return letters.join('').toLocaleUpperCase() || '?';
-}
 
 /** The account at a glance, and the way to everything about it. */
 export function ProfilePage({ me }: { me: Me }) {

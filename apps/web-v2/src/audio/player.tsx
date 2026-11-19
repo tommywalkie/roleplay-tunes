@@ -22,6 +22,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
@@ -274,6 +275,82 @@ function getSharedEngine(): AudioEngine {
 
 const PlayerContext = createContext<Player | null>(null);
 
+/** A sleep timer: when what plays starts fading out, and when it stops. */
+export interface TimerPlan {
+  /** Epoch ms. Equal to `stopAt` for a stop with no fade. */
+  fadeAt: number;
+  stopAt: number;
+}
+
+export interface SleepTimer {
+  plan: TimerPlan | null;
+  /** Stops everything in `stopInSec`, fading out over its last `fadeSec` (at most all of it). */
+  start: (stopInSec: number, fadeSec: number) => void;
+  cancel: () => void;
+}
+
+const SleepTimerContext = createContext<SleepTimer | null>(null);
+
+/**
+ * Runs the sleep timer. The fade is handed to the audio clock at once, so it happens even
+ * if the page's timers are frozen (a locked phone); a page timer applies it again when it
+ * is due, in case a pause or a master volume change cancelled it, and stops everything at
+ * the end. Then the output comes back to the master volume for whatever plays next. The
+ * timer goes away by itself once nothing plays anymore.
+ */
+function useSleepTimerRunner(engine: AudioEngine, snapshot: EngineSnapshot): SleepTimer {
+  const [plan, setPlan] = useState<TimerPlan | null>(null);
+  const playing = snapshot.mix !== null || snapshot.activeOneshots.length > 0;
+
+  useEffect(() => {
+    if (!plan) return;
+    let stopped = false;
+    const fadeFrom = () => (plan.stopAt - Math.max(Date.now(), plan.fadeAt)) / 1000;
+    engine.fadeOutMaster(fadeFrom(), Math.max(0, plan.fadeAt - Date.now()) / 1000);
+    const fade = window.setTimeout(
+      () => engine.fadeOutMaster(fadeFrom()),
+      Math.max(0, plan.fadeAt - Date.now()),
+    );
+    const stop = window.setTimeout(() => {
+      stopped = true;
+      engine.stop({ fadeSec: 0.05 });
+      engine.stopAllOneshots(0.05);
+      // Back to the set volume once the last sounds are cut, for whatever plays next.
+      window.setTimeout(() => engine.restoreMaster(), 100);
+      setPlan(null);
+    }, Math.max(0, plan.stopAt - Date.now()));
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(stop);
+      // Turned off or replaced before the end: the sound comes back at once.
+      if (!stopped) engine.restoreMaster();
+    };
+  }, [plan, engine]);
+
+  // Stopped by hand, or nothing left to play: the timer has nothing to stop.
+  useEffect(() => {
+    if (plan && !playing) setPlan(null);
+  }, [plan, playing]);
+
+  return useMemo(
+    () => ({
+      plan,
+      start: (stopInSec, fadeSec) => {
+        const stopAt = Date.now() + Math.max(1, stopInSec) * 1000;
+        setPlan({ stopAt, fadeAt: stopAt - Math.min(Math.max(0, fadeSec), stopInSec) * 1000 });
+      },
+      cancel: () => setPlan(null),
+    }),
+    [plan],
+  );
+}
+
+export function useSleepTimer(): SleepTimer {
+  const timer = useContext(SleepTimerContext);
+  if (!timer) throw new Error('useSleepTimer must be used inside PlayerProvider');
+  return timer;
+}
+
 export function PlayerProvider({
   sounds,
   engine: injected,
@@ -292,6 +369,7 @@ export function PlayerProvider({
 
   const snapshot = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
   const player = useMemo(() => createPlayer(engine, snapshot), [engine, snapshot]);
+  const timer = useSleepTimerRunner(engine, snapshot);
 
   // Edited loop points or a deleted sound must reach layers that already play.
   const previous = useRef(byId);
@@ -314,7 +392,11 @@ export function PlayerProvider({
     [engine],
   );
 
-  return <PlayerContext.Provider value={player}>{children}</PlayerContext.Provider>;
+  return (
+    <PlayerContext.Provider value={player}>
+      <SleepTimerContext.Provider value={timer}>{children}</SleepTimerContext.Provider>
+    </PlayerContext.Provider>
+  );
 }
 
 export function usePlayer(): Player {

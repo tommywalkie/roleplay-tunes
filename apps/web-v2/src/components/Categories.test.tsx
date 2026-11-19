@@ -86,14 +86,14 @@ describe('CategoryField', () => {
     await user.click(list.getByRole('option', { name: 'Inn' }));
 
     expect(valueOf()).toEqual(['c1']);
-    expect(screen.getByRole('button', { name: 'Take Inn off this item' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove the Inn category' })).toBeInTheDocument();
     expect(input).toHaveValue('');
   });
 
   it('creates a category from the typed text in a prefilled dialog and adds it once saved', async () => {
     const { calls } = stubCategories([category('c1', 'Inn')]);
     const user = renderWith(<FieldHarness initial={['c1']} />);
-    await screen.findByRole('button', { name: 'Take Inn off this item' });
+    await screen.findByRole('button', { name: 'Remove the Inn category' });
 
     await user.type(screen.getByRole('combobox', { name: 'Categories' }), 'Forest');
     await user.click(await screen.findByRole('option', { name: 'Create “Forest”' }));
@@ -108,7 +108,7 @@ describe('CategoryField', () => {
     expect(calls).toEqual([
       { url: '/api/categories', method: 'POST', body: { name: 'Forest', color: '#2f6f62', iconId: null } },
     ]);
-    expect(await screen.findByRole('button', { name: 'Take Forest off this item' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Remove the Forest category' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'New category' })).not.toBeInTheDocument();
     expect(valueOf()).toEqual(['c1', 'new1']);
   });
@@ -129,7 +129,7 @@ describe('CategoryField', () => {
   it('takes a category off the item without deleting it', async () => {
     const { calls } = stubCategories([category('c1', 'Inn'), category('c2', 'Night')]);
     const user = renderWith(<FieldHarness initial={['c1', 'c2']} />);
-    await user.click(await screen.findByRole('button', { name: 'Take Inn off this item' }));
+    await user.click(await screen.findByRole('button', { name: 'Remove the Inn category' }));
     expect(valueOf()).toEqual(['c2']);
     expect(calls).toEqual([]);
   });
@@ -143,7 +143,9 @@ describe('CategoryField', () => {
     expect(dialog.getByLabelText('Name')).toHaveValue('Inn');
     await user.click(dialog.getByRole('button', { name: 'Delete' }));
     const confirm = within(screen.getByRole('dialog', { name: 'Delete' }));
-    expect(confirm.getByText('It comes off every item it is on. The items stay.')).toBeInTheDocument();
+    expect(
+      confirm.getByText('It is removed from every sound, mix and scene that has it. They are not deleted.'),
+    ).toBeInTheDocument();
     await user.click(confirm.getByRole('button', { name: 'Delete' }));
 
     expect(calls).toEqual([{ url: '/api/categories/c1', method: 'DELETE', body: undefined }]);

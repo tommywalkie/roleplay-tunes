@@ -3,6 +3,7 @@ import type {
   CreateCategoryRequest,
   CreateMixRequest,
   UpdateCategoryRequest,
+  UpdateMeRequest,
   CreateSceneRequest,
   Library,
   Locale,
@@ -113,6 +114,20 @@ export function useSignUp() {
     mutationFn: (body: { name: string; email: string; password: string }) =>
       api('/api/auth/sign-up/email', { method: 'POST', json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+/** Changes the name the user goes by. Their shared items show it, so those reload too. */
+export function useUpdateMe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateMeRequest) => api<Me>('/api/me', { method: 'PATCH', json: body }),
+    onSuccess: (me) => {
+      qc.setQueryData(keys.me, me);
+      for (const key of [keys.sounds, keys.mixes, keys.library]) {
+        void qc.invalidateQueries({ queryKey: key });
+      }
+    },
   });
 }
 

@@ -131,7 +131,7 @@ describe('SoundEditor', () => {
     const categories = screen.getByRole('combobox', { name: 'Categories' });
     await user.type(categories, 'Ni');
     await user.click(await screen.findByRole('option', { name: 'Night' }));
-    expect(screen.getByRole('button', { name: 'Take Night off this item' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove the Night category' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(saves()[0].body).toMatchObject({ synonyms: ['tavern', 'pub'], categoryIds: ['c2'] });
@@ -172,7 +172,7 @@ describe('SoundEditor', () => {
     expect(chips.getByText('bells')).toHaveAttribute('title', 'Added by Grace');
     expect(chips.queryByRole('button', { name: 'Remove bells' })).not.toBeInTheDocument();
     expect(chips.getByRole('button', { name: 'Remove chimes' })).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Take Harbor off this item' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Remove the Harbor category' })).toBeInTheDocument();
 
     await user.type(screen.getByRole('combobox', { name: 'Synonyms' }), 'gong{Enter}');
     await user.type(screen.getByRole('combobox', { name: 'Categories' }), 'Ni');

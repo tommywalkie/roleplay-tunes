@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom';
 import { cx } from './ui';
 
-const GAP = 4;
+const GAP = 12;
 const EDGE = 8;
 const FINE_POINTER = '(pointer: fine)';
 
@@ -21,6 +21,11 @@ export function Popover({
   note,
   children,
   className,
+  /**
+   * The children already are the trigger — a button with its own action. The note then
+   * hangs on hover and keyboard focus around it, and the wrapper adds no button of its own.
+   */
+  wrap = false,
 }: {
   /** What the trigger says to a screen reader: the whole of what the note shows. */
   label: string;
@@ -29,10 +34,11 @@ export function Popover({
   /** What the trigger shows. */
   children: ReactNode;
   className?: string;
+  wrap?: boolean;
 }) {
   const noteId = useId();
-  const anchor = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
+  const anchor = useRef<HTMLElement | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
   // jsdom has no matchMedia, and a missing one means no fine pointer to rely on.
@@ -43,15 +49,15 @@ export function Popover({
   useLayoutEffect(() => {
     if (!open) return;
     const measure = () => {
-      const box = anchor.current?.getBoundingClientRect();
-      if (!box) return;
-      const height = panel.current?.offsetHeight ?? 0;
-      const width = panel.current?.offsetWidth ?? 0;
-      const below = box.bottom + GAP;
+      const rect = anchor.current?.getBoundingClientRect();
+      if (!rect) return;
+      const height = box.current?.offsetHeight ?? 0;
+      const width = box.current?.offsetWidth ?? 0;
+      const below = rect.bottom + GAP;
       const top =
-        below + height > window.innerHeight - EDGE ? Math.max(EDGE, box.top - GAP - height) : below;
+        below + height > window.innerHeight - EDGE ? Math.max(EDGE, rect.top - GAP - height) : below;
       const left = Math.min(
-        Math.max(EDGE, box.left + box.width / 2 - width / 2),
+        Math.max(EDGE, rect.left + rect.width / 2 - width / 2),
         Math.max(EDGE, window.innerWidth - width - EDGE),
       );
       setPlace({ top, left });
@@ -72,12 +78,12 @@ export function Popover({
     };
     const onDown = (e: PointerEvent) => {
       const target = e.target as Node;
-      if (panel.current?.contains(target) || anchor.current?.contains(target)) return;
+      if (box.current?.contains(target) || anchor.current?.contains(target)) return;
       setOpen(false);
     };
     // The page under a note may scroll; the note would then float away from its trigger.
     const onScroll = (e: Event) => {
-      if (panel.current?.contains(e.target as Node)) return;
+      if (box.current?.contains(e.target as Node)) return;
       setOpen(false);
     };
     document.addEventListener('keydown', onKey);
@@ -99,10 +105,49 @@ export function Popover({
     if (anchor.current?.matches(':focus-visible')) show();
   };
 
+  const portal = open &&
+    createPortal(
+      <div
+        ref={box}
+        id={noteId}
+        role="tooltip"
+        aria-hidden
+        onMouseEnter={hoverable ? show : undefined}
+        onMouseLeave={hoverable ? hide : undefined}
+        style={{ top: place?.top ?? -9999, left: place?.left ?? -9999 }}
+        className="fixed z-50 max-w-[240px] animate-fade rounded-[10px] border border-line-strong bg-card px-2.5 py-1.5 text-[13px] leading-5 text-ink-2 shadow-[0_12px_32px_rgb(0_0_0/0.45)]"
+      >
+        {note}
+      </div>,
+      document.body,
+    );
+
+  if (wrap) {
+    return (
+      <span
+        ref={(el) => {
+          anchor.current = el;
+        }}
+        className={cx('relative inline-flex shrink-0', className)}
+        onMouseEnter={hoverable ? show : undefined}
+        onMouseLeave={hoverable ? hide : undefined}
+        onFocusCapture={(e) => {
+          if ((e.target as HTMLElement).matches?.(':focus-visible')) show();
+        }}
+        onBlurCapture={hide}
+      >
+        {children}
+        {portal}
+      </span>
+    );
+  }
+
   return (
     <span className={cx('relative inline-flex shrink-0', className)}>
       <button
-        ref={anchor}
+        ref={(el) => {
+          anchor.current = el;
+        }}
         type="button"
         aria-label={label}
         onClick={() => {
@@ -118,22 +163,7 @@ export function Popover({
       >
         {children}
       </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panel}
-            id={noteId}
-            role="tooltip"
-            aria-hidden
-            onMouseEnter={hoverable ? show : undefined}
-            onMouseLeave={hoverable ? hide : undefined}
-            style={{ top: place?.top ?? -9999, left: place?.left ?? -9999 }}
-            className="fixed z-50 max-w-[240px] animate-fade rounded-[10px] border border-line-strong bg-card px-2.5 py-1.5 text-[12px] leading-4 text-ink-2 shadow-[0_12px_32px_rgb(0_0_0/0.45)]"
-          >
-            {note}
-          </div>,
-          document.body,
-        )}
+      {portal}
     </span>
   );
 }

@@ -1,6 +1,8 @@
 import { ChevronDown, LoaderCircle, Search, type LucideIcon } from 'lucide-react';
 import {
+  useEffect,
   useId,
+  useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type InputHTMLAttributes,
@@ -10,6 +12,22 @@ import {
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
+}
+
+/** A media query, kept up to date. jsdom has no `matchMedia`: then it never matches. */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(
+    () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(query);
+    const onChange = () => setOn(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return on;
 }
 
 /** Line icons: one size, one stroke, the color of their text. */

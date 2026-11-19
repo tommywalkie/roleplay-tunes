@@ -190,7 +190,7 @@ describe('App', () => {
     expect(await screen.findByText('Harbor bells')).toBeInTheDocument();
     expect(screen.getByText('Bells across the water')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'License: CC BY 4.0' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'My rain is yours: nothing to add' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'My rain is one of yours' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Add Harbor bells to my library' }));
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/library/sounds/pub1',

@@ -71,6 +71,7 @@ interface RouteCase {
 /** Every /api route that requires a session. The completeness test keeps this list honest. */
 const PROTECTED: RouteCase[] = [
   { method: 'GET', route: '/api/me' },
+  { method: 'PATCH', route: '/api/me', body: { name: 'Hijacked' } },
   { method: 'DELETE', route: '/api/me', body: { email: 'x@example.com' } },
   { method: 'GET', route: '/api/sounds' },
   { method: 'POST', route: '/api/sounds' },

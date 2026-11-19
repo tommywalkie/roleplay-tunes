@@ -5,6 +5,7 @@ import { useLibrary, useLibraryEntry, useMixes, useScenes, useSounds } from '../
 import { usePlayer } from '../audio/player';
 import { Thumb } from '../components/Illustration';
 import { LicenseBadge } from '../components/LicenseBadge';
+import { OwnerBadge } from '../components/OwnerBadge';
 import { AddMixDialog, RemoveMixDialog } from '../components/MixLibraryDialogs';
 import { RemoveSoundDialog, soundUsage } from '../components/RemoveSoundDialog';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
@@ -12,7 +13,6 @@ import { CategoryFilter, inCategories } from '../components/Categories';
 import { matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
 import { Button, EmptyState, IconButton, Lamp, Segmented, cx } from '../components/ui';
 import { useI18n } from '../i18n';
-import { initials } from './ProfilePage';
 
 type Tab = 'sounds' | 'mixes';
 
@@ -263,15 +263,13 @@ function SoundRow({
       illustration={sound.illustration}
       fallback={FALLBACK_ICONS.sound}
       what={
-        <>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <ModeIcon size={14} strokeWidth={1.5} aria-hidden className="shrink-0" />
-            <span className="truncate">{t(MODE_LABELS[sound.defaultMode])}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <ModeIcon size={14} strokeWidth={1.5} aria-hidden className="shrink-0" />
+          <span className="min-w-0 truncate">
+            {t(MODE_LABELS[sound.defaultMode])}
+            <span className="ml-3 tabular-nums">{duration(sound.durationSec)}</span>
           </span>
-          <span className="shrink-0 font-mono text-[12px] tabular-nums">
-            {duration(sound.durationSec)}
-          </span>
-        </>
+        </span>
       }
       owner={sound.ownerName}
       description={sound.description}
@@ -412,6 +410,7 @@ function Row({
         </span>
         <span className="flex h-5 min-w-0 items-center gap-3 pl-4 text-[13px] leading-5 text-ink-3">
           {what}
+          {license && <LicenseBadge value={license} />}
         </span>
         {description && (
           <p className="mt-1 line-clamp-2 pl-4 text-[14px] leading-5 text-ink-2 md:line-clamp-1">
@@ -420,19 +419,8 @@ function Row({
         )}
       </div>
       <div className="flex w-full items-center gap-3 md:w-auto md:shrink-0">
-        {license && <LicenseBadge value={license} />}
-        <span className="flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden
-            className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-[10px] leading-none font-medium text-ink-2"
-          >
-            {initials(owner)}
-          </span>
-          <span className="sr-only">{t('library.by', { name: owner })}</span>
-          <span aria-hidden className="truncate text-[13px] leading-5 text-ink-2">
-            {owner}
-          </span>
-        </span>
+        <OwnerBadge owner={owner} />
+
         <span className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
           <IconButton
             icon={playing ? Square : Play}

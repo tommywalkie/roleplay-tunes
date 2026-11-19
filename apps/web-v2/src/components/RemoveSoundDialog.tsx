@@ -58,7 +58,7 @@ export function RemoveSoundDialog({
   usage: SoundUsage;
   onClose: () => void;
 }) {
-  const { t, errorText } = useI18n();
+  const { t, tn, errorText } = useI18n();
   const entry = useLibraryEntry('sounds');
   const blocked = usage.blockingMixes.length > 0;
 
@@ -129,7 +129,7 @@ export function RemoveSoundDialog({
         <div className="flex flex-col gap-2 rounded-[10px] border border-line bg-deep px-3 py-3">
           <p className="flex items-start gap-2 text-[14px] leading-5 text-ink-2">
             <Icon icon={AlertTriangle} className="mt-0.5 text-ink-3" />
-            {t('library.removeSound.blocked', { n: usage.blockingMixes.length })}
+            {tn('library.removeSound.blocked', usage.blockingMixes.length)}
           </p>
           <ul className="flex flex-col gap-1 pl-1">
             {usage.blockingMixes.map((mix) => (

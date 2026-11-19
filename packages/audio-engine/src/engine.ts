@@ -624,6 +624,26 @@ class Engine implements AudioEngine {
     }
   }
 
+  fadeOutMaster(sec: number, delaySec = 0) {
+    if (!this.graph || this.paused) return;
+    const gain = this.graph.master.gain;
+    const now = this.graph.ctx.currentTime;
+    const start = now + Math.max(0, delaySec);
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    gain.setValueAtTime(gain.value, start);
+    gain.linearRampToValueAtTime(0, start + Math.max(0.05, sec));
+  }
+
+  restoreMaster() {
+    if (!this.graph || this.paused) return;
+    rampTo(
+      this.graph.master.gain,
+      sliderToGain(this.store.get().masterVolume),
+      this.graph.ctx.currentTime,
+    );
+  }
+
   async pause(): Promise<void> {
     if (this.paused) return;
     this.paused = true;

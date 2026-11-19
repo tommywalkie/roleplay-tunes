@@ -125,6 +125,8 @@ export function makeFakeEngine() {
     removeLayer: vi.fn((id: string) => setLayers(layers().filter((l) => l.id !== id) as never)),
     refreshSound: vi.fn(),
     setMasterVolume: vi.fn((v: number) => set({ masterVolume: v })),
+    fadeOutMaster: vi.fn(),
+    restoreMaster: vi.fn(),
     setEffectsVolume: vi.fn((v: number) => set({ effectsVolume: v })),
     playOneshot: vi.fn((soundId: string) => {
       const id = `shot-${++shots}`;

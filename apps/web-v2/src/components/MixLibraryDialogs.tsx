@@ -102,9 +102,12 @@ export function AddMixDialog({
       <p className="text-[14px] leading-5 text-ink-2">
         {fresh === 0
           ? t('library.addMix.allHeld')
-          : `${tn('library.addMix.fresh', fresh)}${
-              added.length === 0 ? '.' : tn('library.addMix.held', added.length)
-            }`}
+          : [
+              tn('library.addMix.fresh', fresh),
+              added.length > 0 ? tn('library.addMix.held', added.length) : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
       </p>
       <MixSummary mix={mix} byId={byId} heldIds={heldIds} />
     </Dialog>

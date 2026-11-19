@@ -161,10 +161,11 @@ describe('LibraryPage', () => {
     expect(row.getByText('2:48')).toBeInTheDocument();
     expect(row.getByText('Bells across the water')).toBeInTheDocument();
 
-    // Read by screen readers as one phrase; seen as an initials badge and the name.
-    expect(row.getByText('By Grace Hopper')).toHaveClass('sr-only');
-    expect(row.getByText('GH')).toHaveAttribute('aria-hidden', 'true');
-    expect(row.getByText('Grace Hopper')).toHaveAttribute('aria-hidden', 'true');
+    // The badge is a Popover trigger: its name is the whole phrase, its content the
+    // initials and, when there is room, the name beside them.
+    const owner = row.getByRole('button', { name: 'By Grace Hopper' });
+    expect(owner).toHaveTextContent('GH');
+    expect(owner).toHaveTextContent('Grace Hopper');
 
     expect(row.getByRole('button', { name: 'License: Private use only' })).toBeInTheDocument();
   });
@@ -183,7 +184,7 @@ describe('LibraryPage', () => {
     const { user, fetchMock } = renderLibrary();
     // One 44px slot per row whatever its state, so Play holds one line down the list.
     const mine = await rowOf('My rain');
-    expect(mine.getByRole('button', { name: 'My rain is yours: nothing to add' })).toBeDisabled();
+    expect(mine.getByRole('button', { name: 'My rain is one of yours' })).toBeDisabled();
     // Cold wind is in the user's own study mix, so removing it warns first rather than
     // deleting at once; the dialog is covered by its own cases below.
     const added = await rowOf('Cold wind');
@@ -223,8 +224,9 @@ describe('LibraryPage', () => {
     await user.click(await screen.findByRole('radio', { name: '2 mixes' }));
     const row = await rowOf('Market day');
     expect(row.getByText('3 sounds')).toBeInTheDocument();
-    expect(row.getByText('By Grace Hopper')).toBeInTheDocument();
-    expect(row.getByText('GH')).toBeInTheDocument();
+    const owner = row.getByRole('button', { name: 'By Grace Hopper' });
+    expect(owner).toHaveTextContent('GH');
+    expect(owner).toHaveTextContent('Grace Hopper');
 
     await user.click(row.getByRole('button', { name: 'Play Market day' }));
     expect(spies.playMix).toHaveBeenCalledWith(expect.objectContaining({ id: 'pm1' }));
@@ -237,10 +239,10 @@ describe('LibraryPage', () => {
     await user.click(row.getByRole('button', { name: 'Add Market day to my library' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Add this mix' }));
     expect(dialog.getByText('Harbor bells')).toBeInTheDocument();
-    expect(dialog.getByText(/with the mix and (is|are) added to your library/)).toHaveTextContent(
-      '1 sound comes with the mix and is added to your library; you already have 2.',
+    expect(dialog.getByText(/new to you and joins? your library/)).toHaveTextContent(
+      '1 of its sounds is new to you and joins your library with it. You already have the other 2.',
     );
-    await user.click(dialog.getByRole('button', { name: 'Add mix and sounds' }));
+    await user.click(dialog.getByRole('button', { name: 'Add the mix and its sounds' }));
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/library/mixes/pm1',
       expect.objectContaining({ method: 'PUT' }),
@@ -259,7 +261,7 @@ describe('LibraryPage', () => {
     await user.click(row.getByRole('button', { name: 'Remove Night watch from my library' }));
 
     const dialog = within(await screen.findByRole('dialog', { name: 'Remove this mix' }));
-    expect(dialog.getByText(/Going out with the mix: 1 of 1\./)).toBeInTheDocument();
+    expect(dialog.getByText(/with the mix \(1 of 1\)/)).toBeInTheDocument();
     // The gong was added outright and nothing else uses it: it can come out, and starts ticked.
     const gong = dialog.getByText('Temple gong').closest('li')!;
     expect(within(gong).getByRole('checkbox')).toBeChecked();
@@ -269,7 +271,7 @@ describe('LibraryPage', () => {
 
     // Unticking keeps it: the mix still goes, the sound stays in the library.
     await user.click(within(gong).getByRole('checkbox'));
-    expect(dialog.getByText(/Going out with the mix: 0 of 1\./)).toBeInTheDocument();
+    expect(dialog.getByText(/with the mix \(0 of 1\)/)).toBeInTheDocument();
     await user.click(dialog.getByRole('button', { name: 'Remove the mix' }));
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/library/mixes/pm2',
@@ -302,9 +304,9 @@ describe('LibraryPage', () => {
     expect(dialog.getByText('Cold cellar')).toBeInTheDocument();
     expect(dialog.getByText('In 1 of your scenes')).toBeInTheDocument();
     expect(dialog.getByText('Chapter four')).toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: 'Remove it' })).toBeEnabled();
+    expect(dialog.getByRole('button', { name: 'Remove' })).toBeEnabled();
 
-    await user.click(dialog.getByRole('button', { name: 'Remove it' }));
+    await user.click(dialog.getByRole('button', { name: 'Remove' }));
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/library/sounds/pub2',
       expect.objectContaining({ method: 'DELETE' }),
@@ -324,7 +326,7 @@ describe('LibraryPage', () => {
     );
     const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
     expect(dialog.getByText('Chapter four')).toBeInTheDocument();
-    expect(dialog.getByText('Holds a mix that uses it')).toBeInTheDocument();
+    expect(dialog.getByText('Through one of its mixes')).toBeInTheDocument();
   });
 
   it('refuses to confirm when the sound sits inside a mix the user only borrowed', async () => {
@@ -339,8 +341,8 @@ describe('LibraryPage', () => {
     );
     const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
     expect(dialog.getByText('Night watch')).toBeInTheDocument();
-    expect(dialog.getByText(/is also inside 1 mix you added from the Library/)).toBeInTheDocument();
-    expect(dialog.getByRole('button', { name: 'Remove it' })).toBeDisabled();
+    expect(dialog.getByText(/A mix you added from the Library also uses this sound/)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalledWith(
       '/api/library/sounds/pub2',
       expect.objectContaining({ method: 'DELETE' }),

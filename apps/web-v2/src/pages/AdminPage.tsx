@@ -14,6 +14,7 @@ import { fromLimitInputs, LimitFields, toLimitInputs } from '../components/Limit
 import { matches, NoMatch, Page, QueryGate } from '../components/Page';
 import { Button, cx, ErrorNote, Icon, SearchField, Segmented } from '../components/ui';
 import { UserDialog } from '../editors/UserDialog';
+import { VirtualRows } from '../components/VirtualRows';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 
@@ -226,11 +227,14 @@ export function AdminPage({ me }: { me: Me }) {
             </Suspense>
 
             <section className="flex flex-col gap-3 rounded-[16px] border border-line bg-card p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
-                  {t('admin.users')}
-                  <span className="font-mono text-[12px] text-ink-3 tabular-nums">{all.length}</span>
-                </h2>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
+                    {t('admin.users')}
+                    <span className="font-mono text-[12px] text-ink-3 tabular-nums">{all.length}</span>
+                  </h2>
+                  <p className="text-[13px] leading-5 text-ink-3">{t('admin.users.hint')}</p>
+                </div>
                 <SearchField
                   value={query}
                   onChange={setQuery}
@@ -241,17 +245,31 @@ export function AdminPage({ me }: { me: Me }) {
               {shown.length === 0 ? (
                 <NoMatch query={query.trim()} />
               ) : (
-                <ul className="-mx-3 flex flex-col gap-0.5">
-                  {shown.map((user) => (
-                    <UserRow
-                      key={user.id}
-                      user={user}
-                      defaults={settings.data.defaults}
-                      isSelf={user.id === me.id}
-                      onOpen={() => setOpenId(user.id)}
-                    />
-                  ))}
-                </ul>
+                // One row per user, all the same height: mounted only around what the
+                // administrator can see, so a server with thousands of accounts scrolls
+                // as cheaply as one with a dozen.
+                // The box holds its height at 500px: a longer list scrolls inside the
+                // card instead of pushing the page out. The box scrolls, the list inside
+                // it carries the padding that stands in for unmounted rows.
+                <VirtualRows
+                  label={t('admin.users')}
+                  scrollClassName="-mx-3 h-[500px] overflow-y-auto overscroll-contain scroll-quiet"
+                  className="flex flex-col"
+                  count={shown.length}
+                  gap={2}
+                  renderItem={(i) => {
+                    const user = shown[i]!;
+                    return (
+                      <UserRow
+                        key={user.id}
+                        user={user}
+                        defaults={settings.data.defaults}
+                        isSelf={user.id === me.id}
+                        onOpen={() => setOpenId(user.id)}
+                      />
+                    );
+                  }}
+                />
               )}
             </section>
           </div>

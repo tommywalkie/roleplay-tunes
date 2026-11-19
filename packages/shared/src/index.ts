@@ -400,6 +400,10 @@ export type Me = z.infer<typeof meSchema>;
 /** Deleting your own account requires typing its email. */
 export const deleteMeSchema = z.object({ email: z.string().min(1) }).strict();
 
+/** What a user may change about their own account: the name others see. */
+export const updateMeSchema = z.object({ name: nameSchema }).strict();
+export type UpdateMeRequest = z.infer<typeof updateMeSchema>;
+
 export const publicSettingsSchema = z.object({ signupsOpen: z.boolean() });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 

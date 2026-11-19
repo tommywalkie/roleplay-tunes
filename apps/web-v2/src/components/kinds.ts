@@ -17,4 +17,10 @@ export const MODE_LABELS: Record<PlayMode, MessageKey> = {
   oneshot: 'mode.oneshot',
 };
 
+export const MODE_HINTS: Record<PlayMode, MessageKey> = {
+  loop: 'mode.loop.hint',
+  recurring: 'mode.recurring.hint',
+  oneshot: 'mode.oneshot.hint',
+};
+
 export const MODE_ORDER: PlayMode[] = ['loop', 'recurring', 'oneshot'];

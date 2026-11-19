@@ -1,6 +1,12 @@
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { deleteMeSchema, roleSchema, type Me, type PublicSettings } from '@dnd/shared';
+import {
+  deleteMeSchema,
+  roleSchema,
+  updateMeSchema,
+  type Me,
+  type PublicSettings,
+} from '@dnd/shared';
 import { requireUser, type UserRow } from '../auth.js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
@@ -83,6 +89,44 @@ export function accountRoutes(app: FastifyInstance) {
       },
     },
   }, async (request) => toMe(await requireUser(request)));
+
+  app.patch('/api/me', {
+    schema: {
+      tags: ['account'],
+      summary: 'Update my account',
+      description:
+        'Changes the name the user goes by: the one shown on their shared sounds and mixes. 1 to 100 characters, no control characters.',
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: { name: { type: 'string', maxLength: 100 } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            email: { type: 'string' },
+            name: { type: 'string' },
+            role: { type: 'string', enum: ['user', 'admin'] },
+            limits: { type: 'object', additionalProperties: true },
+            usage: { type: 'object', additionalProperties: true },
+            termsAcceptedAt: { type: 'string', format: 'date-time', nullable: true },
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    const user = await requireUser(request);
+    const { name } = parse(updateMeSchema, request.body);
+    const row = db
+      .update(users)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(users.id, user.id))
+      .returning()
+      .get();
+    return toMe(row);
+  });
 
   app.delete('/api/me', {
     schema: {

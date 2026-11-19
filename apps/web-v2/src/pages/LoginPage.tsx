@@ -149,12 +149,14 @@ export function LoginPage() {
           <form onSubmit={submit} noValidate className="flex w-full max-w-[360px] flex-col gap-4">
             {active.error && <ErrorNote>{errorText(active.error)}</ErrorNote>}
             {creating && (
-              <Field label={t('login.name')} error={fields?.name}>
+              <Field label={t('login.name')} hint={t('login.name.hint')} error={fields?.name}>
                 {(id) => (
                   <TextInput
                     id={id}
                     value={name}
-                    autoComplete="name"
+                    maxLength={100}
+                    // A pseudonym, not a full name: browsers would offer the real one.
+                    autoComplete="nickname"
                     onChange={(e) => setName(e.target.value)}
                   />
                 )}

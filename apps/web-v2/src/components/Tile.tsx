@@ -1,10 +1,11 @@
 import type { Illustration as IllustrationData } from '@dnd/shared';
 import { Ellipsis, type LucideIcon } from 'lucide-react';
-import { useCallback, useState, type ReactNode } from 'react';
+import { Children, useCallback, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Illustration } from './Illustration';
 import { Menu, type MenuItem } from './Menu';
-import { cx, Icon, Lamp } from './ui';
+import { VirtualRows } from './VirtualRows';
+import { cx, Icon, Lamp, useMedia } from './ui';
 
 export interface TileProgress {
   /** Changes for every new run, so the bar restarts. */
@@ -35,7 +36,7 @@ interface TileProps {
 const SURFACE =
   'group/tile relative block w-full overflow-hidden rounded-[14px] border bg-card text-left ' +
   'transition-[background-color,border-color,transform] duration-150 ease-out ' +
-  'hover:bg-raised active:scale-[0.98]';
+  'has-[.tile-tap:hover]:bg-raised has-[.tile-tap:active]:scale-[0.98]';
 
 /**
  * One item of the board. The whole tile is the tap target; the edit button sits beside
@@ -56,21 +57,16 @@ export function Tile({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
   const hasImage = illustration.type === 'image';
-  const body = (
+  const tap = (
     <>
       {/* A 70px band on phones, so more tiles fit; 4:3 from tablet width. */}
       <span className="relative block h-[70px] overflow-hidden bg-deep/40 md:h-auto md:aspect-[4/3]">
         <Illustration value={illustration} fallback={fallback} lit={active} tile />
         {hasImage && active && <span className="absolute inset-0 bg-lamp/10" aria-hidden />}
       </span>
-      <span className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">
-        <span className="flex items-center gap-2">
-          <Lamp on={active} />
-          <span className="truncate text-[14px] leading-5 font-medium text-ink">{name}</span>
-        </span>
-        <span className="flex h-4 items-center gap-1.5 truncate pl-4 text-[12px] leading-4 text-ink-3 tabular-nums">
-          {meta}
-        </span>
+      <span className="flex items-center gap-2 px-3 pt-2.5 pb-0.5">
+        <Lamp on={active} />
+        <span className="truncate text-[14px] leading-5 font-medium text-ink">{name}</span>
       </span>
     </>
   );
@@ -78,15 +74,25 @@ export function Tile({
 
   return (
     <li className="relative">
-      {to ? (
-        <Link to={to} className={surface}>
-          {body}
-        </Link>
-      ) : (
-        <button type="button" aria-pressed={active} onClick={onPress} className={surface}>
-          {body}
-        </button>
-      )}
+      <div className={surface}>
+        {to ? (
+          <Link to={to} className="tile-tap block w-full">
+            {tap}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            aria-pressed={active}
+            onClick={onPress}
+            className="tile-tap block w-full text-left"
+          >
+            {tap}
+          </button>
+        )}
+        <div className="flex items-center gap-1.5 px-3 pb-3 text-[12px] leading-4 text-ink-3 tabular-nums">
+          {meta}
+        </div>
+      </div>
       {(onEdit || menu) && (
         <button
           type="button"
@@ -110,13 +116,27 @@ export function Tile({
 }
 
 /** The mosaic: tiles as wide as fits, never narrower than a thumb can hit. */
+const TILE_GAP = 12;
+const TILE_MIN = 148;
+const TILE_MIN_WIDE = 164;
+const TABLET = '(min-width: 768px)';
+
+/**
+ * The mosaic, virtualised: only the rows a reader can reach are mounted, so a board of a
+ * thousand sounds costs the same DOM as a dozen. The column count comes from the width the
+ * list actually has, which is what the CSS grid it replaced worked out too.
+ */
 export function TileGrid({ children, label }: { children: ReactNode; label: string }) {
+  const wide = useMedia(TABLET);
+  const tiles = Children.toArray(children);
   return (
-    <ul
-      aria-label={label}
-      className="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-3 md:grid-cols-[repeat(auto-fill,minmax(164px,1fr))]"
-    >
-      {children}
-    </ul>
+    <VirtualRows
+      label={label}
+      className="grid"
+      count={tiles.length}
+      minCell={wide ? TILE_MIN_WIDE : TILE_MIN}
+      gap={TILE_GAP}
+      renderItem={(i) => tiles[i]}
+    />
   );
 }

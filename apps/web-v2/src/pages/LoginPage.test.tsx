@@ -80,7 +80,7 @@ describe('LoginPage', () => {
     const user = renderLogin();
     await user.click(await screen.findByRole('button', { name: 'Create an account' }));
     expect(screen.getByRole('heading', { name: 'Create an account' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pseudonym')).toBeInTheDocument();
   });
 
   it('hides account creation when sign-ups are closed', async () => {

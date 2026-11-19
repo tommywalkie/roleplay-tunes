@@ -229,6 +229,12 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Sound tile menu: play with its own mode, once, as a loop, or with random pauses (a
   dialog with Short, Medium and Very random suggestions), and edit
 - Player: "Save as a mix" opens a new mix with what loops right now (own and added sounds)
+- Player: sleep timer (`SleepTimer.tsx`, `useSleepTimer`): stop in N minutes, fading out over
+  the last M (M ≤ N). The fade is scheduled on the audio clock at once (`fadeOutMaster`), so
+  it happens with a locked phone; a page timer re-applies it and stops everything at the end,
+  then `restoreMaster`. It ends by itself once nothing plays
+- Settings: the user changes their pseudonym (`PATCH /api/me`). The name field reads as a
+  pseudonym everywhere, since users were typing their real full name
 - "Install the app" instructions on the Profile page and the sign-in page
 - Tiles on phones: a 70px picture band; an image shows whole over a blurred, darker copy
   of itself, an icon gets 4px of padding (`Illustration` with `tile`)

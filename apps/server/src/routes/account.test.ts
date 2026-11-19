@@ -96,6 +96,40 @@ describe('GET /api/me', () => {
   });
 });
 
+describe('PATCH /api/me', () => {
+  it('renames the account, trimmed, and returns it', async () => {
+    const user = await signUp(app);
+    const res = await call(app, user, 'PATCH', '/api/me', { name: '  Bard of the Inn  ' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: user.id, name: 'Bard of the Inn' });
+    expect((await call(app, user, 'GET', '/api/me')).json().name).toBe('Bard of the Inn');
+  });
+
+  it('shows the new name on what the user shared', async () => {
+    const owner = await signUp(app);
+    const sound = await uploadSound(app, owner);
+    await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: true });
+    await call(app, owner, 'PATCH', '/api/me', { name: 'Nightjar' });
+    const other = await signUp(app);
+    const library = (await call(app, other, 'GET', '/api/library')).json();
+    const shared = library.sounds.find((s: { id: string }) => s.id === sound.id);
+    expect(shared.ownerName).toBe('Nightjar');
+  });
+
+  it('refuses a blank, too long or control-character name, and anything else', async () => {
+    const user = await signUp(app);
+    expectError(await call(app, user, 'PATCH', '/api/me', { name: '   ' }), 400, 'validation');
+    expectError(await call(app, user, 'PATCH', '/api/me', { name: 'x'.repeat(101) }), 400, 'validation');
+    expectError(await call(app, user, 'PATCH', '/api/me', { name: 'a\u0007b' }), 400, 'validation');
+    expectError(
+      await call(app, user, 'PATCH', '/api/me', { name: 'Fine', email: 'new@example.com' }),
+      400,
+      'validation',
+    );
+    expect((await call(app, user, 'GET', '/api/me')).json().name).toBe('Test User');
+  });
+});
+
 describe('sign-up and sign-in', () => {
   it('refuses a password shorter than 8 characters', async () => {
     const email = `short-${Date.now()}@example.com`;

@@ -1,6 +1,6 @@
 import { licenseMark, LicenseGlyphs } from './licenseMarks';
 import { Popover } from './Popover';
-import { Icon } from './ui';
+import { Icon, cx } from './ui';
 import { licenseText } from '../editors/LicenseField';
 import { useI18n } from '../i18n';
 
@@ -13,7 +13,14 @@ import { useI18n } from '../i18n';
  * Creative Commons licenses carry a suite of marks — the Commons mark plus the elements
  * that qualify it — exactly as CC publishes them.
  */
-export function LicenseBadge({ value }: { value: string }) {
+export function LicenseBadge({
+  value,
+  /** Box of each mark; a tile's 16px meta line wants less than a row's 18px. */
+  size = 'size-[18px]',
+}: {
+  value: string;
+  size?: string;
+}) {
   const { t } = useI18n();
   const text = licenseText(value, t);
   const label = t('library.license', { license: text });
@@ -23,10 +30,10 @@ export function LicenseBadge({ value }: { value: string }) {
     <Popover label={label} note={text}>
       {'marks' in mark ? (
         <span className="flex shrink-0 items-center gap-0.5">
-          <LicenseGlyphs marks={mark.marks} className="size-[18px] shrink-0" />
+          <LicenseGlyphs marks={mark.marks} className={cx(size, 'shrink-0')} />
         </span>
       ) : (
-        <Icon icon={mark.icon} className="size-[18px]" />
+        <Icon icon={mark.icon} className={size} />
       )}
     </Popover>
   );

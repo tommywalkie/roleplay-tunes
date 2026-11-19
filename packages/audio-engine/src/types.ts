@@ -190,6 +190,16 @@ export interface AudioEngine {
   refreshSound(id: SoundId): void;
 
   setMasterVolume(v: number): void;
+  /**
+   * Fades the whole output to silence over `sec`, starting `delaySec` from now, as a sleep
+   * timer does. It is scheduled on the audio clock, so it happens even while the page's
+   * timers are frozen (a locked phone). The master volume setting is untouched: what plays
+   * keeps playing, silently. Moving the master volume, pausing and resuming, or
+   * `restoreMaster()` cancel the fade and bring the output back.
+   */
+  fadeOutMaster(sec: number, delaySec?: number): void;
+  /** Brings the output back to the master volume setting at once. */
+  restoreMaster(): void;
   setEffectsVolume(v: number): void;
   /** Plays a one-shot above the mix. Returns null if the sound is unknown. */
   playOneshot(id: SoundId, opts?: { volume?: number; pan?: number }): OneshotHandle | null;
