@@ -61,11 +61,13 @@ export function SoundsPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.sounds', found.length)}>
-            {pages.shown.map((sound) => (
-              <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
-            ))}
-          </TileGrid>
+          <div className="pb-16 lg:pb-0">
+            <TileGrid label={tn('count.sounds', found.length)}>
+              {pages.shown.map((sound) => (
+                <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
+              ))}
+            </TileGrid>
+          </div>
         )}
       </QueryGate>
 

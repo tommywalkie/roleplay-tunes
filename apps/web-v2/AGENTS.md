@@ -68,7 +68,7 @@ on the Admin page only, behind a lazy import so it stays out of the board's bund
 | `api/client.ts` | `api()` fetch wrapper and `ApiError`. Reads both error shapes: the API's `{ error: { code } }` and Better Auth's `{ code }` |
 | `api/hooks.ts` | Every query and mutation. Saving an item = JSON request, then an optional image upload |
 | `audio/player.tsx` | The board's playback rules on top of the engine (`createPlayer`), and `PlayerProvider` |
-| `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1024px), dock on phones and tablets |
+| `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1332px), dock on phones and tablets |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
 | `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `TermsDialog`, `ChangelogDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
@@ -234,7 +234,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Tiles showing the uploaded image or chosen icon, lit while playing, one-shot progress
 - Player: pause/resume, stop all, master and one-shot volume, per-sound volume, mute, remove
 - Responsive shell: tab bar and docked player on phones and tablets, rail and player
-  column from desktop width (`lg`, 1024px)
+  column from desktop width (`lg`, 1332px)
 - Sound upload (several files, per-file result), sound editor (name, illustration, play
   mode, volume, wait bounds, volume variation, scenes)
 - Mix editor (sounds, per-sound volume and mode, scenes) and scene editor (mixes, sounds)

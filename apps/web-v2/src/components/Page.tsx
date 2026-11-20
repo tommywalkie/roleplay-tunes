@@ -17,6 +17,7 @@ export function Page({
   search,
   filters,
   bar,
+  longTitle = false,
   children,
 }: {
   title: string;
@@ -31,6 +32,12 @@ export function Page({
   filters?: ReactNode;
   /** What the page keeps on screen at its foot (the pinned pagination). */
   bar?: ReactNode;
+  /**
+   * A title expected to run long (a scene's name): it wraps onto a second line and is then
+   * cut. Two lines are set to fill exactly the header's own height (`min-h-11`), so a title
+   * that wraps never pushes the search field down.
+   */
+  longTitle?: boolean;
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -48,7 +55,14 @@ export function Page({
                 <Icon icon={ArrowLeft} />
               </Link>
             )}
-            <h1 className="min-w-0 truncate text-[28px] leading-8 font-medium">{title}</h1>
+            <h1
+              className={cx(
+                'min-w-0 font-medium',
+                longTitle ? 'line-clamp-2 text-[20px] leading-[22px]' : 'truncate text-[28px] leading-8',
+              )}
+            >
+              {title}
+            </h1>
             {meta && (
               <span className="shrink-0 pt-1.5 font-mono text-[12px] leading-4 text-ink-3 tabular-nums">
                 {meta}

@@ -28,7 +28,7 @@ import { useI18n } from '../i18n';
 import { SleepTimerRow, useClock } from './SleepTimer';
 
 /** Below the `lg` breakpoint the player is docked at the bottom and opens upward. */
-const DOCKED = '(max-width: 1023.98px)';
+const DOCKED = '(max-width: 1331.98px)';
 
 /**
  * What plays right now, and the controls to shape it. A column on the right from desktop

@@ -32,8 +32,11 @@
   --color-danger: #e5484d;
   --color-ok: #4cc38a;
 
+  /* The desktop breakpoint: below it the app is the phone/tablet layout — tab bar and docked
+     player instead of the rail and the player column. */
+  --breakpoint-lg: 1332px;
   /* Where a desktop window is wide enough to show names beside their initials. */
-  --breakpoint-wide: 1300px;
+  --breakpoint-wide: 1440px;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 

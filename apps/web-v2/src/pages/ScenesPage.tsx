@@ -58,11 +58,13 @@ export function ScenesPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.scenes', found.length)}>
-            {pages.shown.map((scene) => (
-              <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
-            ))}
-          </TileGrid>
+          <div className="pb-16 lg:pb-0">
+            <TileGrid label={tn('count.scenes', found.length)}>
+              {pages.shown.map((scene) => (
+                <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
+              ))}
+            </TileGrid>
+          </div>
         )}
       </QueryGate>
 

@@ -60,11 +60,13 @@ export function MixesPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <TileGrid label={tn('count.mixes', found.length)}>
-            {pages.shown.map((mix) => (
-              <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
-            ))}
-          </TileGrid>
+          <div className="pb-16 lg:pb-0">
+            <TileGrid label={tn('count.mixes', found.length)}>
+              {pages.shown.map((mix) => (
+                <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
+              ))}
+            </TileGrid>
+          </div>
         )}
       </QueryGate>
 

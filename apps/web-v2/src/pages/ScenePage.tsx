@@ -57,6 +57,7 @@ export function ScenePage({ me }: { me: Me }) {
   return (
     <Page
       title={scene?.name ?? t('scenes.title')}
+      longTitle
       backTo="/scenes"
       action={
         scene && (

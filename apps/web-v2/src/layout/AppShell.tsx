@@ -97,7 +97,7 @@ export function AppShell({ me }: { me: Me }) {
       <div className="grid h-full grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)_344px]">
         <nav
           aria-label={t('app.name')}
-          className="hidden flex-col border-r border-line bg-deep lg:flex"
+          className="relative z-10 hidden flex-col border-r border-line bg-deep lg:flex"
         >
           <div className="flex h-20 items-center justify-center gap-3 px-5 lg:justify-start">
             <Mark />

@@ -13,7 +13,7 @@ export function initials(name: string): string {
  * Who shared an item: their initials, and their name beside them when there is room.
  *
  * The name shows on phones and tablets, where the row has a band of its own for it, and
- * again from 1300px up. Between those — a desktop window that is not wide — only the
+ * again from 1440px up. Between those — a desktop window that is not wide — only the
  * initials show, and the name is in a `Popover` on the badge, so it is never lost.
  */
 export function OwnerBadge({ owner }: { owner: string }) {
