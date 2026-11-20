@@ -2,6 +2,7 @@ import {
   DESCRIPTION_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
+  SOUND_META_MAX,
   type Me,
   type PlayMode,
   type Scene,
@@ -12,10 +13,12 @@ import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { useDelete, useLibraryEntry, useSaveSound } from '../api/hooks';
 import { Dialog } from '../components/Dialog';
+import { Disclosure } from '../components/Disclosure';
 import type { IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
+import { SOUND_DETAILS, type SoundMetaKey } from '../components/SoundDetails';
 import { ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
@@ -49,6 +52,19 @@ export function SoundEditor({
   const owned = sound.access === 'owner';
 
   const [name, setName] = useState(sound.name);
+  // One entry per detail field — what the sound is from — keyed so that the editor and the
+  // library card share the same list of fields and their icons.
+  const [meta, setMeta] = useState<Record<SoundMetaKey, string>>({
+    artists: sound.artists ?? '',
+    year: sound.year ?? '',
+    movie: sound.movie ?? '',
+    game: sound.game ?? '',
+    tv: sound.tv ?? '',
+    album: sound.album ?? '',
+    url: sound.url ?? '',
+  });
+  const setMetaField = (key: SoundMetaKey, value: string) =>
+    setMeta((written) => ({ ...written, [key]: value }));
   const [description, setDescription] = useState(sound.description ?? '');
   const [license, setLicense] = useState(sound.license ?? '');
   const [isPublic, setIsPublic] = useState(sound.isPublic);
@@ -82,6 +98,7 @@ export function SoundEditor({
       name: name.trim(),
       description,
       license,
+      ...meta,
       isPublic,
       defaultMode: mode,
       defaultVolume: volume,
@@ -137,13 +154,31 @@ export function SoundEditor({
           )}
         </Field>
 
-        <TextArea
-          label={t('common.description')}
-          value={description}
-          onChange={setDescription}
-          maxLength={DESCRIPTION_MAX}
-          error={fields?.description}
-        />
+        <Disclosure title={t('sounds.moreDetails')}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {SOUND_DETAILS.map(({ key, label }) => (
+              <Field key={key} label={t(label)} error={fields?.[key]}>
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    value={meta[key]}
+                    maxLength={SOUND_META_MAX}
+                    inputMode={key === 'url' ? 'url' : undefined}
+                    onChange={(e) => setMetaField(key, e.target.value)}
+                  />
+                )}
+              </Field>
+            ))}
+          </div>
+
+          <TextArea
+            label={t('common.description')}
+            value={description}
+            onChange={setDescription}
+            maxLength={DESCRIPTION_MAX}
+            error={fields?.description}
+          />
+        </Disclosure>
 
         <LicenseField value={license} onChange={setLicense} error={fields?.license} />
 

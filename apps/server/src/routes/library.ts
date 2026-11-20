@@ -14,9 +14,11 @@ import {
   addedMixIds,
   addedSoundIds,
   directlyAddedSoundIds,
+  mixColumns,
   mixVolumesOf,
   ownerNames,
   prune,
+  soundColumns,
   soundVolumesOf,
 } from '../sharing.js';
 import { tagsOfMany } from '../tags.js';
@@ -62,12 +64,17 @@ export function libraryRoutes(app: FastifyInstance) {
   }, async (request): Promise<Library> => {
     const user = await requireUser(request);
     const soundRows = db
-      .select()
+      .select(soundColumns)
       .from(sounds)
       .where(eq(sounds.isPublic, true))
       .orderBy(sounds.name)
       .all();
-    const mixRows = db.select().from(mixes).where(eq(mixes.isPublic, true)).orderBy(mixes.name).all();
+    const mixRows = db
+      .select(mixColumns)
+      .from(mixes)
+      .where(eq(mixes.isPublic, true))
+      .orderBy(mixes.name)
+      .all();
     const names = ownerNames([...soundRows, ...mixRows].map((r) => r.ownerId));
     const usedSounds = addedSoundIds(user.id);
     const usedMixes = addedMixIds(user.id);

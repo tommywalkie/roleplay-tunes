@@ -71,7 +71,7 @@ on the Admin page only, behind a lazy import so it stays out of the board's bund
 | `player/PlayerPanel.tsx` | The always-visible player: column on desktop (`lg`, 1332px), dock on phones and tablets |
 | `layout/AppShell.tsx` | Navigation rail or tab bar, page outlet, player |
 | `board/tiles.tsx` | `SoundTile`, `MixTile`, `SceneTile`: tiles wired to the player |
-| `components/` | `Tile`, `Page`, `Dialog`, `Menu`, `InstallDialog`, `TermsDialog`, `ChangelogDialog`, `PickList`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
+| `components/` | `Tile`, `Page`, `Dialog`, `Disclosure` (a section that folds away), `Menu`, `InstallDialog`, `TermsDialog`, `ChangelogDialog`, `PickList`, `SoundDetails`, `AddedBadge`, `IllustrationField` (icon picker, image upload), `StorageMeter`, `Toasts`, `ui.tsx` primitives |
 | `editors/` | Sound, mix and scene editors, upload dialog, shared footer, `LicenseField`, `RulesEditor`/`RulesCard` (server rules, lazy) |
 | `layout/viewport.ts` | Measures the installed iPhone app's shortened viewport (see Safe areas) |
 | `pages/` | Login, Scenes, Scene, Mixes, Sounds, Library, Categories, Profile, Settings, Admin, ResetPassword |
@@ -126,7 +126,10 @@ lists of sounds and mixes to choose (`PickField`) open this way, to keep editors
 **Search stays on screen.** On list pages the search field sticks to the top of the
 scrolling area (`Page`); the title scrolls away. Search matches an item's name and the
 synonyms the user sees on it (`searchText`), on pages, in the Library and in the
-"Choose" lists.
+"Choose" lists. A sort button sits at its right (`SortControl` in `components/Sort.tsx`):
+by name either way, or by when the item was added. The order is applied in the client
+before the list is paged, and is part of the page's reset key, so changing it goes back to
+page 1.
 
 **Synonyms and categories are per user.** Each user puts their own on any item they own
 or added (`TagFields` in every editor, owner or not, sends `synonyms` and `categoryIds`).
@@ -229,8 +232,8 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 ### Done
 
 - Sign in, account creation (only when sign-ups are open), sign out
-- Scenes, Mixes and Sounds pages: tile grid, search, empty and no-match states
-- Scene page: its mixes and sounds, playable, with search
+- Scenes, Mixes and Sounds pages: tile grid, search, sort, empty and no-match states
+- Scene page: one grid of its mixes and sounds, playable, with search and sort
 - Tiles showing the uploaded image or chosen icon, lit while playing, one-shot progress
 - Player: pause/resume, stop all, master and one-shot volume, per-sound volume, mute, remove
 - Responsive shell: tab bar and docked player on phones and tablets, rail and player
@@ -254,6 +257,20 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Description (sounds, mixes) and license (sounds): a list of usual licenses, or "Other"
   with free text. Options worded per language are saved as codes (`unknown`,
   `private-use`) and shown through `licenseText`; license names are saved as they are
+- Sound details — artists, year, movie, game, tv, album, url — where a sound is from:
+  optional, 200 characters each (`SOUND_META_MAX`), the url an http(s) address. Their own
+  columns on `sounds`, read and written with the rest of the sound. The editor keeps them,
+  description last, inside a `Disclosure` ("More details", open by default) between the name
+  and the license; the library card shows the filled ones through `SoundDetails`, each
+  behind its own icon, above the description
+- How many users have an item in their library (`addedCount`): counted by the database
+  inside the very queries that fetch sounds and mixes, as a correlated subquery
+  (`sharing.ts`: `soundColumns` / `mixColumns`, used by the sounds, mixes and library
+  routes; a create reports 0). The count is only ever other accounts — nobody adds their
+  own item — so it shows on a tile's meta line from 1 up, and on every library row whatever
+  the count, as a bookmark and its number with the words on a note (`AddedBadge`, `used` for a
+  library row): "Used by 3 game masters" on a row, "Added by 3 other game masters" on a tile.
+  Unpublishing takes the item out of everyone's library, so a patch reports 0
 - Mix editor: a "Random gaps" item shows its shortest and longest wait
 - Player: each playing sound has a button to switch it between loop and random pauses
   (`setLayerPlay`), keeping its volume and its place in the mix

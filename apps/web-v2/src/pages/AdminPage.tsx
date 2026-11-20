@@ -178,14 +178,14 @@ function UserRow({
             {isSelf && <span className="shrink-0 text-[12px] leading-4 text-ink-3">{t('admin.user.you')}</span>}
           </span>
           <span className="truncate text-[13px] leading-5 text-ink-2">{user.email}</span>
-          <span className="truncate text-[12px] leading-4 text-ink-3">{facts.join(' · ')}</span>
+          <span className="truncate text-[12px] leading-4 text-ink-3">{facts.join(' ')}</span>
         </span>
         <span className="flex shrink-0 flex-col items-end">
           <span className="text-[14px] leading-5 tabular-nums">
             {bytes(user.usage.storageBytes)} / {bytes(limit)}
           </span>
           <span className="hidden text-[12px] leading-4 text-ink-3 tabular-nums sm:block">
-            {tn('count.sounds', user.usage.sounds)} · {tn('count.mixes', user.usage.mixes)} ·{' '}
+            {tn('count.sounds', user.usage.sounds)} {tn('count.mixes', user.usage.mixes)}{' '}
             {tn('count.scenes', user.usage.scenes)}
           </span>
         </span>

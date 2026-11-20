@@ -23,16 +23,17 @@ import {
   addedMixIds,
   assertAllPublic,
   assertUsableSounds,
+  mixColumns,
   mixVolumesOf,
   ownerNames,
   prune,
   releaseImages,
   soundVolumesOf,
   usableMix,
+  type CountedMix,
 } from '../sharing.js';
 import { assertOwned, sceneIdsByMix, setMixScenes } from './common.js';
 
-type MixRow = typeof mixes.$inferSelect;
 type ItemRow = typeof mixItems.$inferSelect;
 
 const itemResponse = {
@@ -57,6 +58,7 @@ export const mixResponse = {
     description: { type: 'string', nullable: true },
     isPublic: { type: 'boolean' },
     access: { type: 'string', enum: ['owner', 'added', 'available'] },
+    addedCount: { type: 'integer', description: 'How many users have it in their library' },
     ownerName: { type: 'string' },
     illustration: { type: 'object', additionalProperties: true },
     items: { type: 'array', items: itemResponse },
@@ -132,13 +134,14 @@ function toItem(row: ItemRow, volume: number | undefined): MixItem {
   };
 }
 
-export function toMix(row: MixRow, items: ItemRow[], view: MixView): Mix {
+export function toMix(row: CountedMix, items: ItemRow[], view: MixView): Mix {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     isPublic: row.isPublic,
     access: view.access,
+    addedCount: row.addedCount,
     ownerName: view.ownerName,
     illustration: toIllustration(row),
     items: items.map((item) => toItem(item, view.volumes?.get(item.soundId))),
@@ -173,7 +176,7 @@ export function itemsByMix(mixIds: string[]): Map<string, ItemRow[]> {
 }
 
 /** One mix as the user sees it. */
-function mixFor(userId: string, row: MixRow, access: Access): Mix {
+function mixFor(userId: string, row: CountedMix, access: Access): Mix {
   return toMix(row, itemsOf(row.id), {
     access,
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
@@ -252,7 +255,7 @@ export function mixesRoutes(app: FastifyInstance) {
     const user = await requireUser(request);
     const added = addedMixIds(user.id);
     const rows = db
-      .select()
+      .select(mixColumns)
       .from(mixes)
       .where(or(eq(mixes.ownerId, user.id), inArray(mixes.id, [...added])))
       .orderBy(mixes.name)
@@ -329,7 +332,7 @@ export function mixesRoutes(app: FastifyInstance) {
       setTags('mix', user.id, id, body);
       return inserted;
     });
-    return reply.code(201).send(mixFor(user.id, row, 'owner'));
+    return reply.code(201).send(mixFor(user.id, { ...row, addedCount: 0 }, 'owner'));
   });
 
   /**
@@ -394,7 +397,12 @@ export function mixesRoutes(app: FastifyInstance) {
     // Unpublishing, or dropping sounds that others only reached through this mix.
     if ((current.isPublic && !row.isPublic) || items) prune();
     if (illustration && current.imageKey !== row.imageKey) await releaseImages([current.imageKey]);
-    return mixFor(user.id, row, 'owner');
+    // Unpublishing takes the mix out of everyone's library, so what it reports is 0.
+    return mixFor(
+      user.id,
+      { ...row, addedCount: current.isPublic && !row.isPublic ? 0 : current.addedCount },
+      'owner',
+    );
   });
 
   app.put('/api/mixes/:id/volumes', {

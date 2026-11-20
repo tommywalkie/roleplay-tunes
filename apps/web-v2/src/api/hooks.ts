@@ -1,4 +1,5 @@
 import type {
+  Access,
   Category,
   Changelog,
   CreateCategoryRequest,
@@ -55,6 +56,35 @@ function invalidateLibrary(qc: QueryClient) {
   ]) {
     void qc.invalidateQueries({ queryKey: key });
   }
+}
+
+/**
+ * Moves one item's added count by one library, and with it who has it, without refetching
+ * anything: taking an item in or out of a library changes nothing else about it. Every list
+ * that already carries the item is written in place, so the number on screen is the number
+ * the user's own action produced. An item the user owns is left alone: its access is not
+ * theirs to hand out.
+ */
+function bumpAddedCount(qc: QueryClient, kind: 'sounds' | 'mixes', id: string, step: number) {
+  const access: Access = step > 0 ? 'added' : 'available';
+  const moved = <T extends { id: string; addedCount: number; access: Access }>(
+    items: T[] | undefined,
+  ): T[] | undefined =>
+    items?.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            addedCount: Math.max(0, item.addedCount + step),
+            ...(item.access === 'owner' ? {} : { access }),
+          }
+        : item,
+    );
+
+  qc.setQueryData<Sound[]>(keys.sounds, moved);
+  qc.setQueryData<Mix[]>(keys.mixes, moved);
+  qc.setQueryData<Library>(keys.library, (library) =>
+    library ? { sounds: moved(library.sounds)!, mixes: moved(library.mixes)! } : library,
+  );
 }
 
 // undefined
@@ -293,7 +323,8 @@ export function useLibraryEntry(kind: 'sounds' | 'mixes') {
   return useMutation({
     mutationFn: ({ id, add }: { id: string; add: boolean }) =>
       api(`/api/library/${kind}/${id}`, { method: add ? 'PUT' : 'DELETE' }),
-    onSettled: () => invalidateLibrary(qc),
+    // One user's library moved by one: that is the whole change, so only the count is written.
+    onSuccess: (_data, { id, add }) => bumpAddedCount(qc, kind, id, add ? 1 : -1),
   });
 }
 

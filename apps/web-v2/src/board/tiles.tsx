@@ -60,6 +60,7 @@ export function SoundTile({ sound, onEdit }: { sound: Sound; onEdit: () => void 
         progress={shot}
         onPress={() => player.toggleSound(sound)}
         editLabel={t('play.menu', { name: sound.name })}
+        addedCount={sound.addedCount}
         meta={
           <>
             <Popover
@@ -88,6 +89,8 @@ export function SoundTile({ sound, onEdit }: { sound: Sound; onEdit: () => void 
 export function MixTile({ mix, onEdit }: { mix: Mix; onEdit: () => void }) {
   const { t, tn } = useI18n();
   const player = usePlayer();
+  const MixIcon = FALLBACK_ICONS.mix;
+  const SoundIcon = FALLBACK_ICONS.sound;
   return (
     <Tile
       name={mix.name}
@@ -97,7 +100,21 @@ export function MixTile({ mix, onEdit }: { mix: Mix; onEdit: () => void }) {
       onPress={() => player.toggleMix(mix)}
       onEdit={onEdit}
       editLabel={t('common.editItem', { name: mix.name })}
-      meta={<span className="truncate">{tn('count.sounds', mix.items.length)}</span>}
+      addedCount={mix.addedCount}
+      // A mix says so, and says how many sounds it holds: the number carries its own note,
+      // since the word would crowd a line that also counts who added the mix.
+      meta={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <MixIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+          {t('kind.mix')}
+          <Popover label={tn('count.sounds', mix.items.length)} note={tn('count.sounds', mix.items.length)}>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <SoundIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+              <span className="tabular-nums">{mix.items.length}</span>
+            </span>
+          </Popover>
+        </span>
+      }
     />
   );
 }
@@ -107,6 +124,11 @@ export function SceneTile({ scene, onEdit }: { scene: Scene; onEdit: () => void 
   const { t, tn } = useI18n();
   const player = usePlayer();
   const playing = player.snapshot.mix;
+  const SceneIcon = FALLBACK_ICONS.scene;
+  const MixIcon = FALLBACK_ICONS.mix;
+  const SoundIcon = FALLBACK_ICONS.sound;
+  // The counts, spelled out: the tile has room for the icons alone, the note for the words.
+  const contents = `${tn('count.mixes', scene.mixIds.length)}, ${tn('count.sounds', scene.soundIds.length)}`;
   return (
     <Tile
       name={scene.name}
@@ -116,9 +138,33 @@ export function SceneTile({ scene, onEdit }: { scene: Scene; onEdit: () => void 
       to={`/scenes/${scene.id}`}
       onEdit={onEdit}
       editLabel={t('common.editItem', { name: scene.name })}
+      // A scene says so, then counts what it holds: the note hangs on the counts alone.
       meta={
-        <span className="truncate">
-          {tn('count.mixes', scene.mixIds.length)} · {tn('count.sounds', scene.soundIds.length)}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <SceneIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+          {t('kind.scene')}
+          <Popover
+            label={contents}
+            note={
+              <span className="flex flex-col gap-1 tabular-nums">
+                <span className="flex items-center gap-1.5">
+                  <MixIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+                  {tn('count.mixes', scene.mixIds.length)}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <SoundIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+                  {tn('count.sounds', scene.soundIds.length)}
+                </span>
+              </span>
+            }
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <MixIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+              {scene.mixIds.length}
+              <SoundIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+              {scene.soundIds.length}
+            </span>
+          </Popover>
         </span>
       }
     />

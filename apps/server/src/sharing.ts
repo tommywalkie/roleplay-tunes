@@ -6,7 +6,7 @@
  * mix they added. Making an item private or deleting it takes it away from everyone else
  * at once: `prune()` removes whatever no longer has access behind it.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { Access } from '@dnd/shared';
 import { db, sqlite } from './db/index.js';
 import {
@@ -26,6 +26,23 @@ import { imagePath, removeFile } from './storage.js';
 
 type SoundRow = typeof sounds.$inferSelect;
 type MixRow = typeof mixes.$inferSelect;
+
+/** A sound row as every query here brings it back: the sound, plus its added count. */
+export type CountedSound = SoundRow & { addedCount: number };
+export type CountedMix = MixRow & { addedCount: number };
+
+/**
+ * How many users have the item in their library, counted by the database inside the query
+ * that fetches the item itself: one number per row, and no second query to chase it.
+ */
+export const soundAddedCount =
+  sql<number>`(select count(*) from ${librarySounds} where ${librarySounds.soundId} = ${sounds.id})`;
+export const mixAddedCount =
+  sql<number>`(select count(*) from ${libraryMixes} where ${libraryMixes.mixId} = ${mixes.id})`;
+
+/** A sound row as every query here brings it back, count included. */
+export const soundColumns = { ...getTableColumns(sounds), addedCount: soundAddedCount };
+export const mixColumns = { ...getTableColumns(mixes), addedCount: mixAddedCount };
 
 /**
  * True when user `:u` can use sound `:s`: owns it, or reached it through their library.
@@ -188,16 +205,22 @@ export function mixVolumesOf(userId: string): Map<string, Map<string, number>> {
 }
 
 /** A sound the user owns or added, with that relation. Anything else is "not found". */
-export function usableSound(userId: string, id: string): { row: SoundRow; access: Access } {
-  const row = db.select().from(sounds).where(eq(sounds.id, id)).get();
+export function usableSound(
+  userId: string,
+  id: string,
+): { row: CountedSound; access: Access } {
+  const row = db.select(soundColumns).from(sounds).where(eq(sounds.id, id)).get();
   if (row?.ownerId === userId) return { row, access: 'owner' };
   if (row && addedSoundIds(userId).has(row.id)) return { row, access: 'added' };
   throw notFound('Sound');
 }
 
 /** A mix the user owns or added, with that relation. Anything else is "not found". */
-export function usableMix(userId: string, id: string): { row: MixRow; access: Access } {
-  const row = db.select().from(mixes).where(eq(mixes.id, id)).get();
+export function usableMix(
+  userId: string,
+  id: string,
+): { row: CountedMix; access: Access } {
+  const row = db.select(mixColumns).from(mixes).where(eq(mixes.id, id)).get();
   if (row?.ownerId === userId) return { row, access: 'owner' };
   if (row && addedMixIds(userId).has(row.id)) return { row, access: 'added' };
   throw notFound('Mix');

@@ -188,7 +188,7 @@ describe('PlayerPanel', () => {
       ]);
       await user.click(menu.getByRole('menuitem', { name: 'Play with random pauses' }));
 
-      const dialog = within(screen.getByRole('dialog', { name: 'Random pauses · Tavern crowd' }));
+      const dialog = within(screen.getByRole('dialog', { name: 'Random pauses Tavern crowd' }));
       expect(dialog.getByLabelText('Shortest wait, seconds')).toHaveValue(20);
       expect(dialog.getByLabelText('Longest wait, seconds')).toHaveValue(90);
       await user.click(dialog.getByRole('button', { name: /^Short/ }));
@@ -212,7 +212,7 @@ describe('PlayerPanel', () => {
 
       await user.click(button);
       await user.click(screen.getByRole('menuitem', { name: 'Play with random pauses' }));
-      let dialog = within(screen.getByRole('dialog', { name: 'Random pauses · Tavern crowd' }));
+      let dialog = within(screen.getByRole('dialog', { name: 'Random pauses Tavern crowd' }));
       const min = dialog.getByLabelText('Shortest wait, seconds');
       const max = dialog.getByLabelText('Longest wait, seconds');
       await user.clear(min);
@@ -227,10 +227,10 @@ describe('PlayerPanel', () => {
       let menu = await openMenu(user, panel);
       expect(menu.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
         'Play as a loop',
-        'Play with random pausesNow · 4–12 s',
+        'Play with random pausesNow 4–12 s',
       ]);
       await user.click(menu.getByRole('menuitem', { name: /^Play with random pauses/ }));
-      dialog = within(screen.getByRole('dialog', { name: 'Random pauses · Tavern crowd' }));
+      dialog = within(screen.getByRole('dialog', { name: 'Random pauses Tavern crowd' }));
       expect(dialog.getByLabelText('Shortest wait, seconds')).toHaveValue(4);
       expect(dialog.getByLabelText('Longest wait, seconds')).toHaveValue(12);
       await user.click(dialog.getByRole('button', { name: 'Cancel' }));

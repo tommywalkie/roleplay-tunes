@@ -29,7 +29,7 @@ function MixSummary({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <p className="text-[14px] leading-5 text-ink-2">
-          {tn('count.sounds', mix.items.length)} · {t('library.by', { name: mix.ownerName })}
+          {tn('count.sounds', mix.items.length)} {t('library.by', { name: mix.ownerName })}
         </p>
         <p className="text-[14px] leading-5 text-ink-3">{description}</p>
       </div>

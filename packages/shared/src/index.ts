@@ -129,6 +129,48 @@ const optionalText = (max: number) =>
     .transform((v) => (v === '' ? null : v))
     .nullable();
 
+/**
+ * How long each of a sound's detail fields may be: who made it, and which film, game, series
+ * or album it comes from. Long light-novel and anime titles run to about 185 characters, so
+ * 200 leaves room for the worst of them.
+ */
+export const SOUND_META_MAX = 200;
+
+/** Optional address of the work a sound comes from: http(s) only, empty is no address. */
+const optionalHttpUrl = z
+  .string()
+  .trim()
+  .max(SOUND_META_MAX)
+  .refine((v) => v === '' || /^https?:\/\//i.test(v), 'Must start with http:// or https://')
+  .transform((v) => (v === '' ? null : v))
+  .nullable();
+
+/**
+ * Where a sound comes from, beyond its own name: who made it, and which film, game, series
+ * or album it belongs to, with a link to that work. All optional and free text; they show
+ * on a sound's card in the library, and the description stays a field of its own.
+ */
+export const soundMetaFields = {
+  artists: z.string().nullable(),
+  year: z.string().nullable(),
+  movie: z.string().nullable(),
+  game: z.string().nullable(),
+  tv: z.string().nullable(),
+  album: z.string().nullable(),
+  url: z.string().nullable(),
+};
+
+/** The same fields as they arrive on an update. */
+const soundMetaInput = {
+  artists: optionalText(SOUND_META_MAX),
+  year: optionalText(SOUND_META_MAX),
+  movie: optionalText(SOUND_META_MAX),
+  game: optionalText(SOUND_META_MAX),
+  tv: optionalText(SOUND_META_MAX),
+  album: optionalText(SOUND_META_MAX),
+  url: optionalHttpUrl,
+};
+
 // Synonyms and categories
 
 /**
@@ -202,8 +244,11 @@ export const soundSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   license: z.string().nullable(),
+  ...soundMetaFields,
   isPublic: z.boolean(),
   access: accessSchema,
+  /** How many users have it in their library. */
+  addedCount: z.number(),
   ownerName: z.string(),
   audioUrl: z.string(),
   mimeType: z.string(),
@@ -242,6 +287,7 @@ export const updateSoundSchema = z
     name: nameSchema,
     description: optionalText(DESCRIPTION_MAX),
     license: optionalText(LICENSE_MAX),
+    ...soundMetaInput,
     isPublic: z.boolean(),
     defaultMode: playModeSchema,
     defaultVolume: volumeSchema,
@@ -290,6 +336,8 @@ export const mixSchema = z.object({
   description: z.string().nullable(),
   isPublic: z.boolean(),
   access: accessSchema,
+  /** How many users have it in their library. */
+  addedCount: z.number(),
   ownerName: z.string(),
   illustration: illustrationSchema,
   items: z.array(mixItemSchema),

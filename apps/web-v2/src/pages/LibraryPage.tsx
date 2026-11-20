@@ -4,10 +4,13 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useLibrary, useLibraryEntry, useMixes, useScenes, useSounds } from '../api/hooks';
 import { usePlayer } from '../audio/player';
 import { Thumb } from '../components/Illustration';
+import { AddedBadge } from '../components/AddedBadge';
 import { LicenseBadge } from '../components/LicenseBadge';
 import { OwnerBadge } from '../components/OwnerBadge';
+import { SoundDetails } from '../components/SoundDetails';
 import { AddMixDialog, RemoveMixDialog } from '../components/MixLibraryDialogs';
 import { RemoveSoundDialog, soundUsage } from '../components/RemoveSoundDialog';
+import { sorted, type Sort } from '../components/Sort';
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
 import {
@@ -24,10 +27,6 @@ import { useI18n } from '../i18n';
 
 type Tab = 'sounds' | 'mixes';
 
-/** By creation time, newest first. ISO dates sort as text. */
-const newestFirst = <T extends { createdAt: string }>(items: T[]): T[] =>
-  [...items].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-
 /** Every public sound and mix: listen first, then add what you like to your own library. */
 export function LibraryPage() {
   const { t, tn } = useI18n();
@@ -42,10 +41,10 @@ export function LibraryPage() {
   const [adding, setAdding] = useState<Mix | null>(null);
   const [removing, setRemoving] = useState<Mix | null>(null);
   const [removingSound, setRemovingSound] = useState<Sound | null>(null);
+  const [sort, setSort] = useState<Sort>('newest');
 
-  // Newest first, so what was just shared sits at the top.
-  const sounds = useMemo(() => newestFirst(library.data?.sounds ?? []), [library.data?.sounds]);
-  const mixes = useMemo(() => newestFirst(library.data?.mixes ?? []), [library.data?.mixes]);
+  const sounds = useMemo(() => library.data?.sounds ?? [], [library.data?.sounds]);
+  const mixes = useMemo(() => library.data?.mixes ?? [], [library.data?.mixes]);
   // A public mix may use public sounds or the user's own: either can draw its stack.
   const byId = useMemo(
     () => new Map([...(own.data ?? []), ...(library.data?.sounds ?? [])].map((s) => [s.id, s])),
@@ -78,10 +77,10 @@ export function LibraryPage() {
     `${searchText(item)}\n${item.ownerName}\n${item.description ?? ''}`;
   const keep = (item: Sound | Mix) =>
     matches(searchable(item), query) && inCategories(item, categoryIds);
-  const shownSounds = sounds.filter(keep);
-  const shownMixes = mixes.filter(keep);
+  const shownSounds = sorted(sounds.filter(keep), sort);
+  const shownMixes = sorted(mixes.filter(keep), sort);
   const empty = sounds.length + mixes.length === 0;
-  const filterKey = `${tab}\n${query}\n${categoryIds.join()}`;
+  const filterKey = `${tab}\n${query}\n${categoryIds.join()}\n${sort}`;
   const soundPages = usePages(shownSounds, filterKey);
   const mixPages = usePages(shownMixes, filterKey);
   const pages = tab === 'sounds' ? soundPages : mixPages;
@@ -93,6 +92,7 @@ export function LibraryPage() {
       meta={library.data ? String(sounds.length + mixes.length) : undefined}
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      sort={{ value: sort, onChange: setSort }}
       bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate
@@ -291,7 +291,9 @@ function SoundRow({
       }
       owner={sound.ownerName}
       description={sound.description}
+      details={<SoundDetails sound={sound} />}
       license={sound.license}
+      addedCount={sound.addedCount}
       playing={player.isSoundPlaying(sound.id)}
       onPlay={() => player.toggleSound(sound)}
       action={
@@ -360,6 +362,7 @@ function MixRow({
       }
       owner={mix.ownerName}
       description={mix.description}
+      addedCount={mix.addedCount}
       playing={player.isMixPlaying(mix.id)}
       onPlay={() => player.toggleMix(mix)}
       action={
@@ -391,7 +394,9 @@ function Row({
   what,
   owner,
   description,
+  details,
   license,
+  addedCount,
   playing,
   onPlay,
   action,
@@ -404,7 +409,11 @@ function Row({
   /** Who shared it, shown with their initials. */
   owner: string;
   description: string | null;
+  /** A sound's own detail lines — who made it, which work — shown above the description. */
+  details?: ReactNode;
   license?: string | null;
+  /** How many users have it in their library, shown whatever the count. */
+  addedCount: number;
   playing: boolean;
   onPlay: () => void;
   /** Add, remove, or the greyed state of an item that needs no action. */
@@ -426,18 +435,20 @@ function Row({
           <Lamp on={playing} />
           <span className="truncate text-[15px] leading-6 font-medium">{name}</span>
         </span>
-        <span className="flex h-5 min-w-0 items-center gap-3 pl-4 text-[13px] leading-5 text-ink-3">
+        <span className="flex h-5 min-w-0 items-center gap-3 text-[13px] leading-5 text-ink-3">
           {what}
           {license && <LicenseBadge value={license} />}
         </span>
+        {details}
         {description && (
-          <p className="mt-1 line-clamp-2 pl-4 text-[14px] leading-5 text-ink-2 md:line-clamp-1">
+          <p className="line-clamp-2 text-[14px] leading-5 text-ink-2 md:line-clamp-1">
             {description}
           </p>
         )}
       </div>
       <div className="flex w-full items-center gap-3 md:w-auto md:shrink-0">
         <OwnerBadge owner={owner} />
+        <AddedBadge count={addedCount} used />
 
         <span className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
           <IconButton

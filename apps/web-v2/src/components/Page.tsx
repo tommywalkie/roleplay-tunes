@@ -1,7 +1,8 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, LibraryBig, SearchX } from 'lucide-react';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useI18n } from '../i18n';
+import { SortControl, type Sort } from './Sort';
 import { Button, cx, EmptyState, ErrorNote, Icon, IconButton, SearchField, Spinner } from './ui';
 
 /**
@@ -17,6 +18,7 @@ export function Page({
   search,
   filters,
   bar,
+  sort,
   longTitle = false,
   children,
 }: {
@@ -32,6 +34,8 @@ export function Page({
   filters?: ReactNode;
   /** What the page keeps on screen at its foot (the pinned pagination). */
   bar?: ReactNode;
+  /** How the list is ordered, shown as a button beside the search field. */
+  sort?: { value: Sort; onChange: (sort: Sort) => void };
   /**
    * A title expected to run long (a scene's name): it wraps onto a second line and is then
    * cut. Two lines are set to fill exactly the header's own height (`min-h-11`), so a title
@@ -78,12 +82,15 @@ export function Page({
           // A child of the whole page, not of the header, so it stays at the top of the
           // scrolling area while the list moves under it. The band covers the list edge to edge.
           <div className="sticky top-0 z-10 -mx-4 -my-3 flex flex-col gap-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
-            <SearchField
-              value={search.value}
-              onChange={search.onChange}
-              label={t('common.search')}
-              className="md:max-w-[360px]"
-            />
+            <div className="flex items-center gap-2">
+              <SearchField
+                value={search.value}
+                onChange={search.onChange}
+                label={t('common.search')}
+                className="min-w-0 flex-1 md:max-w-[360px]"
+              />
+              {sort && <SortControl value={sort.value} onChange={sort.onChange} />}
+            </div>
             {filters}
           </div>
         )}
@@ -125,6 +132,39 @@ export function QueryGate({
 
 /** How many items one page of a list shows. */
 export const PAGE_SIZE = 20;
+
+/**
+ * The items one page of a grid holds: the target, rounded up to whole rows of `columns`, so
+ * only the last page ever ends mid-row. A wider window lays out more columns, and with them
+ * a slightly fuller page.
+ */
+export function gridPageSize(columns: number): number {
+  if (columns < 1) return PAGE_SIZE;
+  return columns * Math.ceil(PAGE_SIZE / columns);
+}
+
+/**
+ * How many columns a grid is showing. CSS lays its tracks out (`auto-fill`), so the count is
+ * read back from the grid itself and kept up to date as its width changes. Zero until the
+ * grid has been measured, which `gridPageSize` reads as "use the plain target".
+ */
+export function useGridColumns(grid: RefObject<HTMLElement | null>): number {
+  const [columns, setColumns] = useState(0);
+  useEffect(() => {
+    const element = grid.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const read = () => {
+      const tracks = getComputedStyle(element).gridTemplateColumns;
+      if (!tracks || tracks === 'none') return;
+      setColumns(tracks.split(' ').filter(Boolean).length);
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [grid]);
+  return columns;
+}
 
 /**
  * One page of `items` at a time. Back to the first page whenever `resetKey` changes (a new

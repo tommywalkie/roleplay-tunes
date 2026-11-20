@@ -61,7 +61,7 @@ describe('sleep timer', () => {
     expect(spies.fadeOutMaster).toHaveBeenLastCalledWith(300, 1500);
     // On the timer row and on the status line, which stays visible with the player folded.
     expect(panel.getByRole('button', { name: /^Sleep timer: Stops at 10:30/ })).toBeInTheDocument();
-    expect(panel.getByText(/1 sound · Stops at 10:30/)).toBeInTheDocument();
+    expect(panel.getByText(/1 sound Stops at 10:30/)).toBeInTheDocument();
 
     act(() => vi.advanceTimersByTime(25 * MIN));
     // Applied again when due, for whatever cancelled it meanwhile.

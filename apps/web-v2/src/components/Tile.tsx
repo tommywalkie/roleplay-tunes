@@ -1,7 +1,8 @@
 import type { Illustration as IllustrationData } from '@dnd/shared';
 import { Ellipsis, type LucideIcon } from 'lucide-react';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode, type Ref } from 'react';
 import { Link } from 'react-router';
+import { AddedBadge } from './AddedBadge';
 import { Illustration } from './Illustration';
 import { Menu, type MenuItem } from './Menu';
 import { cx, Icon, Lamp } from './ui';
@@ -23,6 +24,8 @@ interface TileProps {
   active?: boolean;
   /** A one-shot in flight: a bar fills over its duration. */
   progress?: TileProgress;
+  /** How many other users have it in their library; shown on the meta line above one. */
+  addedCount?: number;
   /** Tap action. Give `to` instead for a tile that opens a page. */
   onPress?: () => void;
   to?: string;
@@ -46,6 +49,7 @@ export function Tile({
   illustration,
   fallback,
   meta,
+  addedCount,
   active = false,
   onPress,
   to,
@@ -90,6 +94,8 @@ export function Tile({
         )}
         <div className="flex items-center gap-1.5 px-3 pb-3 text-[12px] leading-4 text-ink-3 tabular-nums">
           {meta}
+          {/* The owner is never in this count, so any number at all means someone else. */}
+          {addedCount !== undefined && addedCount > 0 && <AddedBadge count={addedCount} />}
         </div>
       </div>
       {(onEdit || menu) && (
@@ -115,9 +121,19 @@ export function Tile({
 }
 
 /** The mosaic: tiles as wide as fits, never narrower than a thumb can hit. */
-export function TileGrid({ children, label }: { children: ReactNode; label: string }) {
+export function TileGrid({
+  children,
+  label,
+  ref,
+}: {
+  children: ReactNode;
+  label: string;
+  /** The grid itself, for whoever needs its column count (`useGridColumns`). */
+  ref?: Ref<HTMLUListElement>;
+}) {
   return (
     <ul
+      ref={ref}
       aria-label={label}
       className="grid grid-cols-[repeat(auto-fill,minmax(148px,1fr))] gap-3 md:grid-cols-[repeat(auto-fill,minmax(164px,1fr))]"
     >

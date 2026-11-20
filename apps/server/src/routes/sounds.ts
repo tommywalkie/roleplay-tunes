@@ -29,8 +29,10 @@ import {
   prune,
   publicMixesHolding,
   releaseImages,
+  soundColumns,
   soundVolumesOf,
   usableSound,
+  type CountedSound,
 } from '../sharing.js';
 import { audioPath, detectAudioType, receiveUpload, removeFile, storeAudio } from '../storage.js';
 import { assertOwned, sceneIdsBySound, setSoundScenes } from './common.js';
@@ -50,8 +52,16 @@ export const soundResponse = {
     name: { type: 'string' },
     description: { type: 'string', nullable: true },
     license: { type: 'string', nullable: true },
+    artists: { type: 'string', nullable: true },
+    year: { type: 'string', nullable: true },
+    movie: { type: 'string', nullable: true },
+    game: { type: 'string', nullable: true },
+    tv: { type: 'string', nullable: true },
+    album: { type: 'string', nullable: true },
+    url: { type: 'string', nullable: true },
     isPublic: { type: 'boolean' },
     access: { type: 'string', enum: ['owner', 'added', 'available'] },
+    addedCount: { type: 'integer', description: 'How many users have it in their library' },
     ownerName: { type: 'string' },
     audioUrl: { type: 'string' },
     mimeType: { type: 'string' },
@@ -90,14 +100,22 @@ export interface SoundView {
   categoryIds: string[];
 }
 
-export function toSound(row: SoundRow, view: SoundView): Sound {
+export function toSound(row: CountedSound, view: SoundView): Sound {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     license: row.license,
+    artists: row.artists,
+    year: row.year,
+    movie: row.movie,
+    game: row.game,
+    tv: row.tv,
+    album: row.album,
+    url: row.url,
     isPublic: row.isPublic,
     access: view.access,
+    addedCount: row.addedCount,
     ownerName: view.ownerName,
     audioUrl: `/api/sounds/${row.id}/audio`,
     mimeType: row.mimeType,
@@ -120,7 +138,7 @@ export function toSound(row: SoundRow, view: SoundView): Sound {
 }
 
 /** One sound as the user sees it. */
-function soundFor(userId: string, row: SoundRow, access: Access): Sound {
+function soundFor(userId: string, row: CountedSound, access: Access): Sound {
   return toSound(row, {
     access,
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
@@ -179,7 +197,7 @@ export function soundsRoutes(app: FastifyInstance) {
     const user = await requireUser(request);
     const added = addedSoundIds(user.id);
     const rows = db
-      .select()
+      .select(soundColumns)
       .from(sounds)
       .where(or(eq(sounds.ownerId, user.id), inArray(sounds.id, [...added])))
       .orderBy(sounds.name)
@@ -321,7 +339,7 @@ export function soundsRoutes(app: FastifyInstance) {
           await removeFile(audioPath(fileKey));
           throw error;
         }
-        return reply.code(201).send(soundFor(user.id, row, 'owner'));
+        return reply.code(201).send(soundFor(user.id, { ...row, addedCount: 0 }, 'owner'));
       } finally {
         // Already moved on success; this only cleans up after a rejection.
         await removeFile(temp.path);
@@ -342,6 +360,13 @@ export function soundsRoutes(app: FastifyInstance) {
           name: { type: 'string' },
           description: { type: 'string', nullable: true, maxLength: 500 },
           license: { type: 'string', nullable: true, maxLength: 200 },
+          artists: { type: 'string', nullable: true, maxLength: 200 },
+          year: { type: 'string', nullable: true, maxLength: 200 },
+          movie: { type: 'string', nullable: true, maxLength: 200 },
+          game: { type: 'string', nullable: true, maxLength: 200 },
+          tv: { type: 'string', nullable: true, maxLength: 200 },
+          album: { type: 'string', nullable: true, maxLength: 200 },
+          url: { type: 'string', nullable: true, maxLength: 200 },
           isPublic: { type: 'boolean' },
           defaultMode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
           defaultVolume: { type: 'number', minimum: 0, maximum: 1 },
@@ -444,7 +469,12 @@ export function soundsRoutes(app: FastifyInstance) {
     if (illustrationChange && current.imageKey !== row.imageKey) {
       await releaseImages([current.imageKey]);
     }
-    return soundFor(user.id, row, 'owner');
+    // Unpublishing takes the sound out of everyone's library, so what it reports is 0.
+    return soundFor(
+      user.id,
+      { ...row, addedCount: unpublishing ? 0 : current.addedCount },
+      'owner',
+    );
   });
 
   /**

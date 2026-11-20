@@ -75,6 +75,42 @@ describe('SoundEditor', () => {
     });
   });
 
+  it('keeps every detail field, description included, folded behind More details', async () => {
+    const { user } = renderEditor();
+    const header = screen.getByRole('button', { name: 'More details' });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    for (const label of ['Artists', 'Year', 'Movie', 'Game', 'TV show / Anime', 'Album', 'Link']) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+    // The description keeps its place inside the section, after the detail fields.
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+  });
+
+  it('saves the detail fields with the rest of the sound', async () => {
+    const { user, saves } = renderEditor();
+    await user.click(screen.getByRole('button', { name: 'More details' }));
+    await user.type(screen.getByLabelText('Artists'), 'The Chieftains');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(saves()[0].body).toMatchObject({ artists: 'The Chieftains' });
+  });
+
+  it('opens the details when the More details header is clicked', async () => {
+    const { user } = renderEditor();
+    const header = screen.getByRole('button', { name: 'More details' });
+    // The controlled panel, found through the header, is what opens: its contents stay
+    // mounted while folded, so the state shows as the panel gaining its opacity.
+    const panel = document.getElementById(header.getAttribute('aria-controls')!)!;
+    expect(panel).toContainElement(screen.getByLabelText('Artists'));
+    expect(panel).toHaveClass('opacity-0');
+
+    await user.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(panel).toHaveClass('opacity-100');
+  });
+
   it('saves the typed text when the license is Other', async () => {
     const { user, saves } = renderEditor();
     await user.selectOptions(screen.getByLabelText('License'), 'Other');

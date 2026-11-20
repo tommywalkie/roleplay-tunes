@@ -107,7 +107,7 @@ export function PlayerPanel({
       : tn('count.sounds', count);
   // The timer shows on the status line too: on phones the player is usually folded away.
   const status = timer.plan
-    ? `${base} · ${t('timer.stopsAt', { time: clock(timer.plan.stopAt) })}`
+    ? `${base} ${t('timer.stopsAt', { time: clock(timer.plan.stopAt) })}`
     : base;
 
   return (
@@ -305,7 +305,7 @@ export function PlayerPanel({
                       <Marquee className="text-[14px] leading-5">{nameOf(shot.soundId)}</Marquee>
                       <span className="flex items-center gap-1.5 text-[12px] leading-4 text-ink-3 tabular-nums">
                         <Zap size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
-                        {t(MODE_LABELS.oneshot)} · {duration(shot.durationSec)}
+                        {t(MODE_LABELS.oneshot)} {duration(shot.durationSec)}
                       </span>
                     </div>
                   </li>
@@ -365,7 +365,7 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
             {
               label: t('play.randomPauses'),
               icon: MODE_ICONS.recurring,
-              hint: recurring ? `${t('player.current')} · ${mode.minInterval}–${mode.maxInterval} s` : undefined,
+              hint: recurring ? `${t('player.current')} ${mode.minInterval}–${mode.maxInterval} s` : undefined,
               onSelect: () => setAskPauses(true),
             },
           ]}

@@ -1,4 +1,4 @@
-import type { Mix, Scene } from '@dnd/shared';
+import type { Mix, Scene, Sound } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -52,6 +52,30 @@ const rain = makeSound({
   access: 'owner',
   license: 'CC BY 4.0',
 });
+// A public sound carrying where it comes from: every detail field filled, the url a link.
+const lute = makeSound({
+  id: 'pub4',
+  name: 'Bard lute',
+  isPublic: true,
+  access: 'available',
+  ownerName: 'Grace Hopper',
+  artists: 'The Chieftains',
+  year: '1975',
+  movie: 'Braveheart',
+  game: 'The Witcher 3',
+  tv: 'Outlander',
+  album: 'Celtic Dawn',
+  url: 'https://example.com/bard',
+});
+// A public sound other users have already taken: the count reads as words behind the mark.
+const crowd = makeSound({
+  id: 'pub5',
+  name: 'Tavern crowd',
+  isPublic: true,
+  access: 'available',
+  ownerName: 'Grace Hopper',
+  addedCount: 3,
+});
 const item = (id: string, soundId: string) => ({
   id,
   soundId,
@@ -93,10 +117,13 @@ const scene = (id: string, name: string, over: Partial<Scene> = {}): Scene => ({
   ...over,
 });
 
-function renderLibrary(board: { mixes?: Mix[]; scenes?: Scene[] } = {}) {
+function renderLibrary(board: { sounds?: Sound[]; mixes?: Mix[]; scenes?: Scene[] } = {}) {
   const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
     if (url === '/api/library')
-      return json(200, { sounds: [bells, wind, rain, gong], mixes: [market, watch] });
+      return json(200, {
+        sounds: board.sounds ?? [bells, wind, rain, gong],
+        mixes: [market, watch],
+      });
     if (url === '/api/sounds') return json(200, []);
     if (url === '/api/mixes') return json(200, board.mixes ?? [study]);
     if (url === '/api/scenes') return json(200, board.scenes ?? []);
@@ -168,6 +195,54 @@ describe('LibraryPage', () => {
     expect(owner).toHaveTextContent('Grace Hopper');
 
     expect(row.getByRole('button', { name: 'License: Copyrighted' })).toBeInTheDocument();
+  });
+
+  it('tells how many others added a sound, 0 included, between the owner and Play', async () => {
+    renderLibrary({ sounds: [bells, wind, rain, gong, crowd] });
+    // Every row carries the badge whatever the count, so 0 says nobody else has it yet.
+    expect(
+      (await rowOf('Harbor bells')).getByRole('button', { name: 'Used by 0 game masters' }),
+    ).toBeInTheDocument();
+
+    const row = await rowOf('Tavern crowd');
+    const owner = row.getByRole('button', { name: 'By Grace Hopper' });
+    const added = row.getByRole('button', { name: 'Used by 3 game masters' });
+    const play = row.getByRole('button', { name: 'Play Tavern crowd' });
+    expect(added).toHaveTextContent('3');
+    // It sits between the owner badge and the play button.
+    expect(owner.compareDocumentPosition(added)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(added.compareDocumentPosition(play)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('shows where a library sound comes from, the field names for screen readers alone', async () => {
+    renderLibrary({ sounds: [bells, wind, rain, gong, lute] });
+    const row = await rowOf('Bard lute');
+
+    for (const value of [
+      'The Chieftains',
+      '1975',
+      'Braveheart',
+      'The Witcher 3',
+      'Outlander',
+      'Celtic Dawn',
+    ]) {
+      expect(row.getByText(value)).toBeInTheDocument();
+    }
+    // Each value sits behind its field's name, which stays out of sight but not of reach.
+    expect(row.getByText('Artists')).toHaveClass('sr-only');
+    expect(row.getByText('TV show / Anime')).toHaveClass('sr-only');
+
+    // The link reads as the site it points at, opening in a new tab.
+    const link = row.getByRole('link', { name: 'example.com' });
+    expect(link).toHaveAttribute('href', 'https://example.com/bard');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('shows no detail lines for a sound that has none', async () => {
+    renderLibrary();
+    const row = await rowOf('Temple gong');
+    expect(row.queryByText('Artists')).not.toBeInTheDocument();
+    expect(row.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('marks a named license and leaves an unrecorded one unmarked', async () => {

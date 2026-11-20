@@ -1,11 +1,12 @@
 import type { Me } from '@dnd/shared';
 import { Upload } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useScenes, useSounds } from '../api/hooks';
 import { SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
 import {
+  gridPageSize,
   LibraryButton,
   matches,
   NoMatch,
@@ -13,9 +14,11 @@ import {
   Pagination,
   QueryGate,
   searchText,
+  useGridColumns,
   usePages,
 } from '../components/Page';
 import { TileGrid } from '../components/Tile';
+import { sorted, type Sort } from '../components/Sort';
 import { Button, EmptyState } from '../components/ui';
 import { SoundEditor } from '../editors/SoundEditor';
 import { UploadDialog } from '../editors/UploadDialog';
@@ -29,10 +32,17 @@ export function SoundsPage({ me }: { me: Me }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [sort, setSort] = useState<Sort>('name-asc');
 
   const all = sounds.data ?? [];
   const found = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
-  const pages = usePages(found, `${query}\n${categoryIds.join()}`);
+  const grid = useRef<HTMLUListElement>(null);
+  const columns = useGridColumns(grid);
+  const pages = usePages(
+    sorted(found, sort),
+    `${query}\n${categoryIds.join()}\n${sort}`,
+    gridPageSize(columns),
+  );
   const editing = all.find((s) => s.id === editingId);
   const uploadButton = (
     <Button variant="primary" icon={Upload} onClick={() => setUploading(true)}>
@@ -48,6 +58,7 @@ export function SoundsPage({ me }: { me: Me }) {
       action={uploadButton}
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      sort={{ value: sort, onChange: setSort }}
       bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate loading={sounds.isLoading} error={sounds.error} onRetry={() => void sounds.refetch()}>
@@ -62,7 +73,7 @@ export function SoundsPage({ me }: { me: Me }) {
           <NoMatch query={query.trim()} />
         ) : (
           <div className="pb-16 lg:pb-0">
-            <TileGrid label={tn('count.sounds', found.length)}>
+            <TileGrid ref={grid} label={tn('count.sounds', found.length)}>
               {pages.shown.map((sound) => (
                 <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
               ))}

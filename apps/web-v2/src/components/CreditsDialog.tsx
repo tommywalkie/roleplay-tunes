@@ -161,7 +161,7 @@ export function CreditsDialog({ onClose }: { onClose: () => void }) {
                 key={library.id}
                 label={library.label}
                 home={ICON_LINKS[library.id]?.home}
-                meta={`${tn('credits.count', library.count)} · ${library.version}`}
+                meta={`${tn('credits.count', library.count)} ${library.version}`}
                 licence={library.licence}
                 licenceUrl={ICON_LINKS[library.id]?.licence}
               >

@@ -1,3 +1,4 @@
+import type { Sound } from '@dnd/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -94,7 +95,7 @@ describe('PausesDialog', () => {
   async function openPauses() {
     const env = setup();
     await env.choose('Play with random pauses');
-    const dialog = within(screen.getByRole('dialog', { name: 'Random pauses · Drip' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Random pauses Drip' }));
     return { ...env, dialog };
   }
 
@@ -148,5 +149,31 @@ describe('PausesDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(spies.playMix).not.toHaveBeenCalled();
     expect(spies.addLayer).not.toHaveBeenCalled();
+  });
+});
+
+describe('Added badge on a sound tile', () => {
+  function show(sound: Sound) {
+    const fake = makeFakeEngine();
+    render(
+      <I18nProvider initial="en">
+        <PlayerProvider sounds={[sound]} engine={fake.engine}>
+          <ul>
+            <SoundTile sound={sound} onEdit={vi.fn()} />
+          </ul>
+        </PlayerProvider>
+      </I18nProvider>,
+    );
+  }
+
+  it('hides the mark for a sound nobody else added', () => {
+    show(makeSound({ id: 'quiet', name: 'Quiet', addedCount: 0 }));
+    expect(screen.queryByRole('button', { name: /^Added by/ })).not.toBeInTheDocument();
+  });
+
+  it('shows how many others added it, with the words on its note', () => {
+    show(makeSound({ id: 'birds', name: 'Birds', addedCount: 2 }));
+    const badge = screen.getByRole('button', { name: 'Added by 2 other game masters' });
+    expect(badge).toHaveTextContent('2');
   });
 });

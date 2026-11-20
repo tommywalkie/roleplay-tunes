@@ -59,7 +59,7 @@ export function PausesDialog({
 
   return (
     <Dialog
-      title={`${t('play.pausesTitle')} · ${sound.name}`}
+      title={`${t('play.pausesTitle')} ${sound.name}`}
       onClose={onClose}
       onSubmit={play}
       footer={

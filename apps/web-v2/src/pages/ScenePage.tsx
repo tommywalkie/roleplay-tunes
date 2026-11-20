@@ -1,11 +1,12 @@
 import type { Me } from '@dnd/shared';
 import { Pencil, Plus } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile, SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { LibraryButton, matches, NoMatch, Page, QueryGate, searchText } from '../components/Page';
+import { sorted, type Sort } from '../components/Sort';
 import { TileGrid } from '../components/Tile';
 import { Button, EmptyState } from '../components/ui';
 import { MixEditor } from '../editors/MixEditor';
@@ -14,18 +15,6 @@ import { SoundEditor } from '../editors/SoundEditor';
 import { useI18n } from '../i18n';
 
 type Editing = { kind: 'scene' } | { kind: 'mix' | 'sound'; id: string } | null;
-
-function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-3">
-      <h2 className="flex items-baseline gap-2 text-[15px] leading-5 text-ink-2">
-        {title}
-        <span className="font-mono text-[12px] text-ink-3 tabular-nums">{count}</span>
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 /** One scene: its mixes and its sounds, ready to play. */
 export function ScenePage({ me }: { me: Me }) {
@@ -36,6 +25,7 @@ export function ScenePage({ me }: { me: Me }) {
   const sounds = useSounds();
   const mixes = useMixes();
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<Sort>('name-asc');
   const [editing, setEditing] = useState<Editing>(null);
 
   const scene = scenes.data?.find((s) => s.id === id);
@@ -47,6 +37,15 @@ export function ScenePage({ me }: { me: Me }) {
   const shownMixes = sceneMixes.filter((m) => matches(searchText(m), query));
   const shownSounds = sceneSounds.filter((s) => matches(searchText(s), query));
   const empty = sceneMixes.length + sceneSounds.length === 0;
+  // One board, not two lists: mixes and sounds are ordered together, which is why a mix
+  // tile carries the mix icon and its word.
+  const shown = sorted(
+    [
+      ...shownMixes.map((mix) => ({ name: mix.name, createdAt: mix.createdAt, mix })),
+      ...shownSounds.map((sound) => ({ name: sound.name, createdAt: sound.createdAt, sound })),
+    ],
+    sort,
+  );
 
   const editedMix = editing?.kind === 'mix' ? allMixes.find((m) => m.id === editing.id) : undefined;
   const editedSound =
@@ -67,6 +66,7 @@ export function ScenePage({ me }: { me: Me }) {
         )
       }
       search={scene && !empty ? { value: query, onChange: setQuery } : undefined}
+      sort={scene && !empty ? { value: sort, onChange: setSort } : undefined}
     >
       <QueryGate
         loading={loading}
@@ -92,34 +92,25 @@ export function ScenePage({ me }: { me: Me }) {
         ) : shownMixes.length + shownSounds.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <div className="flex flex-col gap-8">
-            {shownMixes.length > 0 && (
-              <Section title={t('nav.mixes')} count={shownMixes.length}>
-                <TileGrid label={tn('count.mixes', shownMixes.length)}>
-                  {shownMixes.map((mix) => (
-                    <MixTile
-                      key={mix.id}
-                      mix={mix}
-                      onEdit={() => setEditing({ kind: 'mix', id: mix.id })}
-                    />
-                  ))}
-                </TileGrid>
-              </Section>
+          <TileGrid
+            label={`${tn('count.mixes', shownMixes.length)} ${tn('count.sounds', shownSounds.length)}`}
+          >
+            {shown.map((entry) =>
+              'mix' in entry ? (
+                <MixTile
+                  key={`mix:${entry.mix.id}`}
+                  mix={entry.mix}
+                  onEdit={() => setEditing({ kind: 'mix', id: entry.mix.id })}
+                />
+              ) : (
+                <SoundTile
+                  key={`sound:${entry.sound.id}`}
+                  sound={entry.sound}
+                  onEdit={() => setEditing({ kind: 'sound', id: entry.sound.id })}
+                />
+              ),
             )}
-            {shownSounds.length > 0 && (
-              <Section title={t('nav.sounds')} count={shownSounds.length}>
-                <TileGrid label={tn('count.sounds', shownSounds.length)}>
-                  {shownSounds.map((sound) => (
-                    <SoundTile
-                      key={sound.id}
-                      sound={sound}
-                      onEdit={() => setEditing({ kind: 'sound', id: sound.id })}
-                    />
-                  ))}
-                </TileGrid>
-              </Section>
-            )}
-          </div>
+          </TileGrid>
         )}
       </QueryGate>
 

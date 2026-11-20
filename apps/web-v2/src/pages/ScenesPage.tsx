@@ -1,20 +1,23 @@
 import type { Me } from '@dnd/shared';
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { SceneTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
 import {
+  gridPageSize,
   matches,
   NoMatch,
   Page,
   Pagination,
   QueryGate,
   searchText,
+  useGridColumns,
   usePages,
 } from '../components/Page';
 import { TileGrid } from '../components/Tile';
+import { sorted, type Sort } from '../components/Sort';
 import { Button, EmptyState } from '../components/ui';
 import { SceneEditor } from '../editors/SceneEditor';
 import { useI18n } from '../i18n';
@@ -28,10 +31,17 @@ export function ScenesPage({ me }: { me: Me }) {
   /** A scene id, `'new'` for a scene being created, or nothing. */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [sort, setSort] = useState<Sort>('name-asc');
 
   const all = scenes.data ?? [];
   const found = all.filter((s) => matches(searchText(s), query) && inCategories(s, categoryIds));
-  const pages = usePages(found, `${query}\n${categoryIds.join()}`);
+  const grid = useRef<HTMLUListElement>(null);
+  const columns = useGridColumns(grid);
+  const pages = usePages(
+    sorted(found, sort),
+    `${query}\n${categoryIds.join()}\n${sort}`,
+    gridPageSize(columns),
+  );
   const editing = all.find((s) => s.id === editingId);
 
   return (
@@ -46,6 +56,7 @@ export function ScenesPage({ me }: { me: Me }) {
       }
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      sort={{ value: sort, onChange: setSort }}
       bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate loading={scenes.isLoading} error={scenes.error} onRetry={() => void scenes.refetch()}>
@@ -59,7 +70,7 @@ export function ScenesPage({ me }: { me: Me }) {
           <NoMatch query={query.trim()} />
         ) : (
           <div className="pb-16 lg:pb-0">
-            <TileGrid label={tn('count.scenes', found.length)}>
+            <TileGrid ref={grid} label={tn('count.scenes', found.length)}>
               {pages.shown.map((scene) => (
                 <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
               ))}

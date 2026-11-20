@@ -83,6 +83,52 @@ describe('public sounds', () => {
     expect((await library(b)).sounds.some((s) => s.id === sound.id)).toBe(false);
   });
 
+  it('carry the seven detail fields of where a sound comes from', async () => {
+    const sound = await uploadSound(app, a, { fields: { name: 'Bagpipes' } });
+    const details = {
+      artists: 'The Chieftains',
+      year: '1975',
+      movie: 'Braveheart',
+      game: 'The Witcher 3',
+      tv: 'Outlander',
+      album: 'Celtic Dawn',
+      url: 'https://example.com/bagpipes',
+    };
+    const res = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, details);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject(details);
+    // They come back on the list and on a single read, not only on the save.
+    expect((await sounds(a)).find((s) => s.id === sound.id)).toMatchObject(details);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json()).toMatchObject(details);
+  });
+
+  it('clear a detail field to null with an empty string', async () => {
+    const sound = await uploadSound(app, a, { fields: { name: 'Lute' } });
+    await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, { artists: 'A bard' });
+    const cleared = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, { artists: '' });
+    expect(cleared.json().artists).toBeNull();
+  });
+
+  it('refuse a detail url that is not an http address', async () => {
+    const sound = await uploadSound(app, a, { fields: { name: 'Horn' } });
+    const res = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, {
+      url: 'ftp://example.com/horn',
+    });
+    expectError(res, 400, 'validation');
+    expect(res.json().error.fields).toHaveProperty('url');
+  });
+
+  it('cannot have their details changed by whoever added them from the library', async () => {
+    const sound = await publicSound(a, 'Drum');
+    await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`);
+    expectError(
+      await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { artists: 'Not mine' }),
+      403,
+      'forbidden',
+    );
+    expect((await sounds(a)).find((s) => s.id === sound.id)?.artists).toBeNull();
+  });
+
   it('show in the library, and can be added by others only', async () => {
     const sound = await publicSound(a, 'Wind');
     const seen = (await library(b)).sounds.find((s) => s.id === sound.id);
@@ -163,6 +209,47 @@ describe('public sounds', () => {
     expect((await sounds(b)).some((s) => s.id === sound.id)).toBe(false);
     expect((await mixes(b)).find((m) => m.id === mix.id)?.items).toEqual([]);
     expectError(await call(app, b, 'DELETE', `/api/library/sounds/${sound.id}`), 404, 'not_found');
+  });
+
+  it('report how many users have them, nobody on a fresh one', async () => {
+    // A create reports 0 without counting anything: it is brand new.
+    const fresh = await uploadSound(app, a, { fields: { name: 'Crickets' } });
+    expect(fresh.addedCount).toBe(0);
+
+    const sound = await publicSound(a, 'Crickets');
+    expect(sound.addedCount).toBe(0);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json()).toMatchObject({
+      addedCount: 0,
+    });
+    expect((await sounds(a)).find((s) => s.id === sound.id)).toMatchObject({ addedCount: 0 });
+    expect((await library(a)).sounds.find((s) => s.id === sound.id)).toMatchObject({
+      addedCount: 0,
+    });
+
+    // The count is only other accounts: b is the first to have it, and the owner sees 1.
+    await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json().addedCount).toBe(1);
+    expect((await sounds(a)).find((s) => s.id === sound.id)?.addedCount).toBe(1);
+    expect((await library(a)).sounds.find((s) => s.id === sound.id)?.addedCount).toBe(1);
+  });
+
+  it('go back to 0 when the last library removes them', async () => {
+    const sound = await publicSound(a, 'Crickets');
+    await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json().addedCount).toBe(1);
+
+    await call(app, b, 'DELETE', `/api/library/sounds/${sound.id}`);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json().addedCount).toBe(0);
+  });
+
+  it('report 0 when a patch unpublishes them', async () => {
+    const sound = await publicSound(a, 'Marsh frogs');
+    await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`);
+    expect((await call(app, a, 'GET', `/api/sounds/${sound.id}`)).json().addedCount).toBe(1);
+
+    const res = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().addedCount).toBe(0);
   });
 });
 
@@ -274,6 +361,57 @@ describe('public mixes', () => {
     expect((await sounds(b)).some((s) => s.id === sound.id)).toBe(false);
     expect((await mixes(b)).find((m) => m.id === own.id)?.items).toEqual([]);
     expect((await scene(b, sc.id)).mixIds).toEqual([]);
+  });
+
+  it('report how many users have them, nobody on a fresh one', async () => {
+    const fresh = await createMix(app, a, { name: 'Pond' });
+    expect(fresh.addedCount).toBe(0);
+
+    const sound = await publicSound(a, 'Crickets');
+    const mix = await createMix(app, a, {
+      name: 'Pond',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+    });
+    expect(mix.addedCount).toBe(0);
+    expect((await call(app, a, 'GET', `/api/mixes/${mix.id}`)).json()).toMatchObject({
+      addedCount: 0,
+    });
+    expect((await mixes(a)).find((m) => m.id === mix.id)).toMatchObject({ addedCount: 0 });
+
+    // Only other accounts count: b adds it, and its owner sees 1.
+    await call(app, b, 'PUT', `/api/library/mixes/${mix.id}`);
+    expect((await call(app, a, 'GET', `/api/mixes/${mix.id}`)).json().addedCount).toBe(1);
+    expect((await mixes(a)).find((m) => m.id === mix.id)?.addedCount).toBe(1);
+  });
+
+  it('go back to 0 when the last library removes them', async () => {
+    const sound = await publicSound(a, 'Crickets');
+    const mix = await createMix(app, a, {
+      name: 'Pond',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+    });
+    await call(app, b, 'PUT', `/api/library/mixes/${mix.id}`);
+    expect((await call(app, a, 'GET', `/api/mixes/${mix.id}`)).json().addedCount).toBe(1);
+
+    await call(app, b, 'DELETE', `/api/library/mixes/${mix.id}`);
+    expect((await call(app, a, 'GET', `/api/mixes/${mix.id}`)).json().addedCount).toBe(0);
+  });
+
+  it('report 0 when a patch unpublishes them', async () => {
+    const sound = await publicSound(a, 'Crickets');
+    const mix = await createMix(app, a, {
+      name: 'Pond',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+    });
+    await call(app, b, 'PUT', `/api/library/mixes/${mix.id}`);
+    expect((await call(app, a, 'GET', `/api/mixes/${mix.id}`)).json().addedCount).toBe(1);
+
+    const res = await call(app, a, 'PATCH', `/api/mixes/${mix.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().addedCount).toBe(0);
   });
 });
 
