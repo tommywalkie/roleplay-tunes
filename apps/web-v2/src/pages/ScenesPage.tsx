@@ -46,6 +46,7 @@ export function ScenesPage({ me }: { me: Me }) {
       }
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate loading={scenes.isLoading} error={scenes.error} onRetry={() => void scenes.refetch()}>
         {all.length === 0 ? (
@@ -57,14 +58,11 @@ export function ScenesPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <>
-            <TileGrid label={tn('count.scenes', found.length)}>
-              {pages.shown.map((scene) => (
-                <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
-              ))}
-            </TileGrid>
-            <Pagination pages={pages} toTop pinned />
-          </>
+          <TileGrid label={tn('count.scenes', found.length)}>
+            {pages.shown.map((scene) => (
+              <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
+            ))}
+          </TileGrid>
         )}
       </QueryGate>
 

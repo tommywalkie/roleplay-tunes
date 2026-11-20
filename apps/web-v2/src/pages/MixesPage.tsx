@@ -47,6 +47,7 @@ export function MixesPage({ me }: { me: Me }) {
       }
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate loading={mixes.isLoading} error={mixes.error} onRetry={() => void mixes.refetch()}>
         {all.length === 0 ? (
@@ -59,14 +60,11 @@ export function MixesPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <>
-            <TileGrid label={tn('count.mixes', found.length)}>
-              {pages.shown.map((mix) => (
-                <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
-              ))}
-            </TileGrid>
-            <Pagination pages={pages} toTop pinned />
-          </>
+          <TileGrid label={tn('count.mixes', found.length)}>
+            {pages.shown.map((mix) => (
+              <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
+            ))}
+          </TileGrid>
         )}
       </QueryGate>
 

@@ -16,6 +16,7 @@ export function Page({
   backTo,
   search,
   filters,
+  bar,
   children,
 }: {
   title: string;
@@ -28,49 +29,56 @@ export function Page({
   search?: { value: string; onChange: (value: string) => void };
   /** Shown under the search field, and stays on screen with it. */
   filters?: ReactNode;
+  /** What the page keeps on screen at its foot (the pinned pagination). */
+  bar?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] animate-enter flex-col gap-6 px-4 pb-10 pt-6 md:px-8 md:pt-8">
-      <header className="flex flex-col gap-4">
-        <div className="flex min-h-11 items-center gap-3">
-          {backTo && (
-            <Link
-              to={backTo}
-              aria-label={t('common.back')}
-              className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
-            >
-              <Icon icon={ArrowLeft} />
-            </Link>
+    <>
+      <div className="mx-auto flex w-full max-w-[1280px] animate-enter flex-col gap-6 px-4 pb-10 pt-6 md:px-8 md:pt-8">
+        <header className="flex flex-col gap-4">
+          <div className="flex min-h-11 items-center gap-3">
+            {backTo && (
+              <Link
+                to={backTo}
+                aria-label={t('common.back')}
+                className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
+              >
+                <Icon icon={ArrowLeft} />
+              </Link>
+            )}
+            <h1 className="min-w-0 truncate text-[28px] leading-8 font-medium">{title}</h1>
+            {meta && (
+              <span className="shrink-0 pt-1.5 font-mono text-[12px] leading-4 text-ink-3 tabular-nums">
+                {meta}
+              </span>
+            )}
+            <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div>
+          </div>
+          {description && (
+            <p className="-mt-2 max-w-[60ch] text-[14px] leading-5 text-ink-2">{description}</p>
           )}
-          <h1 className="min-w-0 truncate text-[28px] leading-8 font-medium">{title}</h1>
-          {meta && (
-            <span className="shrink-0 pt-1.5 font-mono text-[12px] leading-4 text-ink-3 tabular-nums">
-              {meta}
-            </span>
-          )}
-          <div className="ml-auto flex shrink-0 items-center gap-2">{action}</div>
-        </div>
-        {description && (
-          <p className="-mt-2 max-w-[60ch] text-[14px] leading-5 text-ink-2">{description}</p>
+        </header>
+        {search && (
+          // A child of the whole page, not of the header, so it stays at the top of the
+          // scrolling area while the list moves under it. The band covers the list edge to edge.
+          <div className="sticky top-0 z-10 -mx-4 -my-3 flex flex-col gap-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
+            <SearchField
+              value={search.value}
+              onChange={search.onChange}
+              label={t('common.search')}
+              className="md:max-w-[360px]"
+            />
+            {filters}
+          </div>
         )}
-      </header>
-      {search && (
-        // A child of the whole page, not of the header, so it stays at the top of the
-        // scrolling area while the list moves under it. The band covers the list edge to edge.
-        <div className="sticky top-0 z-10 -mx-4 -my-3 flex flex-col gap-3 bg-page px-4 py-3 md:-mx-8 md:px-8">
-          <SearchField
-            value={search.value}
-            onChange={search.onChange}
-            label={t('common.search')}
-            className="md:max-w-[360px]"
-          />
-          {filters}
-        </div>
-      )}
-      {children}
-    </div>
+        {children}
+      </div>
+      {/* The page's own bar, outside the container above: it must not fade in with the page's
+          entrance animation, nor go away while the list is still loading. */}
+      {bar}
+    </>
   );
 }
 
@@ -136,7 +144,9 @@ export function Pagination({
   className?: string;
 }) {
   const { t } = useI18n();
-  if (pageCount <= 1) return null;
+  // A pinned bar holds its place even with nothing to page through, so the list below never
+  // jumps as pages appear and disappear.
+  if (pageCount <= 1 && !pinned) return null;
   const onChange = (next: number) => {
     setPage(next);
     if (toTop) document.querySelector('main')?.scrollTo({ top: 0 });
@@ -151,7 +161,7 @@ export function Pagination({
         // opens over it. `-mb-10` swallows the page's own bottom padding, so the row's
         // resting place is the foot of the page and it never drifts up at the end.
         pinned &&
-          'fixed inset-x-0 bottom-[calc(120px+var(--safe-bottom))] z-20 justify-center bg-page py-3 lg:bottom-0',
+          'fixed inset-x-0 bottom-[calc(120px+var(--safe-bottom))] z-20 justify-center bg-page py-1.5 lg:bottom-0 lg:py-3',
         className,
       )}
     >

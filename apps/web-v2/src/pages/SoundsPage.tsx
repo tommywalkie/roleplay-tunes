@@ -48,6 +48,7 @@ export function SoundsPage({ me }: { me: Me }) {
       action={uploadButton}
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate loading={sounds.isLoading} error={sounds.error} onRetry={() => void sounds.refetch()}>
         {all.length === 0 ? (
@@ -60,14 +61,11 @@ export function SoundsPage({ me }: { me: Me }) {
         ) : found.length === 0 ? (
           <NoMatch query={query.trim()} />
         ) : (
-          <>
-            <TileGrid label={tn('count.sounds', found.length)}>
-              {pages.shown.map((sound) => (
-                <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
-              ))}
-            </TileGrid>
-            <Pagination pages={pages} toTop pinned />
-          </>
+          <TileGrid label={tn('count.sounds', found.length)}>
+            {pages.shown.map((sound) => (
+              <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
+            ))}
+          </TileGrid>
         )}
       </QueryGate>
 

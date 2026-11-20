@@ -93,6 +93,7 @@ export function LibraryPage() {
       meta={library.data ? String(sounds.length + mixes.length) : undefined}
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
+      bar={<Pagination pages={pages} toTop pinned />}
     >
       <QueryGate
         loading={library.isLoading}
@@ -106,7 +107,7 @@ export function LibraryPage() {
             body={t('library.empty.body')}
           />
         ) : (
-          <div className="flex max-w-[1040px] flex-col gap-4">
+          <div className="flex max-w-[1040px] flex-col gap-4 pb-16 lg:pb-0">
             <div className="max-w-[360px]">
               <Segmented
                 label={t('library.title')}
@@ -174,7 +175,6 @@ export function LibraryPage() {
                 ))}
               </ul>
             )}
-            <Pagination pages={pages} toTop pinned />
           </div>
         )}
       </QueryGate>
