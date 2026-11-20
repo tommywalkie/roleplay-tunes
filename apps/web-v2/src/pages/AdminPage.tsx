@@ -196,7 +196,7 @@ function UserRow({
 }
 
 /** Rows of the users list per page: each one is tall, and the list sits under four cards. */
-const USERS_PER_PAGE = 10;
+const USERS_PER_PAGE = 8;
 
 /** Rows of the messages list per page. */
 const MESSAGES_PER_PAGE = 10;

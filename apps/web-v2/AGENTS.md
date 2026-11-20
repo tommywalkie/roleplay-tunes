@@ -85,6 +85,13 @@ on the Admin page only, behind a lazy import so it stays out of the board's bund
 volume are rendered and enabled in every state (idle, playing, paused). Stop all with
 nothing playing is a harmless no-op. `PlayerPanel.test.tsx` locks this in.
 
+**The docked player stands over the page.** Below `lg` the player is a dock above the tab
+bar (`PlayerPanel`, `useMedia(DOCKED)`) and opens upward over the page. While it is open a
+dim layer (`bg-black/60`, like a dialog's) lies behind it, `main`'s scrolling is turned off so
+the page stands still (the player's own list is outside `main` and keeps scrolling), and a tap
+on the layer closes the player. The tab bar keeps its own place above the layer (`z-50`), so
+its tabs stay live. Its foot never moves, so the pinned pagination keeps its place under it.
+
 **Playback rules** (`audio/player.tsx`, covered by `player.test.ts`):
 
 - The engine plays one set of layers at a time, plus one-shots on top.
@@ -149,7 +156,7 @@ from the server already sanitized against `TERMS_TAGS`/`TERMS_ATTRIBUTES` in `@d
 and the release notes. The app has no sanitizer of its own.
 
 **Release notes (changelog).** One Markdown file per version and language in
-`apps/server/changelog/` (`1.0.5.en.md`, `1.0.5.fr.md`), opening with a `date: YYYY-MM-DD`
+`apps/server/changelog/` (`1.0.6.en.md`, `1.0.6.fr.md`), opening with a `date: YYYY-MM-DD`
 front matter. The server reads them (`apps/server/src/changelog.ts`, from its working
 directory like `drizzle/`; the Dockerfile copies the folder), turns them into HTML with
 `marked`, sanitizes it like the rules, and serves `GET /api/changelog/:locale`. A new
@@ -211,7 +218,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   own validation coerced values (`name: 5` became "5") and could not read multipart bodies.
   Response schemas still shape the output, so loose objects (`illustration`, `limits`,
   `usage`) must carry `additionalProperties: true` or their contents are stripped.
-- All server tests pass (313), and the server type-check is clean.
+- All server tests pass (341), and the server type-check is clean.
 - The server reads icon sets from `ICONS_DIR`, defaulting to `<WEB_DIST>/icons`, or to
   `apps/web-v2/public/icons` in development, where the icon script writes them.
 - An admin's password reset link points to `<PUBLIC_URL>/reset-password?token=…`, which
@@ -263,11 +270,14 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Tiles on phones: a 70px picture band; an image shows whole over a blurred, darker copy
   of itself, an icon gets 4px of padding (`Illustration` with `tile`)
 - Library lists newest first (by `createdAt`, sorted in the client)
-- Pages of 30 (`usePages`, `Pagination` in `components/Page.tsx`) on the Scenes, Mixes,
-  Sounds and Library pages, under the list; turning a page scrolls back to the top. The
-  Admin users list shows 10 per page, with its pagination at the foot of its card. Back to
-  page 1 on a new search, filter or tab. Lists are plain grids and lists again;
-  `VirtualRows` is kept but unused
+- Pages of 20 (`usePages`, `Pagination` in `components/Page.tsx`) on the Scenes, Mixes,
+  Sounds and Library pages; with `pinned`, the row is `fixed` at the foot of the screen, so it
+  shows even when the list is short — above the docked player on phones and tablets
+  (`120px + var(--safe-bottom)`: the player's 65px bar over the 57px tab bar), at the foot of
+  the window from `lg`, whose `main` carries the matching `lg:pb-[68px]` — and turning a page
+  scrolls back to the top. The Admin lists size their own pages (8 users, 10 messages) with an
+  unpinned pagination at the foot of their cards. Back to page 1 on a new search, filter or
+  tab. Lists are plain grids and lists again; `VirtualRows` is kept but unused
 - Release notes per version in English and French, shown once after each update and from
   Profile (see "Release notes" above)
 - Credits on Profile (`CreditsDialog`), one deep card per work: each icon set from
@@ -325,7 +335,7 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 - Profile page (initials, name, email, links to Settings and Admin, sign out); phones get
   five tabs (Scenes, Mixes, Sounds, Library, Profile), the rail also lists Settings and Admin
 - Dockerfile and `.dockerignore` at the repo root (written, not yet built: see Not done)
-- 163 tests, all passing: synonyms field, categories (field, dialog, filter, text
+- 195 tests, all passing: synonyms field, categories (field, dialog, filter, text
   color), search by synonyms, playback rules, player panel stability, API client, i18n,
   login, sign-out, pick list and pick field, limit fields, admin page, password reset,
   sound tile menu and pauses dialog, dialog stack, license field and codes, changing how

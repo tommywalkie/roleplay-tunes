@@ -37,7 +37,11 @@ function setup(onSaveAsMix?: (items: ReturnType<typeof layersToMixItems>) => voi
     <I18nProvider initial="en">
       <ToastProvider>
         <PlayerProvider sounds={sounds} engine={fake.engine}>
-          <Board />
+          {/* The app keeps the page in `main` and the player outside it; the docked player
+              turns `main`'s scrolling off, so the harness holds the same shape. */}
+          <main className="overflow-y-auto">
+            <Board />
+          </main>
           <PlayerPanel sounds={sounds} onSaveAsMix={onSaveAsMix} />
         </PlayerProvider>
       </ToastProvider>
@@ -46,6 +50,11 @@ function setup(onSaveAsMix?: (items: ReturnType<typeof layersToMixItems>) => voi
   const panel = within(screen.getByRole('complementary', { name: 'Now playing' }));
   return { ...fake, panel, user: userEvent.setup() };
 }
+
+/** The dim layer the docked player puts over the page, as the aside's previous sibling. */
+const dimBehindPlayer = () =>
+  screen.getByRole('complementary', { name: 'Now playing' }).previousElementSibling;
+const isDim = (el: Element | null) => !!el && el.classList.contains('bg-black/60');
 
 /** The controls that must exist, enabled, in every playback state. */
 function expectCoreControls(panel: ReturnType<typeof setup>['panel'], pauseName = 'Pause') {
@@ -154,7 +163,12 @@ describe('PlayerPanel', () => {
   describe('how a playing sound repeats', () => {
     // jsdom has no matchMedia; the menu reads it once to choose between drop-down and panel.
     beforeEach(() => {
-      vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query }));
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
     });
     afterEach(() => vi.unstubAllGlobals());
 
@@ -229,6 +243,56 @@ describe('PlayerPanel', () => {
       expect(spies.removeLayer).not.toHaveBeenCalled();
       expectCoreControls(panel);
     });
+  });
+
+  describe('the docked player stands over the page', () => {
+    // Below `lg` the player is docked; jsdom has no matchMedia, so the query is made to match.
+    beforeEach(() => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('opens with a dim layer behind it and the page held still', async () => {
+      const { user } = setup();
+      const main = document.querySelector('main')!;
+      expect(main.style.overflow).not.toBe('hidden');
+
+      await user.click(screen.getByRole('button', { name: 'Show player' }));
+
+      expect(isDim(dimBehindPlayer())).toBe(true);
+      expect(main.style.overflow).toBe('hidden');
+    });
+
+    it('closes on a tap on the dim layer, giving the page back its scrolling', async () => {
+      const { user } = setup();
+      const main = document.querySelector('main')!;
+      const before = main.style.overflow;
+
+      await user.click(screen.getByRole('button', { name: 'Show player' }));
+      const dim = dimBehindPlayer();
+      expect(isDim(dim)).toBe(true);
+      fireEvent.click(dim!);
+
+      expect(isDim(dimBehindPlayer())).toBe(false);
+      expect(main.style.overflow).toBe(before);
+      expect(screen.getByRole('button', { name: 'Show player' })).toBeInTheDocument();
+    });
+  });
+
+  it('on a wide screen, opens in place without a dim layer or holding the page still', async () => {
+    // No matchMedia stub here: jsdom has none, so the player is not docked.
+    const { user } = setup();
+    const main = document.querySelector('main')!;
+
+    await user.click(screen.getByRole('button', { name: 'Show player' }));
+
+    expect(isDim(dimBehindPlayer())).toBe(false);
+    expect(main.style.overflow).not.toBe('hidden');
   });
 
   it('tells the user when a sound fails to load', () => {

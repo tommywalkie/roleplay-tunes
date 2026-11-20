@@ -23,7 +23,7 @@ import { Marquee } from '../components/Marquee';
 import { Menu } from '../components/Menu';
 import { Popover } from '../components/Popover';
 import { useToast } from '../components/Toasts';
-import { Button, cx, Fader, Icon, IconButton, Lamp, Percent } from '../components/ui';
+import { Button, cx, Fader, Icon, IconButton, Lamp, Percent, useMedia } from '../components/ui';
 import { useI18n } from '../i18n';
 import { SleepTimerRow, useClock } from './SleepTimer';
 
@@ -51,6 +51,11 @@ export function PlayerPanel({
   const clock = useClock();
   const toast = useToast();
   const [open, setOpen] = useState(false);
+  // Below `lg` the player is docked and opens upward; there it stands over the page like a
+  // dialog, and the page must not scroll behind it. Wider screens show it as a column,
+  // always expanded.
+  const docked = useMedia(DOCKED);
+  const expanded = docked && open;
   const { snapshot } = player;
   const byId = useMemo(() => new Map(sounds.map((s) => [s.id, s])), [sounds]);
   const nameOf = (soundId: string) => byId.get(soundId)?.name ?? t('player.unknownSound');
@@ -68,6 +73,19 @@ export function PlayerPanel({
     // Names and language can change: the engine behind the player stays the same for the visit.
     [byId, t],
   );
+
+  useEffect(() => {
+    if (!expanded) return;
+    // `main` is the app's scrolling area. The player's own list is outside it, so it keeps
+    // scrolling while the page behind stands still.
+    const main = document.querySelector('main');
+    if (!main) return;
+    const previous = main.style.overflow;
+    main.style.overflow = 'hidden';
+    return () => {
+      main.style.overflow = previous;
+    };
+  }, [expanded]);
 
   const layers = snapshot.mix?.layers ?? [];
   const oneshots = snapshot.activeOneshots;
@@ -93,199 +111,211 @@ export function PlayerPanel({
     : base;
 
   return (
-    <aside
-      aria-label={t('player.title')}
-      className={cx(
-        'z-30 flex flex-col border-line bg-deep',
-        'fixed inset-x-0 bottom-[calc(56px+var(--safe-bottom))] max-h-[72dvh] border-t',
-        'lg:static lg:h-full lg:max-h-none lg:border-l lg:border-t-0',
-      )}
-    >
-      {/* Transport: identical in every state. */}
-      {/* One row on phones and tablets; on desktop the title sits above two equal buttons. */}
-      {/* Docked at the bottom, the whole row opens and closes the player, not only the
-          chevron: a tap anywhere but on a button. The chevron stays the keyboard's way. */}
-      <div
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('button')) return;
-          if (window.matchMedia(DOCKED).matches) setOpen((v) => !v);
-        }}
-        className="flex h-16 shrink-0 cursor-pointer items-center gap-2 pl-4 pr-3 select-none lg:h-auto lg:cursor-auto lg:flex-col lg:items-stretch lg:gap-4 lg:p-4 lg:select-auto"
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-10 lg:flex-none">
-          <Lamp on={sounding} />
-          <div className="flex min-w-0 flex-col">
-            {/* What plays by name, which is the one line here long enough to be cut: a mix
-                carries across rather than ending in an ellipsis. */}
-            <Marquee className="text-[15px] leading-5 font-medium" aria-live="polite">
-              {title}
-            </Marquee>
-            <span className="truncate text-[12px] leading-4 text-ink-3 tabular-nums">{status}</span>
-          </div>
-        </div>
-        <IconButton
-          icon={open ? ChevronDown : ChevronUp}
-          label={t(open ? 'player.collapse' : 'player.expand')}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className="lg:hidden"
+    <>
+      {/* Docked and open, the player stands over the page: a dim layer behind it, and a tap
+          on that layer closes it. */}
+      {expanded && (
+        <div
+          aria-hidden
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-40 animate-fade bg-black/60"
         />
-        <div className="flex shrink-0 gap-2">
-          <Button
-            icon={paused ? Play : Pause}
-            aria-label={t(paused ? 'player.resume' : 'player.pause')}
-            onClick={player.togglePause}
-            className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
-          >
-            <span className="hidden lg:inline">{t(paused ? 'player.resume' : 'player.pause')}</span>
-          </Button>
-          <Button
-            icon={Square}
-            aria-label={t('player.stopAll')}
-            onClick={player.stopAll}
-            className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
-          >
-            <span className="hidden lg:inline">{t('player.stopAll')}</span>
-          </Button>
-        </div>
-      </div>
-
-      <div
+      )}
+      <aside
+        aria-label={t('player.title')}
         className={cx(
-          'min-h-0 flex-1 flex-col border-t border-line lg:flex',
-          open ? 'flex' : 'hidden',
+          expanded ? 'z-50' : 'z-30',
+          'flex flex-col border-line bg-deep',
+          'fixed inset-x-0 bottom-[calc(56px+var(--safe-bottom))] max-h-[72dvh] border-t',
+          'lg:static lg:h-full lg:max-h-none lg:border-l lg:border-t-0',
         )}
       >
-        <div className="flex shrink-0 flex-col gap-1 border-b border-line px-4 py-3">
-          <VolumeRow
-            icon={Volume2}
-            label={t('player.master')}
-            note={t('player.master.hint')}
-            value={snapshot.masterVolume}
-            onChange={player.setMasterVolume}
+        {/* Transport: identical in every state. */}
+        {/* One row on phones and tablets; on desktop the title sits above two equal buttons. */}
+        {/* Docked at the bottom, the whole row opens and closes the player, not only the
+            chevron: a tap anywhere but on a button. The chevron stays the keyboard's way. */}
+        <div
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) return;
+            if (docked) setOpen((v) => !v);
+          }}
+          className="flex h-16 shrink-0 cursor-pointer items-center gap-2 pl-4 pr-3 select-none lg:h-auto lg:cursor-auto lg:flex-col lg:items-stretch lg:gap-4 lg:p-4 lg:select-auto"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-10 lg:flex-none">
+            <Lamp on={sounding} />
+            <div className="flex min-w-0 flex-col">
+              {/* What plays by name, which is the one line here long enough to be cut: a mix
+                  carries across rather than ending in an ellipsis. */}
+              <Marquee className="text-[15px] leading-5 font-medium" aria-live="polite">
+                {title}
+              </Marquee>
+              <span className="truncate text-[12px] leading-4 text-ink-3 tabular-nums">{status}</span>
+            </div>
+          </div>
+          <IconButton
+            icon={open ? ChevronDown : ChevronUp}
+            label={t(open ? 'player.collapse' : 'player.expand')}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="lg:hidden"
           />
-          <VolumeRow
-            icon={Zap}
-            label={t('player.effects')}
-            note={t('player.effects.hint')}
-            value={snapshot.effectsVolume}
-            onChange={player.setEffectsVolume}
-          />
-          <SleepTimerRow />
+          <div className="flex shrink-0 gap-2">
+            <Button
+              icon={paused ? Play : Pause}
+              aria-label={t(paused ? 'player.resume' : 'player.pause')}
+              onClick={player.togglePause}
+              className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
+            >
+              <span className="hidden lg:inline">{t(paused ? 'player.resume' : 'player.pause')}</span>
+            </Button>
+            <Button
+              icon={Square}
+              aria-label={t('player.stopAll')}
+              onClick={player.stopAll}
+              className="w-11 px-0 lg:w-auto lg:flex-1 lg:px-3"
+            >
+              <span className="hidden lg:inline">{t('player.stopAll')}</span>
+            </Button>
+          </div>
         </div>
 
-        <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3">
-          <div className="flex items-center justify-between gap-2 pb-1 pl-2">
-            <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
-              {t('player.playing')}
-              <span className="font-mono text-[12px] text-ink-3 tabular-nums">{count}</span>
-            </h2>
-            {/* Always rendered, so the list never shifts; usable once something loops. */}
-            {onSaveAsMix && (
-              <Button
-                variant="ghost"
-                icon={ListPlus}
-                disabled={layers.length === 0}
-                onClick={() => onSaveAsMix(layersToMixItems(layers))}
-                className="h-9 px-2 text-[13px]"
-              >
-                {t('player.saveAsMix')}
-              </Button>
-            )}
+        <div
+          className={cx(
+            'min-h-0 flex-1 flex-col border-t border-line lg:flex',
+            open ? 'flex' : 'hidden',
+          )}
+        >
+          <div className="flex shrink-0 flex-col gap-1 border-b border-line px-4 py-3">
+            <VolumeRow
+              icon={Volume2}
+              label={t('player.master')}
+              note={t('player.master.hint')}
+              value={snapshot.masterVolume}
+              onChange={player.setMasterVolume}
+            />
+            <VolumeRow
+              icon={Zap}
+              label={t('player.effects')}
+              note={t('player.effects.hint')}
+              value={snapshot.effectsVolume}
+              onChange={player.setEffectsVolume}
+            />
+            <SleepTimerRow />
           </div>
-          {count === 0 ? (
-            <p className="px-2 py-6 text-[14px] leading-5 text-ink-3">{t('player.empty')}</p>
-          ) : (
-            <ul className="flex flex-col gap-0.5">
-              {layers.map((layer) => {
-                const name = nameOf(layer.soundId);
-                const sound = byId.get(layer.soundId);
-                const live = layer.load === 'ready' && !layer.muted && !paused;
-                return (
-                  <li key={layer.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
-                    <span className="relative">
-                      <Thumb
-                        value={sound?.illustration ?? { type: 'none' }}
-                        fallback={AudioLines}
-                        lit={live}
-                      />
-                      {layer.load === 'loading' && (
-                        <span className="absolute inset-0 flex items-center justify-center rounded-[8px] bg-deep/70">
-                          <Icon icon={LoaderCircle} className="animate-spin text-ink-2" />
-                        </span>
-                      )}
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <Marquee
-                        className={cx(
-                          'text-[14px] leading-5',
-                          layer.load === 'error'
-                            ? 'text-danger'
-                            : layer.muted
-                              ? 'text-ink-3'
-                              : 'text-ink',
-                        )}
-                      >
-                        {name}
-                      </Marquee>
-                      <div className="flex items-center gap-2">
-                        <Fader
-                          value={layer.volume}
-                          onChange={(v) => player.setLayerVolume(layer.id, v)}
-                          label={t('player.volumeOf', { name })}
+
+          <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-3">
+            <div className="flex items-center justify-between gap-2 pb-1 pl-2">
+              <h2 className="flex items-baseline gap-2 text-[13px] leading-5 text-ink-2">
+                {t('player.playing')}
+                <span className="font-mono text-[12px] text-ink-3 tabular-nums">{count}</span>
+              </h2>
+              {/* Always rendered, so the list never shifts; usable once something loops. */}
+              {onSaveAsMix && (
+                <Button
+                  variant="ghost"
+                  icon={ListPlus}
+                  disabled={layers.length === 0}
+                  onClick={() => onSaveAsMix(layersToMixItems(layers))}
+                  className="h-9 px-2 text-[13px]"
+                >
+                  {t('player.saveAsMix')}
+                </Button>
+              )}
+            </div>
+            {count === 0 ? (
+              <p className="px-2 py-6 text-[14px] leading-5 text-ink-3">{t('player.empty')}</p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {layers.map((layer) => {
+                  const name = nameOf(layer.soundId);
+                  const sound = byId.get(layer.soundId);
+                  const live = layer.load === 'ready' && !layer.muted && !paused;
+                  return (
+                    <li key={layer.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
+                      <span className="relative">
+                        <Thumb
+                          value={sound?.illustration ?? { type: 'none' }}
+                          fallback={AudioLines}
                           lit={live}
                         />
-                        <Percent value={layer.volume} />
+                        {layer.load === 'loading' && (
+                          <span className="absolute inset-0 flex items-center justify-center rounded-[8px] bg-deep/70">
+                            <Icon icon={LoaderCircle} className="animate-spin text-ink-2" />
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <Marquee
+                          className={cx(
+                            'text-[14px] leading-5',
+                            layer.load === 'error'
+                              ? 'text-danger'
+                              : layer.muted
+                                ? 'text-ink-3'
+                                : 'text-ink',
+                          )}
+                        >
+                          {name}
+                        </Marquee>
+                        <div className="flex items-center gap-2">
+                          <Fader
+                            value={layer.volume}
+                            onChange={(v) => player.setLayerVolume(layer.id, v)}
+                            label={t('player.volumeOf', { name })}
+                            lit={live}
+                          />
+                          <Percent value={layer.volume} />
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex shrink-0">
-                      {sound && <LayerModeButton layer={layer} sound={sound} name={name} />}
-                      <Popover wrap label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })} note={t('player.mute.hint')}>
-                        <IconButton
-                          icon={layer.muted ? VolumeX : Volume2}
-                          label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })}
-                          title={undefined}
-                          aria-pressed={layer.muted}
-                          onClick={() => player.setLayerMuted(layer.id, !layer.muted)}
-                          className="w-10"
-                        />
-                      </Popover>
-                      <Popover wrap label={t('common.removeItem', { name })} note={t('player.remove.hint')}>
-                        <IconButton
-                          icon={X}
-                          label={t('common.removeItem', { name })}
-                          title={undefined}
-                          onClick={() => player.removeLayer(layer.id)}
-                          className="w-10"
-                        />
-                      </Popover>
+                      <div className="flex shrink-0">
+                        {sound && <LayerModeButton layer={layer} sound={sound} name={name} />}
+                        <Popover wrap label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })} note={t('player.mute.hint')}>
+                          <IconButton
+                            icon={layer.muted ? VolumeX : Volume2}
+                            label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })}
+                            title={undefined}
+                            aria-pressed={layer.muted}
+                            onClick={() => player.setLayerMuted(layer.id, !layer.muted)}
+                            className="w-10"
+                          />
+                        </Popover>
+                        <Popover wrap label={t('common.removeItem', { name })} note={t('player.remove.hint')}>
+                          <IconButton
+                            icon={X}
+                            label={t('common.removeItem', { name })}
+                            title={undefined}
+                            onClick={() => player.removeLayer(layer.id)}
+                            className="w-10"
+                          />
+                        </Popover>
+                      </div>
+                    </li>
+                  );
+                })}
+                {oneshots.map((shot) => (
+                  <li key={shot.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
+                    {/* Laid out like a loop row; where a loop has its fader, a "once" sound
+                        says what it is. Its progress shows on its tile. */}
+                    <Thumb
+                      value={byId.get(shot.soundId)?.illustration ?? { type: 'none' }}
+                      fallback={AudioLines}
+                      lit={!paused}
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <Marquee className="text-[14px] leading-5">{nameOf(shot.soundId)}</Marquee>
+                      <span className="flex items-center gap-1.5 text-[12px] leading-4 text-ink-3 tabular-nums">
+                        <Zap size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
+                        {t(MODE_LABELS.oneshot)} · {duration(shot.durationSec)}
+                      </span>
                     </div>
                   </li>
-                );
-              })}
-              {oneshots.map((shot) => (
-                <li key={shot.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
-                  {/* Laid out like a loop row; where a loop has its fader, a "once" sound
-                      says what it is. Its progress shows on its tile. */}
-                  <Thumb
-                    value={byId.get(shot.soundId)?.illustration ?? { type: 'none' }}
-                    fallback={AudioLines}
-                    lit={!paused}
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <Marquee className="text-[14px] leading-5">{nameOf(shot.soundId)}</Marquee>
-                    <span className="flex items-center gap-1.5 text-[12px] leading-4 text-ink-3 tabular-nums">
-                      <Zap size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
-                      {t(MODE_LABELS.oneshot)} · {duration(shot.durationSec)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

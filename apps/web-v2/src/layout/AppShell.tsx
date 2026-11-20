@@ -137,7 +137,7 @@ export function AppShell({ me }: { me: Me }) {
         </nav>
 
         {/* Its own stacking context: nothing in a page can paint over the player or the tab bar. */}
-        <main className="scroll-quiet relative z-0 min-w-0 overflow-y-auto pb-[calc(120px+var(--safe-bottom))] lg:pb-0">
+        <main className="scroll-quiet relative z-0 min-w-0 overflow-y-auto pb-[calc(120px+var(--safe-bottom))] lg:pb-[68px]">
           <Outlet />
         </main>
 
@@ -174,7 +174,7 @@ export function AppShell({ me }: { me: Me }) {
 
         <nav
           aria-label={t('app.name')}
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-deep pb-[var(--safe-bottom)] lg:hidden"
+          className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-deep pb-[var(--safe-bottom)] lg:hidden"
         >
           <ul className="grid h-14 auto-cols-fr grid-flow-col">
             {TABS.map((item) => (

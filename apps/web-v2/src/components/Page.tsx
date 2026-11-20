@@ -102,7 +102,7 @@ export function QueryGate({
 }
 
 /** How many items one page of a list shows. */
-export const PAGE_SIZE = 30;
+export const PAGE_SIZE = 20;
 
 /**
  * One page of `items` at a time. Back to the first page whenever `resetKey` changes (a new
@@ -120,15 +120,19 @@ export function usePages<T>(items: T[], resetKey: string, size = PAGE_SIZE) {
 /**
  * Previous and next around "page n of m", under the list it pages. Renders nothing for a
  * list that fits on one page. With `toTop`, a new page starts the page's scroll over, so
- * the reader lands on its first item rather than at the foot where they clicked.
+ * the reader lands on its first item rather than at the foot where they clicked. With
+ * `pinned`, the row stays on screen while the list scrolls: above the docked player and the
+ * tab bar on phones and tablets, at the foot of the window on wider screens.
  */
 export function Pagination({
   pages: { page, pageCount, setPage },
   toTop = false,
+  pinned = false,
   className,
 }: {
   pages: ReturnType<typeof usePages>;
   toTop?: boolean;
+  pinned?: boolean;
   className?: string;
 }) {
   const { t } = useI18n();
@@ -138,7 +142,19 @@ export function Pagination({
     if (toTop) document.querySelector('main')?.scrollTo({ top: 0 });
   };
   return (
-    <nav aria-label={t('pages.label')} className={cx('flex items-center gap-1', className)}>
+    <nav
+      aria-label={t('pages.label')}
+      className={cx(
+        'flex items-center gap-1',
+        // The docked player stands 122px above the safe area — its own 65px bar over the
+        // 57px tab bar — so the row keeps that clearance and holds its place when the player
+        // opens over it. `-mb-10` swallows the page's own bottom padding, so the row's
+        // resting place is the foot of the page and it never drifts up at the end.
+        pinned &&
+          'fixed inset-x-0 bottom-[calc(120px+var(--safe-bottom))] z-20 justify-center bg-page py-3 lg:bottom-0',
+        className,
+      )}
+    >
       <IconButton
         icon={ChevronLeft}
         label={t('pages.previous')}

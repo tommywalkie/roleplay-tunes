@@ -83,7 +83,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       info: {
         title: 'Roleplay Tunes API',
         description: 'API for the Roleplay Tunes soundboard application',
-        version: '0.0.0',
+        version: appVersion(),
       },
       servers: [{ url: config.publicUrl, description: 'Server' }],
       components: {
@@ -178,6 +178,20 @@ function shareBrandFiles(app: FastifyInstance) {
     reply.header('access-control-allow-origin', '*');
     return payload;
   });
+}
+
+/**
+ * The app's version, from the `package.json` the server runs beside: the root, web and server
+ * files all carry it, so the OpenAPI document shows the release it describes. Resolved from
+ * the working directory, like `drizzle/` and `changelog/`.
+ */
+function appVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
 
 /**

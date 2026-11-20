@@ -174,7 +174,7 @@ export function LibraryPage() {
                 ))}
               </ul>
             )}
-            <Pagination pages={pages} toTop className="self-center" />
+            <Pagination pages={pages} toTop pinned />
           </div>
         )}
       </QueryGate>

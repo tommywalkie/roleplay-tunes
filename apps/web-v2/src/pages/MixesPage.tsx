@@ -65,7 +65,7 @@ export function MixesPage({ me }: { me: Me }) {
                 <MixTile key={mix.id} mix={mix} onEdit={() => setEditingId(mix.id)} />
               ))}
             </TileGrid>
-            <Pagination pages={pages} toTop className="self-center" />
+            <Pagination pages={pages} toTop pinned />
           </>
         )}
       </QueryGate>

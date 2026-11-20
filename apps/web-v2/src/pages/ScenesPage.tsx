@@ -63,7 +63,7 @@ export function ScenesPage({ me }: { me: Me }) {
                 <SceneTile key={scene.id} scene={scene} onEdit={() => setEditingId(scene.id)} />
               ))}
             </TileGrid>
-            <Pagination pages={pages} toTop className="self-center" />
+            <Pagination pages={pages} toTop pinned />
           </>
         )}
       </QueryGate>

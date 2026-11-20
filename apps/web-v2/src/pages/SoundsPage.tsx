@@ -66,7 +66,7 @@ export function SoundsPage({ me }: { me: Me }) {
                 <SoundTile key={sound.id} sound={sound} onEdit={() => setEditingId(sound.id)} />
               ))}
             </TileGrid>
-            <Pagination pages={pages} toTop className="self-center" />
+            <Pagination pages={pages} toTop pinned />
           </>
         )}
       </QueryGate>
