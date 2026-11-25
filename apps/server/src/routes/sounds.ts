@@ -7,6 +7,7 @@ import {
   DEFAULT_INTERVAL_MAX_SEC,
   DEFAULT_INTERVAL_MIN_SEC,
   DEFAULT_VOLUME,
+  loopSettingsError,
   nameSchema,
   updateSoundSchema,
   uploadSoundFieldsSchema,
@@ -41,9 +42,6 @@ type SoundRow = typeof sounds.$inferSelect;
 
 /** Files this short default to One-shot at upload, longer ones to Loop. */
 const ONESHOT_MAX_SEC = 10;
-/** Tolerance when comparing loop points to the measured duration. */
-const DURATION_EPSILON_SEC = 0.05;
-
 /** Response shape of one sound, for the API documentation and the serializer. */
 export const soundResponse = {
   type: 'object',
@@ -69,8 +67,12 @@ export const soundResponse = {
     durationSec: { type: 'number' },
     defaultMode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
     defaultVolume: { type: 'number' },
+    trackStartSec: { type: 'number', nullable: true },
+    trackEndSec: { type: 'number', nullable: true },
     loopStartSec: { type: 'number', nullable: true },
     loopEndSec: { type: 'number', nullable: true },
+    loopMode: { type: 'string', enum: ['gapless', 'crossfade'] },
+    crossfadeSec: { type: 'number', nullable: true },
     intervalMinSec: { type: 'number' },
     intervalMaxSec: { type: 'number' },
     volumeVariation: { type: 'number' },
@@ -123,8 +125,12 @@ export function toSound(row: CountedSound, view: SoundView): Sound {
     durationSec: row.durationSec,
     defaultMode: row.defaultMode,
     defaultVolume: view.volume ?? row.defaultVolume,
+    trackStartSec: row.trackStartSec,
+    trackEndSec: row.trackEndSec,
     loopStartSec: row.loopStartSec,
     loopEndSec: row.loopEndSec,
+    loopMode: row.loopMode,
+    crossfadeSec: row.crossfadeSec,
     intervalMinSec: row.intervalMinSec,
     intervalMaxSec: row.intervalMaxSec,
     volumeVariation: row.volumeVariation,
@@ -370,8 +376,12 @@ export function soundsRoutes(app: FastifyInstance) {
           isPublic: { type: 'boolean' },
           defaultMode: { type: 'string', enum: ['loop', 'oneshot', 'recurring'] },
           defaultVolume: { type: 'number', minimum: 0, maximum: 1 },
+          trackStartSec: { type: 'number', minimum: 0, nullable: true },
+          trackEndSec: { type: 'number', minimum: 0, nullable: true },
           loopStartSec: { type: 'number', minimum: 0, nullable: true },
           loopEndSec: { type: 'number', minimum: 0, nullable: true },
+          loopMode: { type: 'string', enum: ['gapless', 'crossfade'] },
+          crossfadeSec: { type: 'number', minimum: 0, maximum: 10, nullable: true },
           intervalMinSec: { type: 'number', minimum: 1, maximum: 3600 },
           intervalMaxSec: { type: 'number', minimum: 1, maximum: 3600 },
           volumeVariation: { type: 'number', minimum: 0, maximum: 1 },
@@ -430,13 +440,26 @@ export function soundsRoutes(app: FastifyInstance) {
     if ((loopStart === null) !== (loopEnd === null)) {
       throw invalid('Invalid request', { loopEndSec: 'Set both loop points or neither' });
     }
-    if (loopStart !== null && loopEnd !== null) {
-      if (loopStart >= loopEnd) {
-        throw invalid('Invalid request', { loopEndSec: 'Must be after the loop start' });
-      }
-      if (loopEnd > current.durationSec + DURATION_EPSILON_SEC) {
-        throw invalid('Invalid request', { loopEndSec: 'Is past the end of the sound' });
-      }
+    const loopError = loopSettingsError(
+      {
+        durationSec: current.durationSec,
+        trackStartSec: changes.trackStartSec ?? undefined,
+        trackEndSec: changes.trackEndSec ?? undefined,
+        loopStartSec: changes.loopStartSec ?? undefined,
+        loopEndSec: changes.loopEndSec ?? undefined,
+        crossfadeSec: changes.crossfadeSec ?? undefined,
+      },
+      {
+        durationSec: current.durationSec,
+        trackStartSec: current.trackStartSec,
+        trackEndSec: current.trackEndSec,
+        loopStartSec: current.loopStartSec,
+        loopEndSec: current.loopEndSec,
+        crossfadeSec: current.crossfadeSec,
+      },
+    );
+    if (loopError) {
+      throw invalid('Invalid request', { [loopError.field]: loopError.message });
     }
     const intervalMin = changes.intervalMinSec ?? current.intervalMinSec;
     const intervalMax = changes.intervalMaxSec ?? current.intervalMaxSec;

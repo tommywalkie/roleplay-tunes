@@ -72,7 +72,7 @@ export class OneshotBus {
   play(
     descriptor: SoundDescriptor,
     buffer: AudioBuffer,
-    opts: { volume?: number; pan?: number },
+    opts: { volume?: number; pan?: number; trackStart?: number; trackEnd?: number },
   ): OneshotHandle {
     const maxInstances = descriptor.maxInstances ?? DEFAULT_MAX_INSTANCES;
     const live = () => this.voices.filter((v) => !v.stopping);
@@ -94,6 +94,14 @@ export class OneshotBus {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(gain);
+    // One play runs the track region: from the track start to the track end.
+    const trackStart = clamp(opts.trackStart ?? descriptor.trackStart ?? 0, 0, buffer.duration);
+    const trackEnd = clamp(
+      opts.trackEnd ?? descriptor.trackEnd ?? buffer.duration,
+      trackStart,
+      buffer.duration,
+    );
+    const playSec = Math.max(0.01, trackEnd - trackStart);
     const voice: OneshotVoice = {
       id: `oneshot-${++this.nextId}`,
       soundId: descriptor.id,
@@ -102,7 +110,7 @@ export class OneshotBus {
       panner,
       stopping: false,
       startedAt: this.cb.now(),
-      durationSec: buffer.duration,
+      durationSec: playSec,
     };
     source.onended = () => {
       this.voices = this.voices.filter((v) => v !== voice);
@@ -112,7 +120,7 @@ export class OneshotBus {
       this.cb.onVoiceEnded(voice.soundId);
       this.notify();
     };
-    source.start(ctx.currentTime);
+    source.start(ctx.currentTime, trackStart, playSec);
     this.voices.push(voice);
     this.notify();
     return {

@@ -1,11 +1,12 @@
 import type { Category, Sound } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PlayerProvider } from '../audio/player';
 import { illustrationChanges } from '../components/IllustrationField';
 import { I18nProvider } from '../i18n';
-import { makeMe, makeSound } from '../test/fixtures';
+import { makeFakeEngine, makeMe, makeSound } from '../test/fixtures';
 import { SoundEditor } from './SoundEditor';
 
 const json = (status: number, body: unknown) =>
@@ -41,11 +42,17 @@ function renderEditor(sound: Sound = makeSound(), categories: Category[] = []) {
     json(200, url in routes ? routes[url] : sound),
   );
   vi.stubGlobal('fetch', fetchMock);
+  // The loop editor reads the waveform through the player, so the editor runs inside a
+  // PlayerProvider with a fake engine, as in PlayerPanel.test.tsx.
+  const fake = makeFakeEngine();
+  fake.spies.getWaveformPeaks.mockResolvedValue(new Float32Array(480));
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <I18nProvider initial="en">
-        <SoundEditor sound={sound} scenes={[]} me={makeMe()} onClose={() => {}} />
+        <PlayerProvider sounds={[sound]} engine={fake.engine}>
+          <SoundEditor sound={sound} scenes={[]} me={makeMe()} onClose={() => {}} />
+        </PlayerProvider>
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -54,7 +61,7 @@ function renderEditor(sound: Sound = makeSound(), categories: Category[] = []) {
     fetchMock.mock.calls
       .filter(([, init]) => init?.method && init.method !== 'GET')
       .map(([url, init]) => ({ url, method: init!.method, body: JSON.parse(String(init!.body)) }));
-  return { user: userEvent.setup(), fetchMock, saves };
+  return { user: userEvent.setup(), fetchMock, saves, fake };
 }
 
 describe('SoundEditor', () => {
@@ -222,6 +229,95 @@ describe('SoundEditor', () => {
       sceneIds: [],
       synonyms: ['chimes', 'gong'],
       categoryIds: ['c1', 'c2'],
+    });
+  });
+});
+
+describe('SoundEditor loop editor', () => {
+  it('opens the loop editor stacked over the sound editor', async () => {
+    const { user } = renderEditor();
+    await user.click(screen.getByRole('button', { name: 'Edit loop' }));
+
+    const loop = screen.getByRole('dialog', { name: 'Loop editor' });
+    expect(loop.closest('[data-dialog-state]')).toHaveAttribute('data-dialog-state', 'shown');
+    // The sound editor stays mounted underneath, covered, and comes back on close.
+    const covered = screen.getByRole('dialog', { name: 'Edit sound', hidden: true });
+    expect(covered.closest('[data-dialog-state]')).toHaveAttribute('data-dialog-state', 'covered');
+
+    await user.click(within(loop).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Edit sound' })).toBeInTheDocument();
+  });
+
+  it('shows the crossfade slider only in crossfade mode', async () => {
+    const { user } = renderEditor();
+    await user.click(screen.getByRole('button', { name: 'Edit loop' }));
+    const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+
+    // Gapless (the default): no crossfade slider.
+    expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
+    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
+    expect(loop.getByRole('slider', { name: 'Crossfade length, seconds' })).toBeInTheDocument();
+    await user.click(loop.getByRole('radio', { name: 'Gapless' }));
+    expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
+  });
+
+  it('hides the crossfade slider when the loop is shorter than 1 s', async () => {
+    const { user } = renderEditor(makeSound({ durationSec: 0.5 }));
+    await user.click(screen.getByRole('button', { name: 'Edit loop' }));
+    const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
+    expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
+  });
+
+  it('sends null for every loop field when the loop stays at the default edges', async () => {
+    const { user, saves } = renderEditor();
+    await user.click(screen.getByRole('button', { name: 'Edit loop' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Loop editor' })).getByRole('button', {
+        name: 'Apply',
+      }),
+    );
+    // Applying closed the loop editor and brought the sound editor back.
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const [save] = saves();
+    expect(save.url).toBe('/api/sounds/s1');
+    expect(save.method).toBe('PATCH');
+    expect(save.body).toMatchObject({
+      trackStartSec: null,
+      trackEndSec: null,
+      loopStartSec: null,
+      loopEndSec: null,
+      loopMode: 'gapless',
+      crossfadeSec: null,
+    });
+  });
+
+  it('saves the loop fields set in the dialog in the PATCH body', async () => {
+    const { user, saves } = renderEditor();
+    await user.click(screen.getByRole('button', { name: 'Edit loop' }));
+    const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+
+    // Move the loop start by one step (0.1 s), switch to crossfade and set 3 s.
+    fireEvent.keyDown(loop.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
+    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
+    fireEvent.change(loop.getByRole('slider', { name: 'Crossfade length, seconds' }), {
+      target: { value: '3' },
+    });
+    await user.click(loop.getByRole('button', { name: 'Apply' }));
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const [save] = saves();
+    expect(save.url).toBe('/api/sounds/s1');
+    expect(save.method).toBe('PATCH');
+    expect(save.body).toMatchObject({
+      trackStartSec: null,
+      trackEndSec: null,
+      loopStartSec: 0.1,
+      loopEndSec: null,
+      loopMode: 'crossfade',
+      crossfadeSec: 3,
     });
   });
 });

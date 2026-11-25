@@ -311,6 +311,121 @@ describe('PATCH validation', () => {
     expectError(await patch(sound, user, { loopStartSec: -1, loopEndSec: 5 }), 400, 'validation');
   });
 
+  describe('loop markers', () => {
+    it('gives a fresh upload the default loop markers', async () => {
+      const { sound } = await fixture();
+      expect(sound).toMatchObject({
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        loopMode: 'gapless',
+        crossfadeSec: null,
+      });
+    });
+
+    it('round-trips the track markers, loop mode and crossfade', async () => {
+      const { user, sound } = await fixture();
+      const res = await patch(sound, user, {
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      // And on a fresh read, not only in the patch response.
+      expect((await call(app, user, 'GET', `/api/sounds/${sound.id}`)).json()).toMatchObject({
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+
+      // Clearing the markers stores nulls again ("the usual edge").
+      const cleared = await patch(sound, user, {
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        crossfadeSec: null,
+      });
+      expect(cleared.statusCode, cleared.body).toBe(200);
+      expect(cleared.json()).toMatchObject({
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        crossfadeSec: null,
+      });
+    });
+
+    it('rejects a loop start at or after the loop end and a loop end past the duration', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { loopStartSec: 6, loopEndSec: 2 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopStartSec: 3, loopEndSec: 3 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopStartSec: 1, loopEndSec: 12.5 }), 400, 'validation');
+    });
+
+    it('rejects a track start after the loop start and a loop end after the track end', async () => {
+      const { user, sound } = await fixture();
+      const start = await patch(sound, user, {
+        trackStartSec: 5,
+        loopStartSec: 2,
+        loopEndSec: 10,
+      });
+      expectError(start, 400, 'validation');
+      expect(start.json().error.fields).toHaveProperty('loopStartSec');
+
+      const end = await patch(sound, user, { trackEndSec: 8, loopStartSec: 2, loopEndSec: 10 });
+      expectError(end, 400, 'validation');
+      expect(end.json().error.fields).toHaveProperty('trackEndSec');
+    });
+
+    it('rejects a crossfade above 10 s or above half the loop length', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { crossfadeSec: 10.5 }), 400, 'validation');
+
+      const res = await patch(sound, user, {
+        loopStartSec: 1,
+        loopEndSec: 5,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      expectError(res, 400, 'validation');
+      expect(res.json().error.fields).toHaveProperty('crossfadeSec');
+    });
+
+    it('accepts a crossfade within half the loop length', async () => {
+      const { user, sound } = await fixture();
+      const res = await patch(sound, user, {
+        loopStartSec: 1,
+        loopEndSec: 9,
+        loopMode: 'crossfade',
+        crossfadeSec: 4,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ loopMode: 'crossfade', crossfadeSec: 4 });
+    });
+
+    it('still requires both loop points or neither', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { loopStartSec: 2 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopEndSec: 8 }), 400, 'validation');
+    });
+  });
+
   it('rejects an interval minimum above the maximum', async () => {
     const { user, sound } = await fixture();
     expectError(

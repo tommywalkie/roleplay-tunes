@@ -1,13 +1,21 @@
 import type { LayerState } from '@dnd/audio-engine';
-import { DEFAULT_INTERVAL_MAX_SEC, DEFAULT_INTERVAL_MIN_SEC } from '@dnd/shared';
+import { DEFAULT_INTERVAL_MAX_SEC, DEFAULT_INTERVAL_MIN_SEC, type Sound } from '@dnd/shared';
 import { describe, expect, it } from 'vitest';
-import { makeFakeEngine, makeMix, makeSound } from '../test/fixtures';
-import { createPlayer, defaultPlay, layersToMixItems, LOOSE_MIX_ID, toDescriptor } from './player';
+import { makeFakeEngine, makeMix, makeMixItem, makeSound } from '../test/fixtures';
+import {
+  createPlayer,
+  defaultPlay,
+  layersToMixItems,
+  LOOSE_MIX_ID,
+  soundLoop,
+  toDescriptor,
+} from './player';
 
 function setup() {
   const fake = makeFakeEngine();
   // Rules read the live engine state, so one player object serves a whole test.
-  const player = () => createPlayer(fake.engine, fake.engine.getSnapshot());
+  const byId = new Map([loop, drip, door].map((s) => [s.id, s]));
+  const player = () => createPlayer(fake.engine, fake.engine.getSnapshot(), (id) => byId.get(id));
   return { ...fake, player };
 }
 
@@ -22,14 +30,44 @@ const drip = makeSound({
 });
 const door = makeSound({ id: 'door', name: 'Door', defaultMode: 'oneshot', durationSec: 2 });
 
+/** The engine-shaped loop markers of a sound (what a layer's mode carries). */
+const engineLoop = (s: Sound) => {
+  const l = soundLoop(s);
+  return {
+    trackStart: l.trackStartSec,
+    trackEnd: l.trackEndSec,
+    loopStart: l.loopStartSec,
+    loopEnd: l.loopEndSec,
+    mode: l.loopMode,
+    crossfadeSec: l.crossfadeSec,
+  };
+};
+
 describe('toDescriptor', () => {
   it('maps a sound to what the engine loads', () => {
-    expect(toDescriptor(makeSound({ id: 'a', loopStartSec: 1, loopEndSec: 9, defaultVolume: 0.5 }))).toEqual({
+    expect(
+      toDescriptor(
+        makeSound({
+          id: 'a',
+          loopStartSec: 1,
+          loopEndSec: 9,
+          trackStartSec: 0.5,
+          trackEndSec: 20,
+          loopMode: 'crossfade',
+          crossfadeSec: 3,
+          defaultVolume: 0.5,
+        }),
+      ),
+    ).toEqual({
       id: 'a',
       url: '/api/sounds/a/audio',
       kind: 'loop',
       loopStart: 1,
       loopEnd: 9,
+      trackStart: 0.5,
+      trackEnd: 20,
+      loopMode: 'crossfade',
+      crossfadeSec: 3,
       defaultVolume: 0.5,
     });
     expect(toDescriptor(door).kind).toBe('oneshot');
@@ -70,8 +108,8 @@ describe('toggleSound', () => {
     const mix = makeMix({
       id: 'm1',
       items: [
-        { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-        { id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+        makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 }),
+        makeMixItem({ id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.6 }),
       ],
     });
     player().toggleMix(mix);
@@ -83,7 +121,11 @@ describe('toggleSound', () => {
   it('starts a loop at its beginning, not at a random point', () => {
     const { player, engine } = setup();
     player().toggleSound(loop);
-    expect(engine.getSnapshot().mix?.layers[0]?.mode).toEqual({ type: 'loop', randomStart: false });
+    expect(engine.getSnapshot().mix?.layers[0]?.mode).toEqual({
+      type: 'loop',
+      randomStart: false,
+      loop: engineLoop(loop),
+    });
   });
 
   it('maps random gaps to a recurring layer with ordered bounds and volume jitter', () => {
@@ -94,6 +136,7 @@ describe('toggleSound', () => {
       minInterval: 5,
       maxInterval: 30,
       volumeJitter: [0.75, 1],
+      loop: engineLoop(drip),
     });
   });
 
@@ -139,8 +182,8 @@ describe('playSoundAs', () => {
       makeMix({
         id: 'm1',
         items: [
-          { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-          { id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+          makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 }),
+          makeMixItem({ id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.6 }),
         ],
       }),
     );
@@ -153,6 +196,14 @@ describe('playSoundAs', () => {
       minInterval: 3,
       maxInterval: 12,
       volumeJitter: [1, 1],
+      loop: {
+        trackStart: 0,
+        trackEnd: 168,
+        loopStart: 0,
+        loopEnd: 168,
+        mode: 'gapless',
+        crossfadeSec: 2,
+      },
     });
   });
 
@@ -183,7 +234,7 @@ describe('setLayerPlay', () => {
     player().setLayerVolume('sound:drip', 0.3);
     player().setLayerPlay('sound:drip', drip, { mode: 'loop' });
     expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:drip', {
-      mode: { type: 'loop', randomStart: false },
+      mode: { type: 'loop', randomStart: false, loop: engineLoop(drip) },
     });
     expect(spies.removeLayer).not.toHaveBeenCalled();
     expect(engine.getSnapshot().mix?.layers).toMatchObject([
@@ -195,22 +246,42 @@ describe('setLayerPlay', () => {
     const { player, spies } = setup();
     const wind = makeSound({ id: 'wind', defaultMode: 'loop', volumeVariation: 0.4 });
     player().toggleSound(wind);
-    player().setLayerPlay('sound:wind', wind, { mode: 'recurring', intervalMinSec: 30, intervalMaxSec: 10 });
+    player().setLayerPlay('sound:wind', wind, {
+      mode: 'recurring',
+      intervalMinSec: 30,
+      intervalMaxSec: 10,
+    });
     expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:wind', {
-      mode: { type: 'recurring', minInterval: 10, maxInterval: 30, volumeJitter: [0.6, 1] },
+      mode: {
+        type: 'recurring',
+        minInterval: 10,
+        maxInterval: 30,
+        volumeJitter: [0.6, 1],
+        loop: engineLoop(wind),
+      },
     });
   });
 
   it('keeps the volume jitter of a layer that already has random pauses', () => {
     const { player, spies } = setup();
     player().toggleSound(drip);
-    player().setLayerPlay('sound:drip', { ...drip, volumeVariation: 0.9 }, {
-      mode: 'recurring',
-      intervalMinSec: 2,
-      intervalMaxSec: 8,
-    });
+    player().setLayerPlay(
+      'sound:drip',
+      { ...drip, volumeVariation: 0.9 },
+      {
+        mode: 'recurring',
+        intervalMinSec: 2,
+        intervalMaxSec: 8,
+      },
+    );
     expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:drip', {
-      mode: { type: 'recurring', minInterval: 2, maxInterval: 8, volumeJitter: [0.75, 1] },
+      mode: {
+        type: 'recurring',
+        minInterval: 2,
+        maxInterval: 8,
+        volumeJitter: [0.75, 1],
+        loop: engineLoop(drip),
+      },
     });
   });
 
@@ -218,7 +289,11 @@ describe('setLayerPlay', () => {
     const { player, spies } = setup();
     player().toggleSound(loop);
     player().togglePause();
-    player().setLayerPlay('sound:crowd', loop, { mode: 'recurring', intervalMinSec: 2, intervalMaxSec: 8 });
+    player().setLayerPlay('sound:crowd', loop, {
+      mode: 'recurring',
+      intervalMinSec: 2,
+      intervalMaxSec: 8,
+    });
     expect(spies.resume).toHaveBeenCalledTimes(1);
   });
 
@@ -239,7 +314,9 @@ describe('defaultPlay', () => {
 });
 
 describe('layersToMixItems', () => {
-  const layerOf = (over: Partial<LayerState> & Pick<LayerState, 'id' | 'soundId' | 'mode'>): LayerState => ({
+  const layerOf = (
+    over: Partial<LayerState> & Pick<LayerState, 'id' | 'soundId' | 'mode'>,
+  ): LayerState => ({
     volume: 1,
     muted: false,
     load: 'ready',
@@ -248,7 +325,12 @@ describe('layersToMixItems', () => {
 
   it('keeps each sound once, with the mode, volume and pauses it plays with', () => {
     const items = layersToMixItems([
-      layerOf({ id: 'a', soundId: 'crowd', volume: 0.6, mode: { type: 'loop', randomStart: false } }),
+      layerOf({
+        id: 'a',
+        soundId: 'crowd',
+        volume: 0.6,
+        mode: { type: 'loop', randomStart: false },
+      }),
       layerOf({
         id: 'b',
         soundId: 'drip',
@@ -265,9 +347,57 @@ describe('layersToMixItems', () => {
         intervalMinSec: DEFAULT_INTERVAL_MIN_SEC,
         intervalMaxSec: DEFAULT_INTERVAL_MAX_SEC,
         volumeVariation: 0,
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        loopMode: null,
+        crossfadeSec: null,
       },
-      { soundId: 'drip', mode: 'recurring', volume: 0.4, intervalMinSec: 5, intervalMaxSec: 30, volumeVariation: 0.25 },
+      {
+        soundId: 'drip',
+        mode: 'recurring',
+        volume: 0.4,
+        intervalMinSec: 5,
+        intervalMaxSec: 30,
+        volumeVariation: 0.25,
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        loopMode: null,
+        crossfadeSec: null,
+      },
     ]);
+  });
+
+  it('carries a layer’s loop markers into the mix item', () => {
+    const items = layersToMixItems([
+      layerOf({
+        id: 'a',
+        soundId: 'crowd',
+        mode: {
+          type: 'loop',
+          randomStart: false,
+          loop: {
+            trackStart: 1,
+            trackEnd: 60,
+            loopStart: 5,
+            loopEnd: 40,
+            mode: 'crossfade',
+            crossfadeSec: 4,
+          },
+        },
+      }),
+    ]);
+    expect(items[0]).toMatchObject({
+      trackStartSec: 1,
+      trackEndSec: 60,
+      loopStartSec: 5,
+      loopEndSec: 40,
+      loopMode: 'crossfade',
+      crossfadeSec: 4,
+    });
   });
 });
 
@@ -276,9 +406,17 @@ describe('toggleMix', () => {
     id: 'm1',
     name: 'Tavern evening',
     items: [
-      { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-      { id: 'i2', soundId: 'drip', mode: 'recurring', volume: 0.4, intervalMinSec: 5, intervalMaxSec: 30, volumeVariation: 0.5 },
-      { id: 'i3', soundId: 'door', mode: 'oneshot', volume: 0.9, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+      makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 }),
+      makeMixItem({
+        id: 'i2',
+        soundId: 'drip',
+        mode: 'recurring',
+        volume: 0.4,
+        intervalMinSec: 5,
+        intervalMaxSec: 30,
+        volumeVariation: 0.5,
+      }),
+      makeMixItem({ id: 'i3', soundId: 'door', mode: 'oneshot', volume: 0.9 }),
     ],
   });
 
@@ -290,10 +428,19 @@ describe('toggleMix', () => {
       name: 'Tavern evening',
       layers: [
         { id: 'item:i1', soundId: 'crowd', volume: 0.6, mode: { type: 'loop' } },
-        { id: 'item:i2', soundId: 'drip', volume: 0.4, mode: { type: 'recurring', volumeJitter: [0.5, 1] } },
+        {
+          id: 'item:i2',
+          soundId: 'drip',
+          volume: 0.4,
+          mode: { type: 'recurring', volumeJitter: [0.5, 1] },
+        },
       ],
     });
-    expect(spies.playOneshot).toHaveBeenCalledWith('door', { volume: 0.9 });
+    expect(spies.playOneshot).toHaveBeenCalledWith('door', {
+      volume: 0.9,
+      trackStart: 0,
+      trackEnd: 2,
+    });
     expect(player().isMixPlaying('m1')).toBe(true);
   });
 

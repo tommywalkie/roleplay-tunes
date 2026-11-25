@@ -1,22 +1,32 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { layersToMixItems, PlayerProvider, usePlayer } from '../audio/player';
+import { layersToMixItems, PlayerProvider, soundLoop, usePlayer } from '../audio/player';
 import { SoundTile, MixTile } from '../board/tiles';
 import { ToastProvider } from '../components/Toasts';
 import { I18nProvider } from '../i18n';
-import { makeFakeEngine, makeMix, makeSound } from '../test/fixtures';
+import { makeFakeEngine, makeMix, makeMixItem, makeSound } from '../test/fixtures';
 import { PlayerPanel } from './PlayerPanel';
 
 const crowd = makeSound({ id: 'crowd', name: 'Tavern crowd', defaultMode: 'loop' });
+/** The engine-shaped loop markers of the crowd sound (what a layer's mode carries). */
+const crowdLoop = (() => {
+  const l = soundLoop(crowd);
+  return {
+    trackStart: l.trackStartSec,
+    trackEnd: l.trackEndSec,
+    loopStart: l.loopStartSec,
+    loopEnd: l.loopEndSec,
+    mode: l.loopMode,
+    crossfadeSec: l.crossfadeSec,
+  };
+})();
 const door = makeSound({ id: 'door', name: 'Door creak', defaultMode: 'oneshot', durationSec: 2 });
 const sounds = [crowd, door];
 const mix = makeMix({
   id: 'm1',
   name: 'Tavern evening',
-  items: [
-    { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-  ],
+  items: [makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 })],
 });
 
 function Board() {
@@ -111,7 +121,10 @@ describe('PlayerPanel', () => {
 
     await user.click(row.getByRole('button', { name: 'Mute Tavern crowd' }));
     expect(spies.updateLayer).toHaveBeenCalledWith('sound:crowd', { muted: true });
-    expect(row.getByRole('button', { name: 'Unmute Tavern crowd' })).toHaveAttribute('aria-pressed', 'true');
+    expect(row.getByRole('button', { name: 'Unmute Tavern crowd' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
     await user.click(row.getByRole('button', { name: 'Remove Tavern crowd' }));
     expect(panel.getByText('Nothing playing')).toBeInTheDocument();
@@ -129,7 +142,9 @@ describe('PlayerPanel', () => {
 
   it('moves the master volume', () => {
     const { panel, spies } = setup();
-    fireEvent.change(panel.getByRole('slider', { name: 'Master volume' }), { target: { value: '0.5' } });
+    fireEvent.change(panel.getByRole('slider', { name: 'Master volume' }), {
+      target: { value: '0.5' },
+    });
     expect(spies.setMasterVolume).toHaveBeenCalledWith(0.5);
   });
 
@@ -156,7 +171,20 @@ describe('PlayerPanel', () => {
     expect(onSaveAsMix).toHaveBeenCalledTimes(1);
     expect(onSaveAsMix).toHaveBeenCalledWith(layersToMixItems(engine.getSnapshot().mix!.layers));
     expect(onSaveAsMix.mock.calls[0][0]).toEqual([
-      { soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
+      {
+        soundId: 'crowd',
+        mode: 'loop',
+        volume: 0.6,
+        intervalMinSec: 20,
+        intervalMaxSec: 90,
+        volumeVariation: 0,
+        trackStartSec: 0,
+        trackEndSec: 168,
+        loopStartSec: 0,
+        loopEndSec: 168,
+        loopMode: 'gapless',
+        crossfadeSec: 2,
+      },
     ]);
   });
 
@@ -172,7 +200,10 @@ describe('PlayerPanel', () => {
     });
     afterEach(() => vi.unstubAllGlobals());
 
-    const openMenu = async (user: ReturnType<typeof userEvent.setup>, panel: ReturnType<typeof setup>['panel']) => {
+    const openMenu = async (
+      user: ReturnType<typeof userEvent.setup>,
+      panel: ReturnType<typeof setup>['panel'],
+    ) => {
       await user.click(panel.getByRole('button', { name: 'How Tavern crowd repeats' }));
       return within(screen.getByRole('menu'));
     };
@@ -196,7 +227,13 @@ describe('PlayerPanel', () => {
 
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:crowd', {
-        mode: { type: 'recurring', minInterval: 2, maxInterval: 8, volumeJitter: [1, 1] },
+        mode: {
+          type: 'recurring',
+          minInterval: 2,
+          maxInterval: 8,
+          volumeJitter: [1, 1],
+          loop: crowdLoop,
+        },
       });
       expect(spies.removeLayer).not.toHaveBeenCalled();
       expect(spies.addLayer).not.toHaveBeenCalled();
@@ -221,7 +258,13 @@ describe('PlayerPanel', () => {
       await user.type(max, '12');
       await user.click(dialog.getByRole('button', { name: 'Play' }));
       expect(spies.updateLayer).toHaveBeenLastCalledWith('item:i1', {
-        mode: { type: 'recurring', minInterval: 4, maxInterval: 12, volumeJitter: [1, 1] },
+        mode: {
+          type: 'recurring',
+          minInterval: 4,
+          maxInterval: 12,
+          volumeJitter: [1, 1],
+          loop: crowdLoop,
+        },
       });
 
       let menu = await openMenu(user, panel);
@@ -238,7 +281,7 @@ describe('PlayerPanel', () => {
       menu = await openMenu(user, panel);
       await user.click(menu.getByRole('menuitem', { name: 'Play as a loop' }));
       expect(spies.updateLayer).toHaveBeenLastCalledWith('item:i1', {
-        mode: { type: 'loop', randomStart: false },
+        mode: { type: 'loop', randomStart: false, loop: crowdLoop },
       });
       expect(spies.removeLayer).not.toHaveBeenCalled();
       expectCoreControls(panel);

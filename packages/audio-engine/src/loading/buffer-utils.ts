@@ -1,5 +1,5 @@
 import { clamp } from '../params';
-import type { LoopRegion } from '../types';
+import type { LoopConfig, LoopRegion } from '../types';
 
 /** Minimal AudioBuffer shape needed by the pure helpers (real or fake buffers). */
 export type PcmBuffer = Pick<
@@ -30,6 +30,31 @@ export function clampRegion(region: Partial<LoopRegion>, duration: number): Loop
   const loopStart = clamp(region.loopStart ?? 0, 0, Math.max(0, duration - minLen));
   const loopEnd = clamp(region.loopEnd ?? duration, loopStart + minLen, duration);
   return { loopStart, loopEnd };
+}
+
+/** Longest crossfade a loop may ask for, in seconds. */
+export const MAX_CROSSFADE_SEC = 10;
+
+/**
+ * Resolve partial loop settings against a buffer duration into an ordered, clamped config:
+ * 0 <= trackStart <= loopStart < loopEnd <= trackEnd <= duration, and a crossfade that
+ * never exceeds half the loop or `MAX_CROSSFADE_SEC`.
+ */
+export function resolveLoopConfig(p: Partial<LoopConfig>, duration: number): LoopConfig {
+  const d = Math.max(0, duration);
+  const trackStart = clamp(p.trackStart ?? 0, 0, d);
+  const trackEnd = clamp(p.trackEnd ?? d, trackStart, d);
+  const minLen = Math.min(MIN_LOOP_SEC, trackEnd - trackStart);
+  const loopStart = clamp(
+    p.loopStart ?? trackStart,
+    trackStart,
+    Math.max(trackStart, trackEnd - minLen),
+  );
+  const loopEnd = clamp(p.loopEnd ?? trackEnd, loopStart + minLen, trackEnd);
+  const mode = p.mode ?? 'gapless';
+  const maxCf = Math.min(MAX_CROSSFADE_SEC, (loopEnd - loopStart) / 2);
+  const crossfadeSec = clamp(p.crossfadeSec ?? 0, 0, maxCf);
+  return { trackStart, trackEnd, loopStart, loopEnd, mode, crossfadeSec };
 }
 
 /** Max |sample| across channels per bucket. */

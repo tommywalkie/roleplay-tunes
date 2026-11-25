@@ -3,6 +3,7 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   createMixSchema,
+  loopSettingsError,
   mixVolumesSchema,
   updateMixSchema,
   type Access,
@@ -46,6 +47,12 @@ const itemResponse = {
     intervalMinSec: { type: 'number' },
     intervalMaxSec: { type: 'number' },
     volumeVariation: { type: 'number' },
+    trackStartSec: { type: 'number', nullable: true },
+    trackEndSec: { type: 'number', nullable: true },
+    loopStartSec: { type: 'number', nullable: true },
+    loopEndSec: { type: 'number', nullable: true },
+    loopMode: { type: 'string', enum: ['gapless', 'crossfade'], nullable: true },
+    crossfadeSec: { type: 'number', nullable: true },
   },
 } as const;
 
@@ -78,6 +85,12 @@ const itemBody = {
     intervalMinSec: { type: 'number', minimum: 1, maximum: 3600 },
     intervalMaxSec: { type: 'number', minimum: 1, maximum: 3600 },
     volumeVariation: { type: 'number', minimum: 0, maximum: 1 },
+    trackStartSec: { type: 'number', minimum: 0, nullable: true },
+    trackEndSec: { type: 'number', minimum: 0, nullable: true },
+    loopStartSec: { type: 'number', minimum: 0, nullable: true },
+    loopEndSec: { type: 'number', minimum: 0, nullable: true },
+    loopMode: { type: 'string', enum: ['gapless', 'crossfade'], nullable: true },
+    crossfadeSec: { type: 'number', minimum: 0, maximum: 10, nullable: true },
   },
 } as const;
 
@@ -131,6 +144,12 @@ function toItem(row: ItemRow, volume: number | undefined): MixItem {
     intervalMinSec: row.intervalMinSec,
     intervalMaxSec: row.intervalMaxSec,
     volumeVariation: row.volumeVariation,
+    trackStartSec: row.trackStartSec,
+    trackEndSec: row.trackEndSec,
+    loopStartSec: row.loopStartSec,
+    loopEndSec: row.loopEndSec,
+    loopMode: row.loopMode,
+    crossfadeSec: row.crossfadeSec,
   };
 }
 
@@ -222,6 +241,30 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
         [`items.${position}.intervalMaxSec`]: 'Must not be below the minimum',
       });
     }
+    // Loop markers left out stay null: the item then follows the sound's own values.
+    const loopError = loopSettingsError(
+      {
+        durationSec: sound.durationSec,
+        trackStartSec: input.trackStartSec ?? undefined,
+        trackEndSec: input.trackEndSec ?? undefined,
+        loopStartSec: input.loopStartSec ?? undefined,
+        loopEndSec: input.loopEndSec ?? undefined,
+        crossfadeSec: input.crossfadeSec ?? undefined,
+      },
+      {
+        durationSec: sound.durationSec,
+        trackStartSec: sound.trackStartSec,
+        trackEndSec: sound.trackEndSec,
+        loopStartSec: sound.loopStartSec,
+        loopEndSec: sound.loopEndSec,
+        crossfadeSec: sound.crossfadeSec,
+      },
+    );
+    if (loopError) {
+      throw invalid('Invalid request', {
+        [`items.${position}.${loopError.field}`]: loopError.message,
+      });
+    }
     return {
       id: randomUUID(),
       mixId,
@@ -232,6 +275,12 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
       intervalMinSec,
       intervalMaxSec,
       volumeVariation: input.volumeVariation ?? sound.volumeVariation,
+      trackStartSec: input.trackStartSec ?? null,
+      trackEndSec: input.trackEndSec ?? null,
+      loopStartSec: input.loopStartSec ?? null,
+      loopEndSec: input.loopEndSec ?? null,
+      loopMode: input.loopMode ?? null,
+      crossfadeSec: input.crossfadeSec ?? null,
     };
   });
 }

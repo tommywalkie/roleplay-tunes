@@ -26,7 +26,8 @@ describe('previewLoop', () => {
 
     const source = ctx.playingSources().find((s) => s.buffer?.duration === 60)!;
     expect([source.loop, source.loopStart, source.loopEnd]).toEqual([true, 1, 5]);
-    expect(source.started?.offset).toBe(1);
+    // The test sequence starts at the track start (0 by default), not at the loop start.
+    expect(source.started?.offset).toBe(0);
     expect(source.isConnectedTo(graphNodes(ctx).master)).toBe(true);
     expect(source.isConnectedTo(graphNodes(ctx).mixInput)).toBe(false);
     expect(settled(graphNodes(ctx).mixInput.gain)).toBeCloseTo(10 ** (-12 / 20));
@@ -44,17 +45,17 @@ describe('previewLoop', () => {
     await engine.unlock();
     const handle = engine.previewLoop('rain', { loopStart: 1, loopEnd: 5 });
     await flush();
-    ctx.advance(2.5); // playhead at 3.5
-    expect(handle.getPosition()).toBeCloseTo(3.5);
+    ctx.advance(2.5); // playhead at 2.5 (started at the track start 0)
+    expect(handle.getPosition()).toBeCloseTo(2.5);
 
     handle.update({ loopStart: 0.5, loopEnd: 8 });
     const sources = ctx.playingSources();
     expect(sources).toHaveLength(1);
     expect([sources[0].loopStart, sources[0].loopEnd]).toEqual([0.5, 8]);
-    expect(handle.getPosition()).toBeCloseTo(3.5);
-    ctx.advance(5); // 8.5 → wraps to 0.5 + 0.5
+    expect(handle.getPosition()).toBeCloseTo(2.5);
+    ctx.advance(6); // 8.5 → wraps to 0.5 + 0.5
     expect(handle.getPosition()).toBeCloseTo(1);
-    expect(engine.getSnapshot().preview?.region).toEqual({ loopStart: 0.5, loopEnd: 8 });
+    expect(engine.getSnapshot().preview?.region).toMatchObject({ loopStart: 0.5, loopEnd: 8 });
   });
 
   it('wraps immediately when the new loopEnd is before the playhead', async () => {
@@ -71,9 +72,9 @@ describe('previewLoop', () => {
     const { engine } = setup();
     const handle = engine.previewLoop('rain', { loopStart: -1, loopEnd: 99 });
     await flush();
-    expect(engine.getSnapshot().preview?.region).toEqual({ loopStart: 0, loopEnd: 60 });
+    expect(engine.getSnapshot().preview?.region).toMatchObject({ loopStart: 0, loopEnd: 60 });
     handle.update({ loopStart: 10, loopEnd: 10 });
-    expect(engine.getSnapshot().preview?.region).toEqual({ loopStart: 10, loopEnd: 10.1 });
+    expect(engine.getSnapshot().preview?.region).toMatchObject({ loopStart: 10, loopEnd: 10.1 });
   });
 
   it('auditionSeam restarts just before loopEnd (also when requested before load)', async () => {
@@ -93,6 +94,16 @@ describe('previewLoop', () => {
     expect(playing).toHaveLength(1);
     expect(playing[0].started?.offset).toBe(18);
     expect(handle.getPosition()).toBe(18);
+  });
+
+  it('seekTo before the buffer loads starts playback at the seek position', async () => {
+    const { engine, ctx } = setup();
+    await engine.unlock();
+    const handle = engine.previewLoop('rain', { loopStart: 1, loopEnd: 20 });
+    handle.seekTo(5); // buffer not loaded yet: must be queued, not dropped
+    await flush();
+    expect(ctx.playingSources()[0].started?.offset).toBe(5);
+    handle.stop();
   });
 
   it('a new preview replaces the previous one', async () => {
