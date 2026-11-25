@@ -75,6 +75,19 @@ export const itemLoop = (
     crossfadeSec: item.crossfadeSec ?? sound.crossfadeSec,
   });
 
+/** The loop settings a playing layer uses now, falling back to the sound's own. */
+export const layerLoop = (sound: Sound, loop: Partial<LoopConfig> | undefined): LoopSettings =>
+  resolveLoopSettings({
+    ...soundLoop(sound),
+    durationSec: sound.durationSec,
+    ...(loop?.trackStart !== undefined ? { trackStartSec: loop.trackStart } : {}),
+    ...(loop?.trackEnd !== undefined ? { trackEndSec: loop.trackEnd } : {}),
+    ...(loop?.loopStart !== undefined ? { loopStartSec: loop.loopStart } : {}),
+    ...(loop?.loopEnd !== undefined ? { loopEndSec: loop.loopEnd } : {}),
+    ...(loop?.mode !== undefined ? { loopMode: loop.mode } : {}),
+    ...(loop?.crossfadeSec !== undefined ? { crossfadeSec: loop.crossfadeSec } : {}),
+  });
+
 function toEngineLoop(loop: LoopSettings): Partial<LoopConfig> {
   return {
     trackStart: loop.trackStartSec,
@@ -201,6 +214,11 @@ export interface Player {
     sound: Sound,
     play: Exclude<SoundPlay, { mode: 'oneshot' }>,
   ) => void;
+  /**
+   * Changes the loop markers of a playing layer, live. Nothing is saved: the sound, its mix
+   * and its scenes keep their own settings, and the change is gone once the layer stops.
+   */
+  setLayerLoop: (layerId: string, loop: LoopSettings) => void;
   /** Stops every layer and every one-shot. */
   stopAll: () => void;
   togglePause: () => void;
@@ -348,6 +366,12 @@ export function createPlayer(
                 loop,
               },
       });
+    },
+    setLayerLoop(layerId, loop) {
+      const current = layers().find((l) => l.id === layerId);
+      if (!current) return;
+      wake();
+      engine.updateLayer(layerId, { mode: { ...current.mode, loop: toEngineLoop(loop) } });
     },
     stopAll() {
       engine.stop();

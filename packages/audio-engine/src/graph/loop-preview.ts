@@ -81,6 +81,13 @@ export class LoopPreview {
     const resolved = this.cfg;
     const now = this.ctx.currentTime;
     this.anchor = { time: now, offset: loopPosition(position, 0, resolved) };
+    // Switching between a gapless source and a crossfading looper needs a new player:
+    // restart at the playhead so the change is heard at once, not on the next seek.
+    const wantsLooper = this.usesLooper(resolved);
+    if (!this.paused && (this.source || this.looper) && wantsLooper !== (this.looper !== null)) {
+      this.startAt(loopPosition(position, 0, resolved));
+      return resolved;
+    }
     if (this.looper) {
       this.looper.update(resolved);
     } else if (this.source) {
@@ -134,7 +141,8 @@ export class LoopPreview {
   resume() {
     if (!this.paused || this.stopped || !this.buffer) return;
     this.paused = false;
-    if (this.looper) this.looper.resume();
+    // The settings may have switched gapless/crossfade while paused: restart fresh then.
+    if (this.looper && this.usesLooper(this.cfg)) this.looper.resume();
     else this.startAt(this.pausedAt);
   }
 
@@ -183,11 +191,16 @@ export class LoopPreview {
     }
   }
 
+  /** Whether `cfg` plays through the crossfading looper rather than one looping source. */
+  private usesLooper(cfg: LoopConfig): boolean {
+    return cfg.mode === 'crossfade' && cfg.crossfadeSec > 0.005;
+  }
+
   /** (Re)starts playback at `offset`, gapless or crossfading per the current config. */
   private startAt(offset: number) {
     if (!this.buffer) return;
     const now = this.ctx.currentTime;
-    const crossfade = this.cfg.mode === 'crossfade' && this.cfg.crossfadeSec > 0.005;
+    const crossfade = this.usesLooper(this.cfg);
     if (this.looper) {
       this.looper.stop(0);
       this.looper = null;

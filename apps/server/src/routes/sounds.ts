@@ -20,7 +20,7 @@ import { assertOwnCategories, setTags, tagsOf, tagsOfMany } from '../tags.js';
 import { taggedBody, taggedResponse } from './tags.js';
 import { requireUser } from '../auth.js';
 import { db } from '../db/index.js';
-import { scenes, soundVolumes, sounds } from '../db/schema.js';
+import { scenes, soundLoops, soundVolumes, sounds } from '../db/schema.js';
 import { AppError, conflict, forbidden, invalid, notFound, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
 import { effectiveLimits, storageUsed } from '../settings.js';
@@ -31,9 +31,11 @@ import {
   publicMixesHolding,
   releaseImages,
   soundColumns,
+  soundLoopsOf,
   soundVolumesOf,
   usableSound,
   type CountedSound,
+  type LoopFields,
 } from '../sharing.js';
 import { audioPath, detectAudioType, receiveUpload, removeFile, storeAudio } from '../storage.js';
 import { assertOwned, sceneIdsBySound, setSoundScenes } from './common.js';
@@ -98,11 +100,14 @@ export interface SoundView {
   sceneIds: string[];
   /** The viewer's own volume, for a sound they did not upload. */
   volume?: number;
+  /** The viewer's own loop settings, for a sound they did not upload; replace all six. */
+  loop?: LoopFields;
   synonyms: ItemSynonym[];
   categoryIds: string[];
 }
 
 export function toSound(row: CountedSound, view: SoundView): Sound {
+  const loop = view.loop ?? row;
   return {
     id: row.id,
     name: row.name,
@@ -125,12 +130,12 @@ export function toSound(row: CountedSound, view: SoundView): Sound {
     durationSec: row.durationSec,
     defaultMode: row.defaultMode,
     defaultVolume: view.volume ?? row.defaultVolume,
-    trackStartSec: row.trackStartSec,
-    trackEndSec: row.trackEndSec,
-    loopStartSec: row.loopStartSec,
-    loopEndSec: row.loopEndSec,
-    loopMode: row.loopMode,
-    crossfadeSec: row.crossfadeSec,
+    trackStartSec: loop.trackStartSec,
+    trackEndSec: loop.trackEndSec,
+    loopStartSec: loop.loopStartSec,
+    loopEndSec: loop.loopEndSec,
+    loopMode: loop.loopMode ?? 'gapless',
+    crossfadeSec: loop.crossfadeSec,
     intervalMinSec: row.intervalMinSec,
     intervalMaxSec: row.intervalMaxSec,
     volumeVariation: row.volumeVariation,
@@ -150,6 +155,7 @@ function soundFor(userId: string, row: CountedSound, access: Access): Sound {
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
     sceneIds: sceneIdsBySound(userId).get(row.id) ?? [],
     volume: access === 'owner' ? undefined : soundVolumesOf(userId).get(row.id),
+    loop: access === 'owner' ? undefined : soundLoopsOf(userId).get(row.id),
     ...tagsOf('sound', userId, row.id, row.ownerId),
   });
 }
@@ -185,8 +191,24 @@ async function measureDuration(path: string): Promise<number | null> {
   }
 }
 
+/** The loop fields of a sound, which a user who added it may set for themselves. */
+const LOOP_KEYS = [
+  'trackStartSec',
+  'trackEndSec',
+  'loopStartSec',
+  'loopEndSec',
+  'loopMode',
+  'crossfadeSec',
+] as const;
+
 /** Fields a user who added the sound from the library may change. */
-const ADDED_FIELDS = new Set(['defaultVolume', 'sceneIds', 'synonyms', 'categoryIds']);
+const ADDED_FIELDS = new Set([
+  'defaultVolume',
+  'sceneIds',
+  'synonyms',
+  'categoryIds',
+  ...LOOP_KEYS,
+]);
 
 export function soundsRoutes(app: FastifyInstance) {
   app.get('/api/sounds', {
@@ -211,6 +233,7 @@ export function soundsRoutes(app: FastifyInstance) {
     const sceneIds = sceneIdsBySound(user.id);
     const names = ownerNames(rows.map((r) => r.ownerId));
     const volumes = soundVolumesOf(user.id);
+    const loops = soundLoopsOf(user.id);
     const tags = tagsOfMany('sound', user.id, new Map(rows.map((r) => [r.id, r.ownerId])));
     return rows.map((row) => {
       const access: Access = row.ownerId === user.id ? 'owner' : 'added';
@@ -219,6 +242,7 @@ export function soundsRoutes(app: FastifyInstance) {
         ownerName: names.get(row.ownerId) ?? '',
         sceneIds: sceneIds.get(row.id) ?? [],
         volume: access === 'owner' ? undefined : volumes.get(row.id),
+        loop: access === 'owner' ? undefined : loops.get(row.id),
         ...tags(row.id),
       });
     });
@@ -358,7 +382,7 @@ export function soundsRoutes(app: FastifyInstance) {
       tags: ['sounds'],
       summary: 'Update sound',
       description:
-        "Updates a sound. The owner may change every field. A user who added the sound from the library may change only `defaultVolume` (their own volume, the owner's is kept) and `sceneIds` (their own scenes).",
+        "Updates a sound. The owner may change every field. A user who added the sound from the library may change only `defaultVolume` (their own volume, the owner's is kept), the loop fields (`trackStartSec`, `trackEndSec`, `loopStartSec`, `loopEndSec`, `loopMode`, `crossfadeSec`: their own loop settings, the owner's are kept) and `sceneIds` (their own scenes).",
       params: idParams,
       body: {
         type: 'object',
@@ -419,7 +443,28 @@ export function soundsRoutes(app: FastifyInstance) {
         throw forbidden('Only the owner of this sound can change it');
       }
       if (sceneIds) assertOwned(scenes, user.id, sceneIds, 'sceneIds');
+      // Their own loop settings: the fields sent, over the ones they already set, over the owner's.
+      const sentLoop = LOOP_KEYS.some((key) => key in (request.body as object));
+      const base: LoopFields = soundLoopsOf(user.id).get(current.id) ?? current;
+      const ownLoop: LoopFields = {
+        trackStartSec: changes.trackStartSec !== undefined ? changes.trackStartSec : base.trackStartSec,
+        trackEndSec: changes.trackEndSec !== undefined ? changes.trackEndSec : base.trackEndSec,
+        loopStartSec: changes.loopStartSec !== undefined ? changes.loopStartSec : base.loopStartSec,
+        loopEndSec: changes.loopEndSec !== undefined ? changes.loopEndSec : base.loopEndSec,
+        loopMode: changes.loopMode ?? base.loopMode ?? 'gapless',
+        crossfadeSec: changes.crossfadeSec !== undefined ? changes.crossfadeSec : base.crossfadeSec,
+      };
+      if (sentLoop) {
+        const ownError = loopSettingsError({ durationSec: current.durationSec, ...ownLoop });
+        if (ownError) throw invalid('Invalid request', { [ownError.field]: ownError.message });
+      }
       db.transaction(() => {
+        if (sentLoop) {
+          db.insert(soundLoops)
+            .values({ userId: user.id, soundId: current.id, ...ownLoop })
+            .onConflictDoUpdate({ target: [soundLoops.userId, soundLoops.soundId], set: ownLoop })
+            .run();
+        }
         setTags('sound', user.id, current.id, tags);
         if (sceneIds) setSoundScenes(current.id, sceneIds);
         if (changes.defaultVolume !== undefined) {

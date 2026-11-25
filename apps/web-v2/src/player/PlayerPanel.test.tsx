@@ -216,6 +216,7 @@ describe('PlayerPanel', () => {
       expect(menu.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
         'Play as a loopNow',
         'Play with random pauses',
+        'Loop settings',
       ]);
       await user.click(menu.getByRole('menuitem', { name: 'Play with random pauses' }));
 
@@ -271,6 +272,7 @@ describe('PlayerPanel', () => {
       expect(menu.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
         'Play as a loop',
         'Play with random pausesNow 4–12 s',
+        'Loop settings',
       ]);
       await user.click(menu.getByRole('menuitem', { name: /^Play with random pauses/ }));
       dialog = within(screen.getByRole('dialog', { name: 'Random pauses Tavern crowd' }));
@@ -285,6 +287,57 @@ describe('PlayerPanel', () => {
       });
       expect(spies.removeLayer).not.toHaveBeenCalled();
       expectCoreControls(panel);
+    });
+
+    it('opens the loop editor live on the playing layer, applying without saving anything', async () => {
+      const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      const { panel, user, spies, engine } = setup();
+      spies.getWaveformPeaks.mockResolvedValue(new Float32Array(480));
+      await user.click(screen.getByRole('button', { name: /^Tavern evening/ }));
+
+      const menu = await openMenu(user, panel);
+      await user.click(menu.getByRole('menuitem', { name: 'Loop settings' }));
+      const dialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+      expect(
+        dialog.getByText(/^Changes apply to this sound as it plays now\. Nothing is saved/),
+      ).toBeInTheDocument();
+
+      // One step on the loop start (0.1 s), then crossfade.
+      fireEvent.keyDown(dialog.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
+      await user.click(dialog.getByRole('radio', { name: 'Crossfade' }));
+      spies.updateLayer.mockClear();
+      await user.click(dialog.getByRole('button', { name: 'Apply' }));
+
+      expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
+      expect(spies.updateLayer).toHaveBeenCalledTimes(1);
+      expect(spies.updateLayer).toHaveBeenLastCalledWith('item:i1', {
+        mode: {
+          type: 'loop',
+          randomStart: false,
+          loop: { ...crowdLoop, loopStart: 0.1, mode: 'crossfade' },
+        },
+      });
+      expect(engine.getSnapshot().mix?.layers.map((l) => l.id)).toEqual(['item:i1']);
+      expect(spies.removeLayer).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expectCoreControls(panel);
+    });
+
+    it('leaves the playing layer alone when the loop editor is cancelled', async () => {
+      const { panel, user, spies } = setup();
+      spies.getWaveformPeaks.mockResolvedValue(new Float32Array(480));
+      await user.click(screen.getByRole('button', { name: /^Tavern crowd/ }));
+
+      const menu = await openMenu(user, panel);
+      await user.click(menu.getByRole('menuitem', { name: 'Loop settings' }));
+      const dialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+      fireEvent.keyDown(dialog.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
+      spies.updateLayer.mockClear();
+      await user.click(dialog.getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
+      expect(spies.updateLayer).not.toHaveBeenCalled();
     });
   });
 

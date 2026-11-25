@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "dotenvx run -f .env --ignore=MISSING_ENV_FILE -- vite",
+    "dev": "node --env-file-if-exists=.env node_modules/vite/bin/vite.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -34,7 +34,6 @@
     "react-router": "^8.4.0"
   },
   "devDependencies": {
-    "@dotenvx/dotenvx": "^2.38.2",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.0",

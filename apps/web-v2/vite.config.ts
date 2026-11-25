@@ -19,7 +19,7 @@ process.env.VITE_FONT_VERSIONS = JSON.stringify({
 // The API server trusts http://localhost:5173 by default (TRUSTED_ORIGINS), and the session
 // cookie is same-origin through this proxy, so the port is fixed.
 export default defineConfig({
-  // No env files read by Vite: dotenvx loads apps/web-v2/.env for the dev server only (see
+  // No env files read by Vite: Node loads apps/web-v2/.env for the dev server only (see
   // the `dev` script), and Vite still exposes `VITE_*` variables from the environment. A
   // setting the server owns reaches the app at runtime instead (see contact.js).
   envDir: false,

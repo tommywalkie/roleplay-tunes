@@ -1,10 +1,11 @@
 import type { LayerState } from '@dnd/audio-engine';
 import { DEFAULT_INTERVAL_MAX_SEC, DEFAULT_INTERVAL_MIN_SEC, type Sound } from '@dnd/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { makeFakeEngine, makeMix, makeMixItem, makeSound } from '../test/fixtures';
 import {
   createPlayer,
   defaultPlay,
+  layerLoop,
   layersToMixItems,
   LOOSE_MIX_ID,
   soundLoop,
@@ -302,6 +303,101 @@ describe('setLayerPlay', () => {
     player().setLayerPlay('sound:crowd', loop, { mode: 'loop' });
     expect(spies.updateLayer).not.toHaveBeenCalled();
     expect(spies.resume).not.toHaveBeenCalled();
+  });
+});
+
+describe('setLayerLoop', () => {
+  const settings = {
+    trackStartSec: 2,
+    trackEndSec: 100,
+    loopStartSec: 10,
+    loopEndSec: 90,
+    loopMode: 'crossfade' as const,
+    crossfadeSec: 4,
+  };
+  const engineSettings = {
+    trackStart: 2,
+    trackEnd: 100,
+    loopStart: 10,
+    loopEnd: 90,
+    mode: 'crossfade',
+    crossfadeSec: 4,
+  };
+
+  it('changes the loop of a playing layer in place, keeping its mode and volume', () => {
+    const { player, spies, engine } = setup();
+    player().toggleSound(loop);
+    player().setLayerVolume('sound:crowd', 0.4);
+    spies.updateLayer.mockClear();
+    player().setLayerLoop('sound:crowd', settings);
+    expect(spies.updateLayer).toHaveBeenCalledTimes(1);
+    expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:crowd', {
+      mode: { type: 'loop', randomStart: false, loop: engineSettings },
+    });
+    expect(spies.removeLayer).not.toHaveBeenCalled();
+    expect(engine.getSnapshot().mix?.layers).toMatchObject([
+      { id: 'sound:crowd', volume: 0.4, mode: { type: 'loop', loop: engineSettings } },
+    ]);
+  });
+
+  it('keeps the random pauses of a recurring layer', () => {
+    const { player, spies } = setup();
+    player().toggleSound(drip);
+    player().setLayerLoop('sound:drip', settings);
+    expect(spies.updateLayer).toHaveBeenLastCalledWith('sound:drip', {
+      mode: expect.objectContaining({
+        type: 'recurring',
+        minInterval: 5,
+        maxInterval: 30,
+        loop: engineSettings,
+      }),
+    });
+  });
+
+  it('resumes a paused engine', () => {
+    const { player, spies } = setup();
+    player().toggleSound(loop);
+    player().togglePause();
+    player().setLayerLoop('sound:crowd', settings);
+    expect(spies.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing for a layer that no longer plays, and never calls the server', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const { player, spies } = setup();
+      player().setLayerLoop('sound:crowd', settings);
+      expect(spies.updateLayer).not.toHaveBeenCalled();
+      expect(spies.resume).not.toHaveBeenCalled();
+
+      player().toggleSound(loop);
+      player().setLayerLoop('sound:crowd', settings);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
+describe('layerLoop', () => {
+  const sound = makeSound({
+    durationSec: 60,
+    loopStartSec: 5,
+    loopEndSec: 50,
+    loopMode: 'crossfade',
+    crossfadeSec: 3,
+  });
+
+  it('falls back to the sound’s own loop when the layer carries none', () => {
+    expect(layerLoop(sound, undefined)).toEqual(soundLoop(sound));
+  });
+
+  it('takes the layer’s markers over the sound’s', () => {
+    expect(layerLoop(sound, { loopStart: 10, mode: 'gapless' })).toEqual({
+      ...soundLoop(sound),
+      loopStartSec: 10,
+      loopMode: 'gapless',
+    });
   });
 });
 

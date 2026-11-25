@@ -87,10 +87,36 @@ export function SoundEditor({
   const error = save.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
 
+  // A marker at its usual edge is stored as null ("the default"), not as a number.
+  const loopBody = {
+    trackStartSec: loop.trackStartSec > 0 ? loop.trackStartSec : null,
+    trackEndSec: loop.trackEndSec < sound.durationSec ? loop.trackEndSec : null,
+    loopStartSec: loop.loopStartSec > loop.trackStartSec ? loop.loopStartSec : null,
+    loopEndSec: loop.loopEndSec < loop.trackEndSec ? loop.loopEndSec : null,
+    loopMode: loop.loopMode,
+    crossfadeSec:
+      loop.crossfadeSec === Math.min(DEFAULT_CROSSFADE_SEC, (loop.loopEndSec - loop.loopStartSec) / 2)
+        ? null
+        : loop.crossfadeSec,
+  };
+
   const submit = () => {
     if (!owned) {
+      // Their own loop settings, sent only once they changed them: the owner's stay untouched.
+      const initial = soundLoop(sound);
+      const loopChanged = (Object.keys(initial) as (keyof LoopSettings)[]).some(
+        (key) => initial[key] !== loop[key],
+      );
       save.mutate(
-        { id: sound.id, body: { defaultVolume: volume, sceneIds, ...tags.body } },
+        {
+          id: sound.id,
+          body: {
+            defaultVolume: volume,
+            sceneIds,
+            ...tags.body,
+            ...(loopChanged ? loopBody : {}),
+          },
+        },
         { onSuccess: onClose },
       );
       return;
@@ -109,16 +135,7 @@ export function SoundEditor({
       isPublic,
       defaultMode: mode,
       defaultVolume: volume,
-      // A marker at its usual edge is stored as null ("the default"), not as a number.
-      trackStartSec: loop.trackStartSec > 0 ? loop.trackStartSec : null,
-      trackEndSec: loop.trackEndSec < sound.durationSec ? loop.trackEndSec : null,
-      loopStartSec: loop.loopStartSec > loop.trackStartSec ? loop.loopStartSec : null,
-      loopEndSec: loop.loopEndSec < loop.trackEndSec ? loop.loopEndSec : null,
-      loopMode: loop.loopMode,
-      crossfadeSec:
-        loop.crossfadeSec === Math.min(DEFAULT_CROSSFADE_SEC, (loop.loopEndSec - loop.loopStartSec) / 2)
-          ? null
-          : loop.crossfadeSec,
+      ...loopBody,
       intervalMinSec: min,
       intervalMaxSec: max,
       volumeVariation: variation,
@@ -223,8 +240,10 @@ export function SoundEditor({
           />
           <p className="text-[13px] leading-5 text-ink-3">{t(`mode.${mode}.hint` as MessageKey)}</p>
         </div>
+      </OwnerOnly>
 
-        <Field label={t('loop.label')}>
+      {/* Anyone may set the loop: the owner sets the sound's own, others their own copy. */}
+      <Field label={t('loop.label')} hint={owned ? undefined : t('share.yourLoop')}>
           {() => (
             <div className="flex items-center gap-3">
               <Button icon={AudioWaveform} onClick={() => setLoopOpen(true)}>
@@ -250,6 +269,7 @@ export function SoundEditor({
           )}
         </Field>
 
+      <OwnerOnly locked={!owned}>
         {mode === 'recurring' && (
           <div className="grid grid-cols-2 gap-4">
             <Field label={t('sounds.gapMin')} error={fields?.intervalMinSec}>
@@ -318,9 +338,10 @@ export function SoundEditor({
       />
       </Dialog>
 
-      {loopOpen && owned && (
+      {loopOpen && (
         <LoopEditorDialog
           sound={sound}
+          mode={mode}
           initial={loop}
           onSave={setLoop}
           onClose={() => setLoopOpen(false)}

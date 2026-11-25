@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { Mix } from '@dnd/shared';
+import { resolveLoopSettings, type Mix, type Sound } from '@dnd/shared';
 import { buildApp } from '../app.js';
 import {
   call,
@@ -484,6 +484,127 @@ describe('loop overrides', () => {
       loopMode: 'gapless',
       crossfadeSec: null,
     });
+  });
+});
+
+describe('loop settings of an added mix', () => {
+  const OWNER_LOOP = {
+    trackStartSec: 1,
+    trackEndSec: 28,
+    loopStartSec: 2,
+    loopEndSec: 25,
+    loopMode: 'crossfade' as const,
+    crossfadeSec: 4,
+  };
+  const OWN_LOOP = {
+    trackStartSec: 2,
+    trackEndSec: 9,
+    loopStartSec: 3,
+    loopEndSec: 8,
+    loopMode: 'gapless' as const,
+    crossfadeSec: 1,
+  };
+  const NULL_LOOP = {
+    trackStartSec: null,
+    trackEndSec: null,
+    loopStartSec: null,
+    loopEndSec: null,
+    loopMode: null,
+    crossfadeSec: null,
+  };
+
+  /**
+   * A public mix of two public 30 s sounds with the owner's loop: one item overrides its loop
+   * points, the other follows the sound. b added the mix and the first sound, with their own
+   * loop for that sound.
+   */
+  async function shared() {
+    const owner = await signUp(app);
+    const b = await signUp(app);
+    const sounds = [];
+    for (const name of ['Rain', 'Wind']) {
+      const sound = await uploadSound(app, owner, { content: wavFile(30), fields: { name } });
+      const res = await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, {
+        isPublic: true,
+        ...OWNER_LOOP,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      sounds.push(res.json() as Sound);
+    }
+    const [rain, wind] = sounds;
+    const mix = await createMix(app, owner, {
+      name: 'Storm',
+      isPublic: true,
+      items: [{ soundId: rain.id, loopStartSec: 5, loopEndSec: 20 }, { soundId: wind.id }],
+    });
+    expect((await call(app, b, 'PUT', `/api/library/mixes/${mix.id}`)).statusCode).toBe(204);
+    expect((await call(app, b, 'PUT', `/api/library/sounds/${rain.id}`)).statusCode).toBe(204);
+    const own = await call(app, b, 'PATCH', `/api/sounds/${rain.id}`, OWN_LOOP);
+    expect(own.statusCode, own.body).toBe(200);
+    return { owner, b, rain, wind, mix };
+  }
+
+  it('sends the items fully resolved from the item and the sound owner’s loop, never the viewer’s', async () => {
+    const { b, rain, wind, mix } = await shared();
+    const expected = [
+      resolveLoopSettings({ durationSec: rain.durationSec, ...OWNER_LOOP, loopStartSec: 5, loopEndSec: 20 }),
+      resolveLoopSettings({ durationSec: wind.durationSec, ...OWNER_LOOP }),
+    ];
+    expect(expected[0]).toMatchObject({ loopStartSec: 5, loopEndSec: 20, loopMode: 'crossfade' });
+
+    const single = await getMix(b, mix.id);
+    expect(single.access).toBe('added');
+    single.items.forEach((item, i) => expect(item).toMatchObject(expected[i]));
+    const listed = ((await call(app, b, 'GET', '/api/mixes')).json() as Mix[]).find(
+      (m) => m.id === mix.id,
+    )!;
+    listed.items.forEach((item, i) => expect(item).toMatchObject(expected[i]));
+    for (const item of single.items) {
+      for (const key of Object.keys(NULL_LOOP)) {
+        expect(item[key as keyof typeof item], key).not.toBeNull();
+      }
+    }
+    // The viewer still has their own loop on the sound itself.
+    expect((await call(app, b, 'GET', `/api/sounds/${rain.id}`)).json()).toMatchObject(OWN_LOOP);
+  });
+
+  it('keeps the stored items, nulls included, for the mix owner', async () => {
+    const { owner, mix } = await shared();
+    const items = (await getMix(owner, mix.id)).items;
+    expect(items[0]).toMatchObject({ ...NULL_LOOP, loopStartSec: 5, loopEndSec: 20 });
+    expect(items[1]).toMatchObject(NULL_LOOP);
+  });
+
+  it('keeps nulls in a mix the viewer made with an added sound', async () => {
+    const { b, rain } = await shared();
+    const mine = await createMix(app, b, { name: 'Mine', items: [{ soundId: rain.id }] });
+    expect(mine.items[0]).toMatchObject(NULL_LOOP);
+    expect((await getMix(b, mine.id)).items[0]).toMatchObject(NULL_LOOP);
+  });
+
+  it('checks item overrides of an added sound against the user’s own loop', async () => {
+    const { owner, b, rain } = await shared();
+    // b's own loop ends at 8: a loop start of 10 cannot hold, though the owner's ends at 25.
+    const res = await call(app, b, 'POST', '/api/mixes', {
+      name: 'Too late',
+      items: [{ soundId: rain.id, loopStartSec: 10 }],
+    });
+    expectError(res, 400, 'validation');
+    expect(res.json().error.fields).toHaveProperty('items.0.loopEndSec');
+
+    const c = await signUp(app);
+    await call(app, c, 'PUT', `/api/library/sounds/${rain.id}`);
+    const ok = await call(app, c, 'POST', '/api/mixes', {
+      name: 'Fine',
+      items: [{ soundId: rain.id, loopStartSec: 10 }],
+    });
+    expect(ok.statusCode, ok.body).toBe(201);
+    // The owner's own sound is checked against the owner's loop, as before.
+    const ownerMix = await call(app, owner, 'POST', '/api/mixes', {
+      name: 'Owner',
+      items: [{ soundId: rain.id, loopStartSec: 10 }],
+    });
+    expect(ownerMix.statusCode, ownerMix.body).toBe(201);
   });
 });
 

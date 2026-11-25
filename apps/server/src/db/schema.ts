@@ -323,6 +323,32 @@ export const soundVolumes = sqliteTable(
 );
 
 /**
+ * A user's own loop settings for a sound they did not upload. Null fields follow the
+ * owner's values. Used wherever they play the sound, except inside mixes they did not create.
+ */
+export const soundLoops = sqliteTable(
+  'sound_loops',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    soundId: text('soundId')
+      .notNull()
+      .references(() => sounds.id, { onDelete: 'cascade' }),
+    trackStartSec: real('trackStartSec'),
+    trackEndSec: real('trackEndSec'),
+    loopStartSec: real('loopStartSec'),
+    loopEndSec: real('loopEndSec'),
+    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] }),
+    crossfadeSec: real('crossfadeSec'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.soundId] }),
+    index('sound_loops_by_sound_idx').on(t.soundId),
+  ],
+);
+
+/**
  * A user's own volume for one sound of a mix they did not create. Keyed by sound rather
  * than by mix item, since every edit of the mix recreates its items.
  */

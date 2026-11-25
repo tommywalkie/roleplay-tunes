@@ -309,4 +309,19 @@ describe('MixEditor item loop overrides', () => {
       crossfadeSec: null,
     });
   });
+
+  it('opens the loop editor for a Random gaps item and for a Once item', async () => {
+    const { user, row } = renderEditor({ mix });
+    await user.click(row('Drip').getByRole('button', { name: 'Edit the loop of Drip' }));
+    let loopDialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    expect(loopDialog.getByRole('textbox', { name: 'Loop start' })).toBeInTheDocument();
+    await user.click(loopDialog.getByRole('button', { name: 'Cancel' }));
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Play mode: Tavern crowd' }), 'Once');
+    await user.click(row('Tavern crowd').getByRole('button', { name: 'Edit the loop of Tavern crowd' }));
+    loopDialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    expect(loopDialog.getByRole('textbox', { name: 'Loop end' })).toBeInTheDocument();
+    await user.click(loopDialog.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
+  });
 });

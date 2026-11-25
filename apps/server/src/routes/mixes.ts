@@ -5,6 +5,7 @@ import {
   createMixSchema,
   loopSettingsError,
   mixVolumesSchema,
+  resolveLoopSettings,
   updateMixSchema,
   type Access,
   type Mix,
@@ -26,7 +27,9 @@ import {
   assertUsableSounds,
   mixColumns,
   mixVolumesOf,
+  ownerLoopsOf,
   ownerNames,
+  soundLoopsOf,
   prune,
   releaseImages,
   soundVolumesOf,
@@ -153,7 +156,31 @@ function toItem(row: ItemRow, volume: number | undefined): MixItem {
   };
 }
 
+/**
+ * Items of a mix the viewer did not create play with the mix owner's loop settings: the
+ * item's own, over the sound owner's, never the viewer's own settings for the sound. They are
+ * sent resolved, so no null is left for the app to fill from the viewer's copy of the sound.
+ */
+function withOwnerLoops(items: ItemRow[]): ItemRow[] {
+  const owners = ownerLoopsOf([...new Set(items.map((i) => i.soundId))]);
+  return items.map((item) => {
+    const owner = owners.get(item.soundId);
+    if (!owner) return item;
+    const loop = resolveLoopSettings({
+      durationSec: owner.durationSec,
+      trackStartSec: item.trackStartSec ?? owner.trackStartSec,
+      trackEndSec: item.trackEndSec ?? owner.trackEndSec,
+      loopStartSec: item.loopStartSec ?? owner.loopStartSec,
+      loopEndSec: item.loopEndSec ?? owner.loopEndSec,
+      loopMode: item.loopMode ?? owner.loopMode,
+      crossfadeSec: item.crossfadeSec ?? owner.crossfadeSec,
+    });
+    return { ...item, ...loop };
+  });
+}
+
 export function toMix(row: CountedMix, items: ItemRow[], view: MixView): Mix {
+  if (view.access !== 'owner') items = withOwnerLoops(items);
   return {
     id: row.id,
     name: row.name,
@@ -231,9 +258,13 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
   );
 
   const ownVolumes = soundVolumesOf(user.id);
+  const ownLoops = soundLoopsOf(user.id);
 
   return inputs.map((input, position) => {
-    const sound = bySoundId.get(input.soundId)!;
+    const row = bySoundId.get(input.soundId)!;
+    // Items left without loop markers follow the user's own settings for an added sound.
+    const own = row.ownerId === user.id ? undefined : ownLoops.get(row.id);
+    const sound = own ? { ...row, ...own, loopMode: own.loopMode ?? 'gapless' } : row;
     const intervalMinSec = input.intervalMinSec ?? sound.intervalMinSec;
     const intervalMaxSec = input.intervalMaxSec ?? sound.intervalMaxSec;
     if (intervalMinSec > intervalMaxSec) {

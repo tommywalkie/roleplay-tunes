@@ -1,6 +1,7 @@
 import type { Sound } from '@dnd/shared';
 import {
   AudioLines,
+  AudioWaveform,
   ChevronDown,
   ChevronUp,
   ListPlus,
@@ -15,8 +16,9 @@ import {
 } from 'lucide-react';
 import type { LayerState } from '@dnd/audio-engine';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { layersToMixItems, LOOSE_MIX_ID, usePlayer, useSleepTimer } from '../audio/player';
+import { layerLoop, layersToMixItems, LOOSE_MIX_ID, usePlayer, useSleepTimer } from '../audio/player';
 import { PausesDialog } from '../board/PausesDialog';
+import { LoopEditorDialog } from '../editors/LoopEditorDialog';
 import { Thumb } from '../components/Illustration';
 import { MODE_ICONS, MODE_LABELS } from '../components/kinds';
 import { Marquee } from '../components/Marquee';
@@ -328,6 +330,7 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
   const player = usePlayer();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [askPauses, setAskPauses] = useState(false);
+  const [editLoop, setEditLoop] = useState(false);
   const closeMenu = useCallback(() => setAnchor(null), []);
   const mode = layer.mode;
   const recurring = mode.type === 'recurring';
@@ -368,7 +371,22 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
               hint: recurring ? `${t('player.current')} ${mode.minInterval}–${mode.maxInterval} s` : undefined,
               onSelect: () => setAskPauses(true),
             },
+            {
+              label: t('player.loopSettings'),
+              icon: AudioWaveform,
+              onSelect: () => setEditLoop(true),
+            },
           ]}
+        />
+      )}
+      {editLoop && (
+        <LoopEditorDialog
+          sound={sound}
+          mode={recurring ? 'recurring' : 'loop'}
+          initial={layerLoop(sound, mode.loop)}
+          live
+          onSave={(loop) => player.setLayerLoop(layer.id, loop)}
+          onClose={() => setEditLoop(false)}
         />
       )}
       {askPauses && (

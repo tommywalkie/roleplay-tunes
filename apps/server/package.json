@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "dotenvx run -f .env --ignore=MISSING_ENV_FILE -- tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "start": "node dist/index.js",
     "build": "tsup",
     "test": "vitest run",
@@ -36,7 +36,6 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@dotenvx/dotenvx": "^2.38.2",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@types/sanitize-html": "^2.16.2",

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computePeaks, findZeroCrossing } from '../src';
 import { loopPosition } from '../src/graph/layer';
 import { FakeAudioBuffer } from '../src/testing';
-import { flush, graphNodes, layer, settled, setup } from './helpers';
+import { flush, graphNodes, layer, settled, setup, tick } from './helpers';
 
 describe('loopPosition', () => {
   const region = { loopStart: 2, loopEnd: 6 };
@@ -117,6 +117,151 @@ describe('previewLoop', () => {
     expect(ctx.playingSources().map((s) => s.buffer?.duration)).toEqual([30]);
     first.update({ loopStart: 1, loopEnd: 2 }); // stale handle: no-op
     expect(engine.getSnapshot().preview?.soundId).toBe('wind');
+  });
+});
+
+describe('previewSequence switching between gapless and crossfade', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const sounds = { rain: { seconds: 60 } };
+  /** Sources still sounding once the clock has settled at the current time. */
+  const sounding = (ctx: ReturnType<typeof setup>['ctx']) => {
+    ctx.advance(0);
+    return ctx.playingSources();
+  };
+
+  it('a gapless test switched to crossfade restarts on a crossfading looper at the playhead', async () => {
+    const { engine, ctx } = setup({ sounds });
+    await engine.unlock();
+    const handle = engine.previewSequence('rain', { loopStart: 0, loopEnd: 10 });
+    await flush();
+    const gapless = ctx.playingSources()[0];
+    expect(gapless.loop).toBe(true);
+    await tick(ctx, 3);
+
+    handle.update({ mode: 'crossfade', crossfadeSec: 1 });
+    const playing = sounding(ctx);
+    expect(gapless.ended).toBe(true);
+    expect(playing).toHaveLength(1);
+    expect(playing[0]).not.toBe(gapless);
+    expect(playing[0].loop).toBe(false);
+    expect(playing[0].started?.offset).toBeCloseTo(3);
+    expect(handle.getPosition()).toBeCloseTo(3);
+    expect(handle.isPlaying()).toBe(true);
+    handle.stop();
+  });
+
+  it('a crossfading test switched to gapless restarts on one looping source at the playhead', async () => {
+    const { engine, ctx } = setup({ sounds });
+    await engine.unlock();
+    const handle = engine.previewSequence('rain', {
+      loopStart: 0,
+      loopEnd: 10,
+      mode: 'crossfade',
+      crossfadeSec: 1,
+    });
+    await flush();
+    const voice = ctx.playingSources()[0];
+    expect(voice.loop).toBe(false);
+    await tick(ctx, 3);
+
+    handle.update({ mode: 'gapless' });
+    const playing = sounding(ctx);
+    expect(voice.ended).toBe(true);
+    expect(playing).toHaveLength(1);
+    expect(playing[0].loop).toBe(true);
+    expect([playing[0].loopStart, playing[0].loopEnd]).toEqual([0, 10]);
+    expect(playing[0].started?.offset).toBeCloseTo(3);
+    expect(handle.getPosition()).toBeCloseTo(3);
+    handle.stop();
+  });
+
+  it('a crossfade of 0 plays gapless, and raising it switches to the looper', async () => {
+    const { engine, ctx } = setup({ sounds });
+    await engine.unlock();
+    const handle = engine.previewSequence('rain', {
+      loopStart: 0,
+      loopEnd: 10,
+      mode: 'crossfade',
+      crossfadeSec: 0,
+    });
+    await flush();
+    const first = ctx.playingSources()[0];
+    expect(first.loop).toBe(true);
+    await tick(ctx, 2);
+
+    handle.update({ crossfadeSec: 1 });
+    const playing = sounding(ctx);
+    expect(first.ended).toBe(true);
+    expect(playing).toHaveLength(1);
+    expect(playing[0].loop).toBe(false);
+    expect(playing[0].started?.offset).toBeCloseTo(2);
+    expect(handle.getPosition()).toBeCloseTo(2);
+    handle.stop();
+  });
+
+  it('a switch made while paused takes effect on resume, from the paused playhead', async () => {
+    const { engine, ctx } = setup({ sounds });
+    await engine.unlock();
+    const handle = engine.previewSequence('rain', {
+      loopStart: 0,
+      loopEnd: 10,
+      mode: 'crossfade',
+      crossfadeSec: 1,
+    });
+    await flush();
+    await tick(ctx, 3);
+    handle.pause();
+    await tick(ctx, 1);
+    const before = ctx.sources().length;
+
+    handle.update({ mode: 'gapless' });
+    // Still paused: nothing starts until resume.
+    expect(ctx.sources().length).toBe(before);
+    expect(handle.isPlaying()).toBe(false);
+
+    handle.resume();
+    const playing = sounding(ctx);
+    expect(playing).toHaveLength(1);
+    expect(playing[0].loop).toBe(true);
+    expect(playing[0].started?.offset).toBeCloseTo(3);
+    expect(handle.getPosition()).toBeCloseTo(3);
+    expect(handle.isPlaying()).toBe(true);
+    handle.stop();
+  });
+
+  it('updates that keep the same kind of player do not restart it', async () => {
+    const { engine, ctx } = setup({ sounds });
+    await engine.unlock();
+    const gapless = engine.previewSequence('rain', { loopStart: 0, loopEnd: 10 });
+    await flush();
+    await tick(ctx, 3);
+    let before = ctx.sources().length;
+    gapless.update({ loopEnd: 8 });
+    gapless.update({ mode: 'crossfade', crossfadeSec: 0 }); // still gapless
+    expect(ctx.sources().length).toBe(before);
+    expect(sounding(ctx)[0].loopEnd).toBe(8);
+    gapless.stop();
+
+    const crossfade = engine.previewSequence('rain', {
+      loopStart: 0,
+      loopEnd: 10,
+      mode: 'crossfade',
+      crossfadeSec: 1,
+    });
+    await flush();
+    await tick(ctx, 3);
+    before = ctx.sources().length;
+    crossfade.update({ loopEnd: 8 });
+    crossfade.update({ crossfadeSec: 2 });
+    expect(ctx.sources().length).toBe(before);
+    expect(crossfade.getPosition()).toBeCloseTo(3);
+    crossfade.stop();
   });
 });
 

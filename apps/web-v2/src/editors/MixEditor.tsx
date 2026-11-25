@@ -484,6 +484,7 @@ export function MixEditor({
       {loopFor && byId.get(loopFor) && (
         <LoopEditorDialog
           sound={byId.get(loopFor)!}
+          mode={items.find((i) => i.soundId === loopFor)!.mode}
           initial={itemLoop(
             byId.get(loopFor)!,
             items.find((i) => i.soundId === loopFor)!,
