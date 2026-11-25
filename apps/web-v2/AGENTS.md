@@ -34,8 +34,8 @@ adds or removes a feature.
 If the dev server shows a blank page after several quick edits to one file, it served a
 stale transform: save the file once more or restart the dev server.
 
-Environment: dotenvx loads `apps/server/.env` and `apps/web-v2/.env` (gitignored) for the
-two dev scripts only; a variable set in the shell wins. Vite reads no env file itself
+Environment: the two dev scripts load `apps/server/.env` and `apps/web-v2/.env` (gitignored)
+through Node's own `--env-file-if-exists` (Node 22, pinned in `.nvmrc`). Vite reads no env file itself
 (`envDir: false`). Tests read neither: the server suite clears every setting, runs on an
 in-memory database and `tmp/server-test-data`, and refuses to start outside its own Vitest
 config (`DND_SERVER_TEST_ISOLATED`, set by `src/test/setup.ts`); the web suite has no server
@@ -318,6 +318,18 @@ A mixing desk on a dim game table: steady, tactile, low-light.
   be allowed in `form-action` (`CONTACT_FORM_ENDPOINT` on the server), or the browser refuses
   to submit. Name and email are filled in for a signed-in user.
 
+- Loop editor (`editors/LoopEditorDialog.tsx`): track and loop markers, gapless or
+  crossfade, on a waveform whose bars keep one width and gap (2px, 2px) at every zoom. A
+  volume line over it shows the crossfade (display only). Tap places the playhead, drag
+  scrolls, pinch or wheel zooms around the pointer, shift + wheel or a sideways swipe
+  scrolls; an overview strip of the whole track scrolls too. Markers and the playhead move
+  by their tags, outside the waveform. Who saves what: the owner sets the sound's own loop;
+  a user who added the sound sets their own copy (`sound_loops`, overlaid on the sound by
+  the server, all six fields together); a mix owner sets one per item. Items of a mix the
+  user did not create come resolved from the server with the mix and sound owners' values.
+  The player's per-sound repeat menu has "Loop settings": live on the playing layer only
+  (`setLayerLoop`), never saved
+
 ### Licensing
 
 - The repo is Apache-2.0 (`LICENSE` at the root, the verbatim text from apache.org).
@@ -365,8 +377,6 @@ A mixing desk on a dim game table: steady, tactile, low-light.
 
 - The Docker image has never been built or started (the Docker daemon was not running)
 - Disk usage history chart (`history` of `GET /api/admin/usage` is fetched, not drawn)
-- Loop-point editor with waveform (the engine supports it: `previewLoop`,
-  `getWaveformPeaks`, `snapToZeroCrossing`)
 - Delete my account
 - Scene reordering (`PUT /api/scenes/order`)
 - Stopping a single one-shot from the player

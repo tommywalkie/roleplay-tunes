@@ -27,6 +27,17 @@ A soundboard for tabletop game masters, made for a tablet or phone at the table.
 
 You need Node.js 22 and pnpm 10 (`corepack enable`).
 
+The Node version is pinned in `.nvmrc` (and `.node-version` for fnm, mise and asdf). With
+[nvm](https://github.com/nvm-sh/nvm), run this once per terminal from the repo root:
+
+```bash
+nvm install   # first time only: installs the pinned version
+nvm use
+```
+
+On Windows, [nvm-windows](https://github.com/coreybutler/nvm-windows) may not read `.nvmrc`
+by itself depending on its version: run `nvm install 22` then `nvm use 22`.
+
 ```bash
 pnpm install
 node scripts/build-icon-libraries.mjs   # once: generates the icon picker data
@@ -34,7 +45,7 @@ pnpm dev:server                         # API on http://localhost:3000
 pnpm dev:web                            # app on http://localhost:5173
 ```
 
-Run the last two in separate terminals, then open http://localhost:5173 and create an account. No configuration is needed: local data goes to `tmp/dev-data` (ignored by git). The API's own documentation is at http://localhost:3000/docs.
+Run the last two in separate terminals, then open http://localhost:5173 and create an account. No configuration is needed: local data goes to `tmp/dev-data` (ignored by git). Optional settings go in `apps/server/.env` and `apps/web-v2/.env` (ignored by git), which the two dev scripts load through Node's own `--env-file-if-exists`; a variable set in the shell wins. The API's own documentation is at http://localhost:3000/docs.
 
 The account that signs up with the admin email (`admin@roleplay-tunes.local` by default) becomes the administrator and gets an Admin page.
 

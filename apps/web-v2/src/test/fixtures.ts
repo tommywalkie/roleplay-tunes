@@ -1,5 +1,5 @@
 import type { AudioEngine, EngineSnapshot, LayerConfig, MixConfig } from '@dnd/audio-engine';
-import type { Me, Mix, Sound } from '@dnd/shared';
+import type { Me, Mix, MixItem, Sound } from '@dnd/shared';
 import { vi } from 'vitest';
 
 export function makeSound(over: Partial<Sound> = {}): Sound {
@@ -26,8 +26,12 @@ export function makeSound(over: Partial<Sound> = {}): Sound {
     durationSec: 168,
     defaultMode: 'loop',
     defaultVolume: 0.8,
+    trackStartSec: null,
+    trackEndSec: null,
     loopStartSec: null,
     loopEndSec: null,
+    loopMode: 'gapless',
+    crossfadeSec: null,
     intervalMinSec: 20,
     intervalMaxSec: 90,
     volumeVariation: 0,
@@ -57,6 +61,25 @@ export function makeMix(over: Partial<Mix> = {}): Mix {
     categoryIds: [],
     createdAt: '2026-11-01T10:00:00.000Z',
     updatedAt: '2026-11-01T10:00:00.000Z',
+    ...over,
+  };
+}
+
+export function makeMixItem(over: Partial<MixItem> = {}): MixItem {
+  return {
+    id: 'i1',
+    soundId: 's1',
+    mode: 'loop',
+    volume: 0.8,
+    intervalMinSec: 20,
+    intervalMaxSec: 90,
+    volumeVariation: 0,
+    trackStartSec: null,
+    trackEndSec: null,
+    loopStartSec: null,
+    loopEndSec: null,
+    loopMode: null,
+    crossfadeSec: null,
     ...over,
   };
 }
@@ -126,10 +149,16 @@ export function makeFakeEngine() {
     playMix: vi.fn((mix: MixConfig) =>
       set({
         status: 'playing',
-        mix: { id: mix.id, name: mix.name, layers: mix.layers.map((l) => ({ ...l, load: 'ready' })) },
+        mix: {
+          id: mix.id,
+          name: mix.name,
+          layers: mix.layers.map((l) => ({ ...l, load: 'ready' })),
+        },
       }),
     ),
-    addLayer: vi.fn((layer: LayerConfig) => setLayers([...layers(), { ...layer, load: 'ready' }] as never)),
+    addLayer: vi.fn((layer: LayerConfig) =>
+      setLayers([...layers(), { ...layer, load: 'ready' }] as never),
+    ),
     updateLayer: vi.fn((id: string, patch: Partial<LayerConfig>) =>
       setLayers(layers().map((l) => (l.id === id ? { ...l, ...patch } : l)) as never),
     ),
@@ -153,6 +182,7 @@ export function makeFakeEngine() {
     resume: vi.fn(async () => set({ status: snapshot.mix ? 'playing' : 'idle' })),
     stop: vi.fn(() => set({ mix: null, status: snapshot.status === 'paused' ? 'paused' : 'idle' })),
     previewLoop: vi.fn(),
+    previewSequence: vi.fn(),
     getWaveformPeaks: vi.fn(),
     snapToZeroCrossing: vi.fn(),
     dispose: vi.fn(async () => {}),

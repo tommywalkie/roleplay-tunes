@@ -94,15 +94,18 @@ describe('loop layers', () => {
     expect(engine.getSnapshot().mix?.layers[0].load).toBe('ready');
   });
 
-  it('starts at loopStart when randomStart is false', async () => {
-    const { engine, ctx } = setup({ sounds: { rain: { seconds: 60, loopStart: 1 } } });
+  it('starts at the track start when randomStart is false', async () => {
+    const { engine, ctx } = setup({
+      sounds: { rain: { seconds: 60, loopStart: 1, trackStart: 0.5 } },
+    });
     engine.playMix({
       id: 'm',
       name: 'Rainy',
       layers: [layer('l1', 'rain', { mode: { type: 'loop', randomStart: false } })],
     });
     await flush();
-    expect(ctx.playingSources()[0].started?.offset).toBe(1);
+    expect(ctx.playingSources()[0].started?.offset).toBe(0.5);
+    expect(ctx.playingSources()[0].loopStart).toBe(1);
   });
 
   it('routes source → voice → panner → layer → mute → mix input', async () => {

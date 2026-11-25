@@ -5,13 +5,18 @@ import {
   type LayerConfig,
   type LayerMode,
   type LayerState,
+  type LoopConfig,
+  type LoopPreviewHandle,
   type SoundDescriptor,
 } from '@dnd/audio-engine';
 import {
   DEFAULT_INTERVAL_MAX_SEC,
   DEFAULT_INTERVAL_MIN_SEC,
   MIN_INTERVAL_SEC,
+  resolveLoopSettings,
+  type LoopSettings,
   type Mix,
+  type MixItem,
   type MixItemInput,
   type PlayMode,
   type Sound,
@@ -36,6 +41,62 @@ interface LayerSettings {
   intervalMinSec: number;
   intervalMaxSec: number;
   volumeVariation: number;
+  /** The loop markers this layer plays with (the sound's own, or a mix item's override). */
+  loop: LoopSettings;
+}
+
+/** A sound's own loop settings, resolved against its duration. */
+export const soundLoop = (sound: Sound): LoopSettings =>
+  resolveLoopSettings({
+    durationSec: sound.durationSec,
+    trackStartSec: sound.trackStartSec,
+    trackEndSec: sound.trackEndSec,
+    loopStartSec: sound.loopStartSec,
+    loopEndSec: sound.loopEndSec,
+    loopMode: sound.loopMode,
+    crossfadeSec: sound.crossfadeSec,
+  });
+
+/** A mix item's loop settings: its own overrides over the sound's defaults. */
+export const itemLoop = (
+  sound: Sound,
+  item: Pick<
+    MixItem,
+    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'loopMode' | 'crossfadeSec'
+  >,
+): LoopSettings =>
+  resolveLoopSettings({
+    durationSec: sound.durationSec,
+    trackStartSec: item.trackStartSec ?? sound.trackStartSec,
+    trackEndSec: item.trackEndSec ?? sound.trackEndSec,
+    loopStartSec: item.loopStartSec ?? sound.loopStartSec,
+    loopEndSec: item.loopEndSec ?? sound.loopEndSec,
+    loopMode: item.loopMode ?? sound.loopMode,
+    crossfadeSec: item.crossfadeSec ?? sound.crossfadeSec,
+  });
+
+/** The loop settings a playing layer uses now, falling back to the sound's own. */
+export const layerLoop = (sound: Sound, loop: Partial<LoopConfig> | undefined): LoopSettings =>
+  resolveLoopSettings({
+    ...soundLoop(sound),
+    durationSec: sound.durationSec,
+    ...(loop?.trackStart !== undefined ? { trackStartSec: loop.trackStart } : {}),
+    ...(loop?.trackEnd !== undefined ? { trackEndSec: loop.trackEnd } : {}),
+    ...(loop?.loopStart !== undefined ? { loopStartSec: loop.loopStart } : {}),
+    ...(loop?.loopEnd !== undefined ? { loopEndSec: loop.loopEnd } : {}),
+    ...(loop?.mode !== undefined ? { loopMode: loop.mode } : {}),
+    ...(loop?.crossfadeSec !== undefined ? { crossfadeSec: loop.crossfadeSec } : {}),
+  });
+
+function toEngineLoop(loop: LoopSettings): Partial<LoopConfig> {
+  return {
+    trackStart: loop.trackStartSec,
+    trackEnd: loop.trackEndSec,
+    loopStart: loop.loopStartSec,
+    loopEnd: loop.loopEndSec,
+    mode: loop.loopMode,
+    crossfadeSec: loop.crossfadeSec,
+  };
 }
 
 export function toDescriptor(sound: Sound): SoundDescriptor {
@@ -45,21 +106,27 @@ export function toDescriptor(sound: Sound): SoundDescriptor {
     kind: sound.defaultMode === 'oneshot' ? 'oneshot' : 'loop',
     loopStart: sound.loopStartSec ?? undefined,
     loopEnd: sound.loopEndSec ?? undefined,
+    trackStart: sound.trackStartSec ?? undefined,
+    trackEnd: sound.trackEndSec ?? undefined,
+    loopMode: sound.loopMode,
+    crossfadeSec: sound.crossfadeSec ?? undefined,
     defaultVolume: sound.defaultVolume,
   };
 }
 
 function toLayerMode(s: LayerSettings): LayerMode {
+  const loop = toEngineLoop(s.loop);
   if (s.mode === 'recurring') {
     return {
       type: 'recurring',
       minInterval: Math.min(s.intervalMinSec, s.intervalMaxSec),
       maxInterval: Math.max(s.intervalMinSec, s.intervalMaxSec),
       volumeJitter: [1 - s.volumeVariation, 1],
+      loop,
     };
   }
   // The engine starts loops at a random point by default; here a loop always starts at its beginning.
-  return { type: 'loop', randomStart: false };
+  return { type: 'loop', randomStart: false, loop };
 }
 
 function toLayer(id: string, soundId: string, s: LayerSettings): LayerConfig {
@@ -72,6 +139,7 @@ const soundSettings = (sound: Sound): LayerSettings => ({
   intervalMinSec: sound.intervalMinSec,
   intervalMaxSec: sound.intervalMaxSec,
   volumeVariation: sound.volumeVariation,
+  loop: soundLoop(sound),
 });
 
 /**
@@ -85,14 +153,25 @@ export function layersToMixItems(layers: LayerState[]): Required<MixItemInput>[]
     seen.add(layer.soundId);
     const mode = layer.mode;
     const recurring = mode.type === 'recurring';
+    const loop = mode.loop ?? {};
     return [
       {
         soundId: layer.soundId,
         mode: recurring ? 'recurring' : 'loop',
         volume: layer.volume,
-        intervalMinSec: recurring ? Math.max(MIN_INTERVAL_SEC, mode.minInterval) : DEFAULT_INTERVAL_MIN_SEC,
-        intervalMaxSec: recurring ? Math.max(MIN_INTERVAL_SEC, mode.maxInterval) : DEFAULT_INTERVAL_MAX_SEC,
+        intervalMinSec: recurring
+          ? Math.max(MIN_INTERVAL_SEC, mode.minInterval)
+          : DEFAULT_INTERVAL_MIN_SEC,
+        intervalMaxSec: recurring
+          ? Math.max(MIN_INTERVAL_SEC, mode.maxInterval)
+          : DEFAULT_INTERVAL_MAX_SEC,
         volumeVariation: recurring ? 1 - (mode.volumeJitter?.[0] ?? 1) : 0,
+        trackStartSec: loop.trackStart ?? null,
+        trackEndSec: loop.trackEnd ?? null,
+        loopStartSec: loop.loopStart ?? null,
+        loopEndSec: loop.loopEnd ?? null,
+        loopMode: loop.mode ?? null,
+        crossfadeSec: loop.crossfadeSec ?? null,
       },
     ];
   });
@@ -107,7 +186,11 @@ export type SoundPlay =
 /** How the sound plays when started with no other choice: its own saved settings. */
 export const defaultPlay = (sound: Sound): SoundPlay =>
   sound.defaultMode === 'recurring'
-    ? { mode: 'recurring', intervalMinSec: sound.intervalMinSec, intervalMaxSec: sound.intervalMaxSec }
+    ? {
+        mode: 'recurring',
+        intervalMinSec: sound.intervalMinSec,
+        intervalMaxSec: sound.intervalMaxSec,
+      }
     : { mode: sound.defaultMode };
 
 export interface Player {
@@ -126,7 +209,16 @@ export interface Player {
    * keeps its place, its volume and its mute. Switching between loop and pauses restarts
    * the sound; new pauses apply from the next play.
    */
-  setLayerPlay: (layerId: string, sound: Sound, play: Exclude<SoundPlay, { mode: 'oneshot' }>) => void;
+  setLayerPlay: (
+    layerId: string,
+    sound: Sound,
+    play: Exclude<SoundPlay, { mode: 'oneshot' }>,
+  ) => void;
+  /**
+   * Changes the loop markers of a playing layer, live. Nothing is saved: the sound, its mix
+   * and its scenes keep their own settings, and the change is gone once the layer stops.
+   */
+  setLayerLoop: (layerId: string, loop: LoopSettings) => void;
   /** Stops every layer and every one-shot. */
   stopAll: () => void;
   togglePause: () => void;
@@ -137,6 +229,15 @@ export interface Player {
   removeLayer: (layerId: string) => void;
   isMixPlaying: (mixId: string) => boolean;
   isSoundPlaying: (soundId: string) => boolean;
+  /**
+   * Plays a sound's test sequence in the loop editor (track start → loop, with its loop mode),
+   * pausing the main player while it runs. Returns the preview handle.
+   */
+  previewLoopTest: (sound: Sound, loop: LoopSettings) => LoopPreviewHandle;
+  /** Max |sample| per bucket, for the loop editor's waveform. */
+  waveformPeaks: (soundId: string, buckets: number) => Promise<Float32Array>;
+  /** Nearest zero crossing to `time`, for snapping loop markers. */
+  snapToZero: (soundId: string, time: number) => Promise<number>;
   /** Subscribe to sounds that failed to load. */
   onLoadError: (cb: (soundId: string | undefined) => void) => () => void;
 }
@@ -145,7 +246,11 @@ export interface Player {
  * Wraps the audio engine with the board's rules. The engine plays one set of layers at a
  * time plus one-shots; this decides what a tap on a tile means.
  */
-export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Player {
+export function createPlayer(
+  engine: AudioEngine,
+  snapshot: EngineSnapshot,
+  getSound: (id: string) => Sound | undefined = (id) => lookup(id),
+): Player {
   const layers = () => engine.getSnapshot().mix?.layers ?? [];
   const wake = () => {
     if (engine.getSnapshot().status === 'paused') void engine.resume();
@@ -157,6 +262,28 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
     const layer = toLayer(`sound:${sound.id}`, sound.id, settings);
     if (engine.getSnapshot().mix) engine.addLayer(layer);
     else engine.playMix({ id: LOOSE_MIX_ID, name: '', layers: [layer] });
+  };
+  /** A mix item's settings: its own loop markers over the sound's defaults. */
+  const itemSettings = (item: MixItem): LayerSettings => {
+    const sound = getSound(item.soundId);
+    return {
+      mode: item.mode,
+      volume: item.volume,
+      intervalMinSec: item.intervalMinSec,
+      intervalMaxSec: item.intervalMaxSec,
+      volumeVariation: item.volumeVariation,
+      loop: sound
+        ? itemLoop(sound, item)
+        : resolveLoopSettings({
+            durationSec: 0,
+            trackStartSec: item.trackStartSec,
+            trackEndSec: item.trackEndSec,
+            loopStartSec: item.loopStartSec,
+            loopEndSec: item.loopEndSec,
+            loopMode: item.loopMode,
+            crossfadeSec: item.crossfadeSec,
+          }),
+    };
   };
 
   return {
@@ -171,11 +298,18 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
       engine.playMix({
         id: mix.id,
         name: mix.name,
-        layers: playable.map((i) => toLayer(`item:${i.id}`, i.soundId, i)),
+        layers: playable.map((i) => toLayer(`item:${i.id}`, i.soundId, itemSettings(i))),
       });
       // A "once" item has no place in a looping bed: it is heard once, as the mix starts.
       for (const item of mix.items) {
-        if (item.mode === 'oneshot') engine.playOneshot(item.soundId, { volume: item.volume });
+        if (item.mode === 'oneshot') {
+          const sound = getSound(item.soundId);
+          const loop = sound ? itemLoop(sound, item) : null;
+          engine.playOneshot(item.soundId, {
+            volume: item.volume,
+            ...(loop ? { trackStart: loop.trackStartSec, trackEnd: loop.trackEndSec } : {}),
+          });
+        }
       }
     },
     toggleSound(sound) {
@@ -217,18 +351,27 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
         current.mode.type === 'recurring' && current.mode.volumeJitter
           ? current.mode.volumeJitter
           : [1 - sound.volumeVariation, 1];
+      // The loop markers the layer plays with stay whatever they were.
+      const loop = current.mode.loop;
       wake();
       engine.updateLayer(layerId, {
         mode:
           play.mode === 'loop'
-            ? { type: 'loop', randomStart: false }
+            ? { type: 'loop', randomStart: false, loop }
             : {
                 type: 'recurring',
                 minInterval: Math.min(play.intervalMinSec, play.intervalMaxSec),
                 maxInterval: Math.max(play.intervalMinSec, play.intervalMaxSec),
                 volumeJitter: jitter,
+                loop,
               },
       });
+    },
+    setLayerLoop(layerId, loop) {
+      const current = layers().find((l) => l.id === layerId);
+      if (!current) return;
+      wake();
+      engine.updateLayer(layerId, { mode: { ...current.mode, loop: toEngineLoop(loop) } });
     },
     stopAll() {
       engine.stop();
@@ -250,6 +393,21 @@ export function createPlayer(engine: AudioEngine, snapshot: EngineSnapshot): Pla
     isSoundPlaying: (soundId) =>
       (snapshot.mix?.layers.some((l) => l.soundId === soundId) ?? false) ||
       snapshot.activeOneshots.some((o) => o.soundId === soundId),
+    previewLoopTest: (sound, loop) =>
+      engine.previewSequence(
+        sound.id,
+        {
+          trackStart: loop.trackStartSec,
+          trackEnd: loop.trackEndSec,
+          loopStart: loop.loopStartSec,
+          loopEnd: loop.loopEndSec,
+          mode: loop.loopMode,
+          crossfadeSec: loop.crossfadeSec,
+        },
+        { volume: sound.defaultVolume, silenceMix: true },
+      ),
+    waveformPeaks: (soundId, buckets) => engine.getWaveformPeaks(soundId, buckets),
+    snapToZero: (soundId, time) => engine.snapToZeroCrossing(soundId, time),
     onLoadError: (cb) =>
       engine.on('error', (e) => {
         if (e.code === 'LOAD_FAILED' || e.code === 'DECODE_FAILED') cb(e.soundId);
@@ -311,14 +469,17 @@ function useSleepTimerRunner(engine: AudioEngine, snapshot: EngineSnapshot): Sle
       () => engine.fadeOutMaster(fadeFrom()),
       Math.max(0, plan.fadeAt - Date.now()),
     );
-    const stop = window.setTimeout(() => {
-      stopped = true;
-      engine.stop({ fadeSec: 0.05 });
-      engine.stopAllOneshots(0.05);
-      // Back to the set volume once the last sounds are cut, for whatever plays next.
-      window.setTimeout(() => engine.restoreMaster(), 100);
-      setPlan(null);
-    }, Math.max(0, plan.stopAt - Date.now()));
+    const stop = window.setTimeout(
+      () => {
+        stopped = true;
+        engine.stop({ fadeSec: 0.05 });
+        engine.stopAllOneshots(0.05);
+        // Back to the set volume once the last sounds are cut, for whatever plays next.
+        window.setTimeout(() => engine.restoreMaster(), 100);
+        setPlan(null);
+      },
+      Math.max(0, plan.stopAt - Date.now()),
+    );
     return () => {
       window.clearTimeout(fade);
       window.clearTimeout(stop);
@@ -368,7 +529,10 @@ export function PlayerProvider({
   if (!injected) lookup = (id) => byIdRef.current.get(id);
 
   const snapshot = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
-  const player = useMemo(() => createPlayer(engine, snapshot), [engine, snapshot]);
+  const player = useMemo(
+    () => createPlayer(engine, snapshot, (id) => byIdRef.current.get(id)),
+    [engine, snapshot],
+  );
   const timer = useSleepTimerRunner(engine, snapshot);
 
   // Edited loop points or a deleted sound must reach layers that already play.

@@ -10,6 +10,13 @@ export interface SoundDescriptor {
   /** Seconds on the decoded buffer. Defaults: 0 / buffer duration. */
   loopStart?: number;
   loopEnd?: number;
+  /** Where one play starts and stops, in seconds. Defaults: 0 / buffer duration. */
+  trackStart?: number;
+  trackEnd?: number;
+  /** How the loop repeats at its end: 'gapless' (default) or 'crossfade'. */
+  loopMode?: LoopMode;
+  /** Crossfade length in seconds for 'crossfade' loops (clamped to half the loop). */
+  crossfadeSec?: number;
   /** 1 => downmix to mono after decode (halves memory). */
   channels?: 1 | 2;
   /** Loudness normalization applied on top of the layer volume. */
@@ -21,13 +28,14 @@ export interface SoundDescriptor {
 }
 
 export type LayerMode =
-  | { type: 'loop'; randomStart?: boolean }
+  | { type: 'loop'; randomStart?: boolean; loop?: Partial<LoopConfig> }
   | {
       type: 'recurring';
       minInterval: number;
       maxInterval: number;
       volumeJitter?: [min: number, max: number];
       panJitter?: number;
+      loop?: Partial<LoopConfig>;
     };
 
 export interface LayerConfig {
@@ -70,7 +78,7 @@ export interface EngineSnapshot {
   activeOneshotCount: number;
   /** Every one-shot playing right now, oldest first. The single source for tile progress rings. */
   activeOneshots: ActiveOneshot[];
-  preview: { soundId: SoundId; region: LoopRegion; load: LoadState } | null;
+  preview: { soundId: SoundId; region: LoopConfig; load: LoadState } | null;
   memory: { usedBytes: number; budgetBytes: number };
 }
 
@@ -83,11 +91,7 @@ export interface ActiveOneshot {
 }
 
 export type EngineErrorCode =
-  | 'LOAD_FAILED'
-  | 'DECODE_FAILED'
-  | 'MEMORY_BUDGET'
-  | 'UNLOCK_FAILED'
-  | 'CONTEXT_FAILED';
+  'LOAD_FAILED' | 'DECODE_FAILED' | 'MEMORY_BUDGET' | 'UNLOCK_FAILED' | 'CONTEXT_FAILED';
 
 export interface EngineEvents {
   statusChange: { status: EngineStatus };
@@ -124,13 +128,40 @@ export interface LoopRegion {
   loopEnd: number;
 }
 
+/** How a loop repeats at its end: straight back to the loop start, or blended over itself. */
+export type LoopMode = 'gapless' | 'crossfade';
+
+/** The four markers of a sound's playback, in seconds, ordered. */
+export interface LoopPoints {
+  trackStart: number;
+  trackEnd: number;
+  loopStart: number;
+  loopEnd: number;
+}
+
+/** Loop points plus how the loop repeats. */
+export interface LoopConfig extends LoopPoints {
+  mode: LoopMode;
+  crossfadeSec: number;
+}
+
 export interface LoopPreviewHandle {
   /** Applied live on the playing source (takes effect at the next loop pass). */
-  update(region: LoopRegion): void;
+  update(cfg: Partial<LoopConfig>): void;
+  /** Restarts the test sequence from the track start. */
+  playFromStart(): void;
+  /** Jumps the playhead to `sec` (wrapped into the loop) without stopping playback. */
+  seekTo(sec: number): void;
+  /** Freezes the playhead; the main mix stays silent until resume/stop. */
+  pause(): void;
+  /** Continues from the paused playhead. */
+  resume(): void;
   /** Jump to loopEnd - sec (default 2) to hear the seam right away. */
   auditionSeam(sec?: number): void;
   /** Seconds in the buffer, for the editor playhead (poll in requestAnimationFrame). */
   getPosition(): number;
+  /** True while the test sequence is playing (not paused). */
+  isPlaying(): boolean;
   stop(): void;
 }
 
@@ -202,7 +233,10 @@ export interface AudioEngine {
   restoreMaster(): void;
   setEffectsVolume(v: number): void;
   /** Plays a one-shot above the mix. Returns null if the sound is unknown. */
-  playOneshot(id: SoundId, opts?: { volume?: number; pan?: number }): OneshotHandle | null;
+  playOneshot(
+    id: SoundId,
+    opts?: { volume?: number; pan?: number; trackStart?: number; trackEnd?: number },
+  ): OneshotHandle | null;
   stopAllOneshots(fadeSec?: number): void;
 
   pause(): Promise<void>;
@@ -213,6 +247,16 @@ export interface AudioEngine {
     id: SoundId,
     region: LoopRegion,
     opts?: { auditionSeamSec?: number; volume?: number },
+  ): LoopPreviewHandle;
+  /**
+   * Plays the full test sequence of the loop editor: from trackStart into the loop, with the
+   * loop's own mode (gapless or crossfading). With `silenceMix` the main mix is paused (its
+   * output goes to zero) for as long as the preview runs.
+   */
+  previewSequence(
+    id: SoundId,
+    cfg: Partial<LoopConfig>,
+    opts?: { volume?: number; silenceMix?: boolean },
   ): LoopPreviewHandle;
   /** Max |sample| per bucket across channels, 0..1. */
   getWaveformPeaks(id: SoundId, buckets: number): Promise<Float32Array>;

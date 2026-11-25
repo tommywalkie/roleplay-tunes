@@ -2,7 +2,15 @@
  * Data model. Every sound, mix and scene belongs to exactly one user; public sounds and
  * mixes can also be added to the library of other users.
  */
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' });
 
@@ -128,8 +136,15 @@ export const sounds = sqliteTable(
     durationSec: real('durationSec').notNull(),
     defaultMode: text('defaultMode', { enum: PLAY_MODES }).notNull(),
     defaultVolume: real('defaultVolume').notNull(),
+    /** Playback markers in seconds; null is the usual edge (0, duration, or the track edge). */
+    trackStartSec: real('trackStartSec'),
+    trackEndSec: real('trackEndSec'),
     loopStartSec: real('loopStartSec'),
     loopEndSec: real('loopEndSec'),
+    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] })
+      .notNull()
+      .default('gapless'),
+    crossfadeSec: real('crossfadeSec'),
     intervalMinSec: real('intervalMinSec').notNull(),
     intervalMaxSec: real('intervalMaxSec').notNull(),
     volumeVariation: real('volumeVariation').notNull().default(0),
@@ -173,6 +188,13 @@ export const mixItems = sqliteTable(
     intervalMinSec: real('intervalMinSec').notNull(),
     intervalMaxSec: real('intervalMaxSec').notNull(),
     volumeVariation: real('volumeVariation').notNull().default(0),
+    /** This item's own loop markers; null means the sound's own values are used. */
+    trackStartSec: real('trackStartSec'),
+    trackEndSec: real('trackEndSec'),
+    loopStartSec: real('loopStartSec'),
+    loopEndSec: real('loopEndSec'),
+    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] }),
+    crossfadeSec: real('crossfadeSec'),
   },
   (t) => [
     uniqueIndex('mix_items_position_idx').on(t.mixId, t.position),
@@ -301,6 +323,32 @@ export const soundVolumes = sqliteTable(
 );
 
 /**
+ * A user's own loop settings for a sound they did not upload. Null fields follow the
+ * owner's values. Used wherever they play the sound, except inside mixes they did not create.
+ */
+export const soundLoops = sqliteTable(
+  'sound_loops',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    soundId: text('soundId')
+      .notNull()
+      .references(() => sounds.id, { onDelete: 'cascade' }),
+    trackStartSec: real('trackStartSec'),
+    trackEndSec: real('trackEndSec'),
+    loopStartSec: real('loopStartSec'),
+    loopEndSec: real('loopEndSec'),
+    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] }),
+    crossfadeSec: real('crossfadeSec'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.soundId] }),
+    index('sound_loops_by_sound_idx').on(t.soundId),
+  ],
+);
+
+/**
  * A user's own volume for one sound of a mix they did not create. Keyed by sound rather
  * than by mix item, since every edit of the mix recreates its items.
  */
@@ -377,16 +425,55 @@ function itemLinks<T extends typeof synonyms | typeof categories>(
         .notNull()
         .references(() => items().id, { onDelete: 'cascade' }),
     },
-    (t) => [primaryKey({ columns: [t.tagId, t.itemId] }), index(`${table}_by_item_idx`).on(t.itemId)],
+    (t) => [
+      primaryKey({ columns: [t.tagId, t.itemId] }),
+      index(`${table}_by_item_idx`).on(t.itemId),
+    ],
   );
 }
 
-export const soundSynonyms = itemLinks('sound_synonyms', 'synonymId', () => synonyms, 'soundId', () => sounds);
-export const mixSynonyms = itemLinks('mix_synonyms', 'synonymId', () => synonyms, 'mixId', () => mixes);
-export const sceneSynonyms = itemLinks('scene_synonyms', 'synonymId', () => synonyms, 'sceneId', () => scenes);
-export const soundCategories = itemLinks('sound_categories', 'categoryId', () => categories, 'soundId', () => sounds);
-export const mixCategories = itemLinks('mix_categories', 'categoryId', () => categories, 'mixId', () => mixes);
-export const sceneCategories = itemLinks('scene_categories', 'categoryId', () => categories, 'sceneId', () => scenes);
+export const soundSynonyms = itemLinks(
+  'sound_synonyms',
+  'synonymId',
+  () => synonyms,
+  'soundId',
+  () => sounds,
+);
+export const mixSynonyms = itemLinks(
+  'mix_synonyms',
+  'synonymId',
+  () => synonyms,
+  'mixId',
+  () => mixes,
+);
+export const sceneSynonyms = itemLinks(
+  'scene_synonyms',
+  'synonymId',
+  () => synonyms,
+  'sceneId',
+  () => scenes,
+);
+export const soundCategories = itemLinks(
+  'sound_categories',
+  'categoryId',
+  () => categories,
+  'soundId',
+  () => sounds,
+);
+export const mixCategories = itemLinks(
+  'mix_categories',
+  'categoryId',
+  () => categories,
+  'mixId',
+  () => mixes,
+);
+export const sceneCategories = itemLinks(
+  'scene_categories',
+  'categoryId',
+  () => categories,
+  'sceneId',
+  () => scenes,
+);
 
 /** Server-wide settings: `signupsOpen`, and `limit.<key>` for each default limit. */
 export const appSettings = sqliteTable('app_settings', {

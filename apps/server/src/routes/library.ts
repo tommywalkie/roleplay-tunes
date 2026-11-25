@@ -19,6 +19,7 @@ import {
   ownerNames,
   prune,
   soundColumns,
+  soundLoopsOf,
   soundVolumesOf,
 } from '../sharing.js';
 import { tagsOfMany } from '../tags.js';
@@ -81,6 +82,7 @@ export function libraryRoutes(app: FastifyInstance) {
     const soundScenes = sceneIdsBySound(user.id);
     const mixScenes = sceneIdsByMix(user.id);
     const soundVolumes = soundVolumesOf(user.id);
+    const soundLoops = soundLoopsOf(user.id);
     const mixVolumes = mixVolumesOf(user.id);
     const items = itemsByMix(mixRows.map((r) => r.id));
     const soundTags = tagsOfMany('sound', user.id, new Map(soundRows.map((r) => [r.id, r.ownerId])));
@@ -97,6 +99,7 @@ export function libraryRoutes(app: FastifyInstance) {
           ownerName: names.get(row.ownerId) ?? '',
           sceneIds: soundScenes.get(row.id) ?? [],
           volume: access === 'owner' ? undefined : soundVolumes.get(row.id),
+          loop: access === 'owner' ? undefined : soundLoops.get(row.id),
           ...soundTags(row.id),
         });
       }),

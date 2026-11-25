@@ -1,6 +1,6 @@
 {
   "name": "roleplay-tunes",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "license": "Apache-2.0",
   "author": "Tom Bazarnik",
@@ -11,7 +11,7 @@
   "type": "module",
   "packageManager": "pnpm@10.4.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev:server": "pnpm --filter @dnd/server dev",

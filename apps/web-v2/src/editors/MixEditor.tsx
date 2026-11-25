@@ -2,6 +2,7 @@ import {
   DESCRIPTION_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
+  type LoopSettings,
   type Me,
   type Mix,
   type MixItemInput,
@@ -10,6 +11,7 @@ import {
   type Sound,
   type UpdateSoundRequest,
 } from '@dnd/shared';
+import { AudioWaveform } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ApiError } from '../api/client';
 import {
@@ -19,14 +21,25 @@ import {
   useSaveSound,
   useSetMixVolumes,
 } from '../api/hooks';
+import { itemLoop, soundLoop } from '../audio/player';
 import { Dialog } from '../components/Dialog';
 import { Thumb, type IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
 import { FALLBACK_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
-import { Button, ErrorNote, Fader, Field, Percent, Select, TextInput } from '../components/ui';
+import {
+  Button,
+  ErrorNote,
+  Fader,
+  Field,
+  IconButton,
+  Percent,
+  Select,
+  TextInput,
+} from '../components/ui';
 import { useI18n } from '../i18n';
 import { EditorFooter } from './EditorFooter';
+import { LoopEditorDialog } from './LoopEditorDialog';
 import { TagFields, useTagsDraft } from './TagFields';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
@@ -77,6 +90,13 @@ const fromSound = (sound: Sound): ItemDraft => ({
   intervalMinSec: sound.intervalMinSec,
   intervalMaxSec: sound.intervalMaxSec,
   volumeVariation: sound.volumeVariation,
+  // No override: the item follows the sound's own loop settings.
+  trackStartSec: null,
+  trackEndSec: null,
+  loopStartSec: null,
+  loopEndSec: null,
+  loopMode: null,
+  crossfadeSec: null,
 });
 
 /**
@@ -115,20 +135,26 @@ export function MixEditor({
   const [illustration, setIllustration] = useState<IllustrationDraft>(original);
   const [items, setItems] = useState<ItemDraft[]>(
     () =>
-      mix?.items.map(
-        ({ soundId, mode, volume, intervalMinSec, intervalMaxSec, volumeVariation }) => ({
-          soundId,
-          mode,
-          volume,
-          intervalMinSec,
-          intervalMaxSec,
-          volumeVariation,
-        }),
-      ) ??
+      mix?.items.map((item) => ({
+        soundId: item.soundId,
+        mode: item.mode,
+        volume: item.volume,
+        intervalMinSec: item.intervalMinSec,
+        intervalMaxSec: item.intervalMaxSec,
+        volumeVariation: item.volumeVariation,
+        trackStartSec: item.trackStartSec,
+        trackEndSec: item.trackEndSec,
+        loopStartSec: item.loopStartSec,
+        loopEndSec: item.loopEndSec,
+        loopMode: item.loopMode,
+        crossfadeSec: item.crossfadeSec,
+      })) ??
       initialItems ??
       [],
   );
   const [sceneIds, setSceneIds] = useState(mix?.sceneIds ?? []);
+  /** The sound whose loop is being edited in the nested dialog, by sound id. */
+  const [loopFor, setLoopFor] = useState<string | null>(null);
   const tags = useTagsDraft(mix);
 
   const error = save.error ?? setVolumes.error ?? remove.error ?? unlink.error;
@@ -160,6 +186,24 @@ export function MixEditor({
     );
   const patch = (soundId: string, change: Partial<ItemDraft>) =>
     setItems((current) => current.map((i) => (i.soundId === soundId ? { ...i, ...change } : i)));
+
+  /**
+   * Saves one item's loop settings as overrides: a value equal to the sound's own resolved
+   * setting goes back to null ("follow the sound"), so the sound's defaults are never
+   * mutated and two mixes can loop the same sound differently.
+   */
+  const saveItemLoop = (soundId: string, loop: LoopSettings) => {
+    const sound = byId.get(soundId);
+    const base = sound ? soundLoop(sound) : loop;
+    patch(soundId, {
+      trackStartSec: loop.trackStartSec !== base.trackStartSec ? loop.trackStartSec : null,
+      trackEndSec: loop.trackEndSec !== base.trackEndSec ? loop.trackEndSec : null,
+      loopStartSec: loop.loopStartSec !== base.loopStartSec ? loop.loopStartSec : null,
+      loopEndSec: loop.loopEndSec !== base.loopEndSec ? loop.loopEndSec : null,
+      loopMode: loop.loopMode !== base.loopMode ? loop.loopMode : null,
+      crossfadeSec: loop.crossfadeSec !== base.crossfadeSec ? loop.crossfadeSec : null,
+    });
+  };
 
   const submit = () => {
     if (mix && !owned) {
@@ -361,6 +405,14 @@ export function MixEditor({
                           </option>
                         ))}
                       </Select>
+                      {owned && (
+                        <IconButton
+                          icon={AudioWaveform}
+                          label={t('loop.editItem', { name: label })}
+                          onClick={() => setLoopFor(item.soundId)}
+                          className="size-10 shrink-0"
+                        />
+                      )}
                     </div>
                     {item.mode === 'recurring' && (
                       // Under the name, past the thumbnail: the pauses belong to this sound.
@@ -428,6 +480,19 @@ export function MixEditor({
           </Dialog>
         )}
       </Dialog>
+
+      {loopFor && byId.get(loopFor) && (
+        <LoopEditorDialog
+          sound={byId.get(loopFor)!}
+          mode={items.find((i) => i.soundId === loopFor)!.mode}
+          initial={itemLoop(
+            byId.get(loopFor)!,
+            items.find((i) => i.soundId === loopFor)!,
+          )}
+          onSave={(loop) => saveItemLoop(loopFor, loop)}
+          onClose={() => setLoopFor(null)}
+        />
+      )}
     </>
   );
 }

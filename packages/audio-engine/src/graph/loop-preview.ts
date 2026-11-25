@@ -1,75 +1,171 @@
-import { clampRegion } from '../loading/buffer-utils';
+import { resolveLoopConfig } from '../loading/buffer-utils';
+
 import { fadeTo } from '../params';
-import type { LoopRegion } from '../types';
+
+import type { LoopConfig } from '../types';
+
+import { CrossfadeLoop } from './crossfade-loop';
+
 import { loopPosition } from './layer';
 
 export const DEFAULT_AUDITION_SEC = 2;
 const STOP_FADE_SEC = 0.05;
 
 /**
- * Loop-point editor preview: one looping source on its own gain, region editable live.
- * Region / seam requests made before the buffer is ready are applied when it arrives.
+ * Loop editor test sequence: plays from the track start into the loop, gapless or crossfading
+ * like the layer will, on its own gain. The whole sequence is editable live, can be paused and
+ * resumed at the playhead, and restarted from the track start.
+ * Requests made before the buffer is ready are applied when it arrives.
  */
 export class LoopPreview {
   private gain: GainNode;
   private source: AudioBufferSourceNode | null = null;
+  private looper: CrossfadeLoop | null = null;
   private buffer: AudioBuffer | null = null;
+  /** Raw settings as given, before clamping to the buffer (unknown until it loads). */
+  private raw: Partial<LoopConfig>;
   private anchor = { time: 0, offset: 0 };
-  private pendingSeamSec: number | undefined;
+  private pending: { cfg: Partial<LoopConfig>; offset?: number } | null = null;
   private stopped = false;
+  private paused = false;
+  private pausedAt = 0;
 
   constructor(
     private ctx: BaseAudioContext,
     destination: AudioNode,
-    private region: LoopRegion,
+    cfg: Partial<LoopConfig>,
     volume: number,
+    private timers: {
+      setTimeout: (cb: () => void, ms: number) => unknown;
+      clearTimeout: (id: unknown) => void;
+    },
   ) {
+    this.raw = cfg;
     this.gain = ctx.createGain();
     this.gain.gain.value = volume;
     this.gain.connect(destination);
   }
 
-  get currentRegion(): LoopRegion {
-    return this.region;
+  /** The settings as they apply to the loaded buffer (raw until then). */
+  get currentConfig(): LoopConfig {
+    return resolveLoopConfig(this.raw, this.buffer?.duration ?? 0);
+  }
+
+  private get cfg(): LoopConfig {
+    return this.currentConfig;
+  }
+
+  isPlaying(): boolean {
+    return !this.stopped && !this.paused && (this.source !== null || this.looper !== null);
   }
 
   setBuffer(buffer: AudioBuffer) {
     if (this.stopped) return;
     this.buffer = buffer;
-    this.region = clampRegion(this.region, buffer.duration);
-    const seam = this.pendingSeamSec;
-    this.pendingSeamSec = undefined;
-    this.startAt(seam === undefined ? this.region.loopStart : this.seamOffset(seam));
+    const pending = this.pending;
+    this.pending = null;
+    if (pending) {
+      if (pending.cfg) this.raw = { ...this.raw, ...pending.cfg };
+      this.startAt(pending.offset ?? this.cfg.trackStart);
+    } else {
+      this.startAt(this.cfg.trackStart);
+    }
   }
 
-  /** Returns the region actually applied (clamped to the buffer). */
-  update(region: LoopRegion): LoopRegion {
-    if (this.stopped) return this.region;
-    if (!this.buffer || !this.source) {
-      this.region = region;
-      return region;
-    }
+  /** Live update; returns the config actually applied (clamped to the buffer). */
+  update(cfg: Partial<LoopConfig>): LoopConfig {
+    if (this.stopped) return this.cfg;
+    this.raw = { ...this.raw, ...cfg };
+    if (!this.buffer) return this.cfg;
     const position = this.getPosition();
-    this.region = clampRegion(region, this.buffer.duration);
-    // loopStart/loopEnd are live attributes: no restart, no click.
-    this.source.loopStart = this.region.loopStart;
-    this.source.loopEnd = this.region.loopEnd;
-    this.anchor = { time: this.ctx.currentTime, offset: loopPosition(position, 0, this.region) };
-    return this.region;
+    const resolved = this.cfg;
+    const now = this.ctx.currentTime;
+    this.anchor = { time: now, offset: loopPosition(position, 0, resolved) };
+    // Switching between a gapless source and a crossfading looper needs a new player:
+    // restart at the playhead so the change is heard at once, not on the next seek.
+    const wantsLooper = this.usesLooper(resolved);
+    if (!this.paused && (this.source || this.looper) && wantsLooper !== (this.looper !== null)) {
+      this.startAt(loopPosition(position, 0, resolved));
+      return resolved;
+    }
+    if (this.looper) {
+      this.looper.update(resolved);
+    } else if (this.source) {
+      // loopStart/loopEnd are live attributes: no restart, no click.
+      this.source.loopStart = resolved.loopStart;
+      this.source.loopEnd = resolved.loopEnd;
+    }
+    return resolved;
+  }
+
+  /** Restarts the test sequence from the track start. */
+  playFromStart() {
+    if (this.stopped || !this.buffer) {
+      if (!this.buffer) this.pending = { cfg: {}, offset: undefined };
+      return;
+    }
+    this.paused = false;
+    this.startAt(this.cfg.trackStart);
+  }
+
+  /** Jumps the playhead to `sec`; while paused it moves the frozen playhead. */
+  seekTo(sec: number) {
+    if (this.stopped) return;
+    if (!this.buffer) {
+      this.pending = { cfg: {}, offset: sec };
+      return;
+    }
+    const at = Math.min(Math.max(sec, 0), this.buffer.duration);
+    if (this.paused) {
+      this.pausedAt = loopPosition(at, 0, this.cfg);
+      return;
+    }
+    this.paused = false;
+    this.startAt(at);
+  }
+
+  pause() {
+    if (this.stopped || this.paused) return;
+    this.pausedAt = this.getPosition();
+    this.paused = true;
+    if (this.looper) this.looper.pause();
+    else if (this.source) {
+      const now = this.ctx.currentTime;
+      const source = this.source;
+      this.source = null;
+      source.onended = () => source.disconnect();
+      source.stop(now);
+    }
+  }
+
+  resume() {
+    if (!this.paused || this.stopped || !this.buffer) return;
+    this.paused = false;
+    // The settings may have switched gapless/crossfade while paused: restart fresh then.
+    if (this.looper && this.usesLooper(this.cfg)) this.looper.resume();
+    else this.startAt(this.pausedAt);
   }
 
   auditionSeam(sec = DEFAULT_AUDITION_SEC) {
     if (this.stopped) return;
+    // Before the buffer arrives its length is unknown: compute from the raw settings.
+    const { loopStart, loopEnd } = this.buffer
+      ? this.cfg
+      : { loopStart: this.raw.loopStart ?? 0, loopEnd: this.raw.loopEnd ?? 0 };
+    const at = Math.max(loopStart, loopEnd - sec);
     if (!this.buffer) {
-      this.pendingSeamSec = sec;
+      this.pending = { cfg: {}, offset: at };
       return;
     }
-    this.startAt(this.seamOffset(sec));
+    this.paused = false;
+    this.startAt(at);
   }
 
   getPosition(): number {
-    if (!this.source) return this.region.loopStart;
-    return loopPosition(this.anchor.offset, this.ctx.currentTime - this.anchor.time, this.region);
+    if (this.paused) return this.pausedAt;
+    if (this.looper) return this.looper.getPosition();
+    if (!this.source) return this.cfg.loopStart;
+    return loopPosition(this.anchor.offset, this.ctx.currentTime - this.anchor.time, this.cfg);
   }
 
   stop() {
@@ -78,6 +174,10 @@ export class LoopPreview {
     const now = this.ctx.currentTime;
     fadeTo(this.gain.gain, 0, now, STOP_FADE_SEC);
     const gain = this.gain;
+    if (this.looper) {
+      this.looper.stop(STOP_FADE_SEC);
+      this.looper = null;
+    }
     const source = this.source;
     this.source = null;
     if (source) {
@@ -91,23 +191,37 @@ export class LoopPreview {
     }
   }
 
-  private seamOffset(sec: number) {
-    return Math.max(this.region.loopStart, this.region.loopEnd - sec);
+  /** Whether `cfg` plays through the crossfading looper rather than one looping source. */
+  private usesLooper(cfg: LoopConfig): boolean {
+    return cfg.mode === 'crossfade' && cfg.crossfadeSec > 0.005;
   }
 
+  /** (Re)starts playback at `offset`, gapless or crossfading per the current config. */
   private startAt(offset: number) {
     if (!this.buffer) return;
     const now = this.ctx.currentTime;
+    const crossfade = this.usesLooper(this.cfg);
+    if (this.looper) {
+      this.looper.stop(0);
+      this.looper = null;
+    }
     if (this.source) {
       const old = this.source;
+      this.source = null;
       old.onended = () => old.disconnect();
       old.stop(now);
+    }
+    if (crossfade) {
+      const looper = new CrossfadeLoop({ ctx: this.ctx, timers: this.timers }, this.gain);
+      looper.start(this.buffer, this.cfg, offset);
+      this.looper = looper;
+      return;
     }
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
     source.loop = true;
-    source.loopStart = this.region.loopStart;
-    source.loopEnd = this.region.loopEnd;
+    source.loopStart = this.cfg.loopStart;
+    source.loopEnd = this.cfg.loopEnd;
     source.connect(this.gain);
     source.start(now, offset);
     this.source = source;

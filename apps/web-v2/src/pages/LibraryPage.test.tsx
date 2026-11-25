@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { PlayerProvider } from '../audio/player';
 import { I18nProvider } from '../i18n';
-import { makeFakeEngine, makeMix, makeSound } from '../test/fixtures';
+import { makeFakeEngine, makeMix, makeMixItem, makeSound } from '../test/fixtures';
 import { LibraryPage } from './LibraryPage';
 
 const json = (status: number, body: unknown) =>
@@ -76,15 +76,16 @@ const crowd = makeSound({
   ownerName: 'Grace Hopper',
   addedCount: 3,
 });
-const item = (id: string, soundId: string) => ({
-  id,
-  soundId,
-  mode: 'loop' as const,
-  volume: 1,
-  intervalMinSec: 20,
-  intervalMaxSec: 90,
-  volumeVariation: 0,
-});
+const item = (id: string, soundId: string) =>
+  makeMixItem({
+    id,
+    soundId,
+    mode: 'loop',
+    volume: 1,
+    intervalMinSec: 20,
+    intervalMaxSec: 90,
+    volumeVariation: 0,
+  });
 const market = makeMix({
   id: 'pm1',
   name: 'Market day',
@@ -346,7 +347,9 @@ describe('LibraryPage', () => {
     expect(within(dialog.getByText('My rain').closest('li')!).queryByRole('checkbox')).toBeNull();
     // The dialog says why Cold wind stays.
     expect(
-      dialog.getByText('1 of its sounds is used in your other mixes or scenes. It stays in your library.'),
+      dialog.getByText(
+        '1 of its sounds is used in your other mixes or scenes. It stays in your library.',
+      ),
     ).toBeInTheDocument();
 
     // Unticking keeps it: the mix still goes, the sound stays in the library, added on its
@@ -429,7 +432,9 @@ describe('LibraryPage', () => {
     );
     const dialog = within(await screen.findByRole('dialog', { name: 'Remove this sound' }));
     expect(dialog.getByText('Night watch')).toBeInTheDocument();
-    expect(dialog.getByText(/A mix you added from the Library also uses this sound/)).toBeInTheDocument();
+    expect(
+      dialog.getByText(/A mix you added from the Library also uses this sound/),
+    ).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: 'Remove' })).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalledWith(
       '/api/library/sounds/pub2',

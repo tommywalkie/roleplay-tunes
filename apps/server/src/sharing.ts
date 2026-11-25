@@ -17,6 +17,7 @@ import {
   mixVolumes,
   mixes,
   scenes,
+  soundLoops,
   soundVolumes,
   sounds,
   users,
@@ -86,6 +87,7 @@ const PRUNE_STATEMENTS = [
        ))
    )`,
   `DELETE FROM sound_volumes WHERE NOT ${canUseSound('sound_volumes.userId', 'sound_volumes.soundId')}`,
+  `DELETE FROM sound_loops WHERE NOT ${canUseSound('sound_loops.userId', 'sound_loops.soundId')}`,
   `DELETE FROM mix_volumes WHERE NOT EXISTS (
      SELECT 1 FROM library_mixes lm
      WHERE lm.userId = mix_volumes.userId AND lm.mixId = mix_volumes.mixId
@@ -190,6 +192,56 @@ export function soundVolumesOf(userId: string): Map<string, number> {
       .where(eq(soundVolumes.userId, userId))
       .all()
       .map((r) => [r.id, r.volume]),
+  );
+}
+
+/** Loop fields shared by sounds, mix items and a user's own loop settings. */
+export type LoopFields = Pick<
+  SoundRow,
+  'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'crossfadeSec'
+> & { loopMode: SoundRow['loopMode'] | null };
+
+/** The user's own loop settings for sounds they did not upload, by sound id. */
+export function soundLoopsOf(userId: string): Map<string, LoopFields> {
+  return new Map(
+    db
+      .select({
+        soundId: soundLoops.soundId,
+        trackStartSec: soundLoops.trackStartSec,
+        trackEndSec: soundLoops.trackEndSec,
+        loopStartSec: soundLoops.loopStartSec,
+        loopEndSec: soundLoops.loopEndSec,
+        loopMode: soundLoops.loopMode,
+        crossfadeSec: soundLoops.crossfadeSec,
+      })
+      .from(soundLoops)
+      .where(eq(soundLoops.userId, userId))
+      .all()
+      .map(({ soundId, ...loop }) => [soundId, loop]),
+  );
+}
+
+/** The owner's loop settings of the given sounds, with their length, by sound id. */
+export function ownerLoopsOf(
+  soundIds: string[],
+): Map<string, LoopFields & { durationSec: number }> {
+  if (soundIds.length === 0) return new Map();
+  return new Map(
+    db
+      .select({
+        id: sounds.id,
+        durationSec: sounds.durationSec,
+        trackStartSec: sounds.trackStartSec,
+        trackEndSec: sounds.trackEndSec,
+        loopStartSec: sounds.loopStartSec,
+        loopEndSec: sounds.loopEndSec,
+        loopMode: sounds.loopMode,
+        crossfadeSec: sounds.crossfadeSec,
+      })
+      .from(sounds)
+      .where(inArray(sounds.id, soundIds))
+      .all()
+      .map(({ id, ...loop }) => [id, loop]),
   );
 }
 

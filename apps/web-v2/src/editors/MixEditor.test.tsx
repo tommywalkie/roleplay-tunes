@@ -1,10 +1,11 @@
-import type { Mix } from '@dnd/shared';
+import type { Mix, Sound } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PlayerProvider } from '../audio/player';
 import { I18nProvider } from '../i18n';
-import { makeMe, makeMix, makeSound } from '../test/fixtures';
+import { makeFakeEngine, makeMe, makeMix, makeMixItem, makeSound } from '../test/fixtures';
 import { MixEditor, type ItemDraft } from './MixEditor';
 
 const json = (status: number, body: unknown) =>
@@ -17,23 +18,34 @@ const drip = makeSound({ id: 'drip', name: 'Drip', defaultMode: 'recurring', int
 
 const mix = makeMix({
   items: [
-    { id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-    { id: 'i2', soundId: 'drip', mode: 'recurring', volume: 0.4, intervalMinSec: 5, intervalMaxSec: 30, volumeVariation: 0 },
+    makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 }),
+    makeMixItem({ id: 'i2', soundId: 'drip', mode: 'recurring', volume: 0.4, intervalMinSec: 5, intervalMaxSec: 30 }),
   ],
 });
 
-function renderEditor(props: { mix: Mix | null; initialItems?: ItemDraft[] }) {
+function renderEditor(props: {
+  mix: Mix | null;
+  initialItems?: ItemDraft[];
+  sounds?: Sound[];
+}) {
+  const sounds = props.sounds ?? [crowd, drip];
   const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) =>
     url === '/api/synonyms' || url === '/api/categories'
       ? json(200, [])
       : json(200, props.mix ?? makeMix({ id: 'new' })),
   );
   vi.stubGlobal('fetch', fetchMock);
+  // The per-item loop editor reads the waveform through the player, so the editor runs
+  // inside a PlayerProvider with a fake engine, as in PlayerPanel.test.tsx.
+  const fake = makeFakeEngine();
+  fake.spies.getWaveformPeaks.mockResolvedValue(new Float32Array(480));
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <I18nProvider initial="en">
-        <MixEditor sounds={[crowd, drip]} scenes={[]} me={makeMe()} onClose={() => {}} {...props} />
+        <PlayerProvider sounds={sounds} engine={fake.engine}>
+          <MixEditor {...props} sounds={sounds} scenes={[]} me={makeMe()} onClose={() => {}} />
+        </PlayerProvider>
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -126,8 +138,8 @@ describe('MixEditor sounds', () => {
 describe('MixEditor initialItems', () => {
   it('starts a new mix with the given items and creates it with them', async () => {
     const initialItems: ItemDraft[] = [
-      { soundId: 'crowd', mode: 'loop', volume: 0.3, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0 },
-      { soundId: 'drip', mode: 'recurring', volume: 0.5, intervalMinSec: 4, intervalMaxSec: 12, volumeVariation: 0.25 },
+      { soundId: 'crowd', mode: 'loop', volume: 0.3, intervalMinSec: 20, intervalMaxSec: 90, volumeVariation: 0, trackStartSec: null, trackEndSec: null, loopStartSec: null, loopEndSec: null, loopMode: null, crossfadeSec: null },
+      { soundId: 'drip', mode: 'recurring', volume: 0.5, intervalMinSec: 4, intervalMaxSec: 12, volumeVariation: 0.25, trackStartSec: null, trackEndSec: null, loopStartSec: null, loopEndSec: null, loopMode: null, crossfadeSec: null },
     ];
     const { user, row, saves, savedItems } = renderEditor({ mix: null, initialItems });
     expect(screen.getByRole('dialog', { name: 'New mix' })).toBeInTheDocument();
@@ -171,5 +183,145 @@ describe('MixEditor synonyms and categories', () => {
     expect(volumes).toMatchObject({ url: '/api/mixes/m1/volumes', method: 'PUT' });
     expect(tags).toMatchObject({ url: '/api/mixes/m1', method: 'PATCH' });
     expect(tags.body).toEqual({ sceneIds: [], synonyms: ['souk'], categoryIds: [] });
+  });
+});
+
+describe('MixEditor item loop overrides', () => {
+  it('opens the loop editor for an item, stacked over the mix editor, and saves the overrides with the mix', async () => {
+    const { user, row, saves, savedItems } = renderEditor({ mix });
+
+    await user.click(row('Tavern crowd').getByRole('button', { name: 'Edit the loop of Tavern crowd' }));
+    const loopDialog = screen.getByRole('dialog', { name: 'Loop editor' });
+    expect(loopDialog.closest('[data-dialog-state]')).toHaveAttribute('data-dialog-state', 'shown');
+    // The mix editor stays mounted underneath, covered.
+    const covered = screen.getByRole('dialog', { name: 'Edit mix', hidden: true });
+    expect(covered.closest('[data-dialog-state]')).toHaveAttribute('data-dialog-state', 'covered');
+
+    const loop = within(loopDialog);
+    // Move the loop start by one step (0.1 s), switch to crossfade and set 3 s.
+    fireEvent.keyDown(loop.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
+    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
+    fireEvent.change(loop.getByRole('slider', { name: 'Crossfade length, seconds' }), {
+      target: { value: '3' },
+    });
+    await user.click(loop.getByRole('button', { name: 'Apply' }));
+    expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(saves()).toMatchObject([{ url: '/api/mixes/m1', method: 'PATCH' }]);
+    const items = savedItems()!;
+    expect(items[0]).toMatchObject({
+      soundId: 'crowd',
+      trackStartSec: null,
+      trackEndSec: null,
+      loopStartSec: 0.1,
+      loopEndSec: null,
+      loopMode: 'crossfade',
+      crossfadeSec: 3,
+    });
+    // The other item keeps its nulls (it follows its sound's own loop settings).
+    expect(items[1]).toMatchObject({
+      soundId: 'drip',
+      trackStartSec: null,
+      trackEndSec: null,
+      loopStartSec: null,
+      loopEndSec: null,
+      loopMode: null,
+      crossfadeSec: null,
+    });
+  });
+
+  it('sends null for loop fields that still equal the sound’s own resolved values', async () => {
+    // The sound itself has a custom loop; the item inherits it as nulls.
+    const custom = makeSound({
+      id: 'crowd',
+      name: 'Tavern crowd',
+      defaultMode: 'loop',
+      durationSec: 60,
+      loopStartSec: 5,
+      loopEndSec: 20,
+      loopMode: 'crossfade',
+      crossfadeSec: 1.5,
+    });
+    const customMix = makeMix({
+      items: [makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 })],
+    });
+    const { user, row, savedItems } = renderEditor({ mix: customMix, sounds: [custom, drip] });
+
+    await user.click(row('Tavern crowd').getByRole('button', { name: 'Edit the loop of Tavern crowd' }));
+    // Apply without changing anything: every field equals the sound's own values.
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Loop editor' })).getByRole('button', {
+        name: 'Apply',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(savedItems()![0]).toMatchObject({
+      soundId: 'crowd',
+      trackStartSec: null,
+      trackEndSec: null,
+      loopStartSec: null,
+      loopEndSec: null,
+      loopMode: null,
+      crossfadeSec: null,
+    });
+  });
+
+  it('puts the loop overrides applied in the dialog into the POST body of a new mix', async () => {
+    const initialItems: ItemDraft[] = [
+      {
+        soundId: 'crowd',
+        mode: 'loop',
+        volume: 0.3,
+        intervalMinSec: 20,
+        intervalMaxSec: 90,
+        volumeVariation: 0,
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        loopMode: null,
+        crossfadeSec: null,
+      },
+    ];
+    const { user, row, saves, savedItems } = renderEditor({ mix: null, initialItems });
+    await user.type(screen.getByLabelText('Name'), 'Storm at the inn');
+
+    await user.click(row('Tavern crowd').getByRole('button', { name: 'Edit the loop of Tavern crowd' }));
+    const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    // The new mix is covered by the loop editor.
+    expect(
+      screen.getByRole('dialog', { name: 'New mix', hidden: true }).closest('[data-dialog-state]'),
+    ).toHaveAttribute('data-dialog-state', 'covered');
+    fireEvent.keyDown(loop.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
+    await user.click(loop.getByRole('button', { name: 'Apply' }));
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(saves()).toMatchObject([{ url: '/api/mixes', method: 'POST' }]);
+    expect(savedItems()![0]).toMatchObject({
+      soundId: 'crowd',
+      loopStartSec: 0.1,
+      loopEndSec: null,
+      trackStartSec: null,
+      trackEndSec: null,
+      loopMode: null,
+      crossfadeSec: null,
+    });
+  });
+
+  it('opens the loop editor for a Random gaps item and for a Once item', async () => {
+    const { user, row } = renderEditor({ mix });
+    await user.click(row('Drip').getByRole('button', { name: 'Edit the loop of Drip' }));
+    let loopDialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    expect(loopDialog.getByRole('textbox', { name: 'Loop start' })).toBeInTheDocument();
+    await user.click(loopDialog.getByRole('button', { name: 'Cancel' }));
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Play mode: Tavern crowd' }), 'Once');
+    await user.click(row('Tavern crowd').getByRole('button', { name: 'Edit the loop of Tavern crowd' }));
+    loopDialog = within(screen.getByRole('dialog', { name: 'Loop editor' }));
+    expect(loopDialog.getByRole('textbox', { name: 'Loop end' })).toBeInTheDocument();
+    await user.click(loopDialog.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Loop editor' })).not.toBeInTheDocument();
   });
 });

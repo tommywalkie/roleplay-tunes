@@ -18,6 +18,7 @@ import type {
   LayerConfig,
   LayerState,
   LoadState,
+  LoopConfig,
   LoopPreviewHandle,
   LoopRegion,
   MixConfig,
@@ -218,13 +219,22 @@ class Engine implements AudioEngine {
     } else {
       master.connect(ctx.destination);
     }
-    const oneshot = new OneshotBus(ctx, master, this.options.maxOneshotVoices ?? DEFAULT_MAX_ONESHOT_VOICES, {
-      now: this.now,
-      onVoicesChange: (activeOneshots) =>
-        this.store.update((s) => ({ ...s, activeOneshots, activeOneshotCount: activeOneshots.length })),
-      onStolen: (soundId) => this.emitter.emit('oneshotDropped', { soundId, reason: 'stolen' }),
-      onVoiceEnded: (soundId) => this.cache.release(soundId),
-    });
+    const oneshot = new OneshotBus(
+      ctx,
+      master,
+      this.options.maxOneshotVoices ?? DEFAULT_MAX_ONESHOT_VOICES,
+      {
+        now: this.now,
+        onVoicesChange: (activeOneshots) =>
+          this.store.update((s) => ({
+            ...s,
+            activeOneshots,
+            activeOneshotCount: activeOneshots.length,
+          })),
+        onStolen: (soundId) => this.emitter.emit('oneshotDropped', { soundId, reason: 'stolen' }),
+        onVoiceEnded: (soundId) => this.cache.release(soundId),
+      },
+    );
     oneshot.gain.gain.value = sliderToGain(this.store.get().effectsVolume);
     ctx.onstatechange = () => this.syncStatus();
     this.graph = { ctx, mixInput, master, oneshot };
@@ -540,7 +550,10 @@ class Engine implements AudioEngine {
 
   // undefined
 
-  playOneshot(id: SoundId, opts: { volume?: number; pan?: number } = {}): OneshotHandle | null {
+  playOneshot(
+    id: SoundId,
+    opts: { volume?: number; pan?: number; trackStart?: number; trackEnd?: number } = {},
+  ): OneshotHandle | null {
     const descriptor = this.options.resolveSound(id);
     if (!descriptor) {
       this.emitter.emit('error', { code: 'LOAD_FAILED', soundId: id });
@@ -597,7 +610,7 @@ class Engine implements AudioEngine {
   private startOneshot(
     descriptor: SoundDescriptor,
     buffer: AudioBuffer,
-    opts: { volume?: number; pan?: number },
+    opts: { volume?: number; pan?: number; trackStart?: number; trackEnd?: number },
   ) {
     this.cache.retain(descriptor.id);
     return this.ensureGraph().oneshot.play(descriptor, buffer, opts);
@@ -679,23 +692,37 @@ class Engine implements AudioEngine {
     region: LoopRegion,
     opts: { auditionSeamSec?: number; volume?: number } = {},
   ): LoopPreviewHandle {
+    const { auditionSeamSec, ...rest } = opts;
+    const handle = this.previewSequence(id, region, rest);
+    if (auditionSeamSec !== undefined) handle.auditionSeam(auditionSeamSec);
+    return handle;
+  }
+
+  previewSequence(
+    id: SoundId,
+    cfg: Partial<LoopConfig>,
+    opts: { volume?: number; silenceMix?: boolean } = {},
+  ): LoopPreviewHandle {
     this.preview?.stop();
     const { ctx, master, mixInput } = this.ensureGraph();
-    const preview = new LoopPreview(ctx, master, region, sliderToGain(opts.volume ?? 1));
+    const preview = new LoopPreview(ctx, master, cfg, sliderToGain(opts.volume ?? 1), this.timers);
     this.preview = preview;
-    rampTo(mixInput.gain, dbToGain(PREVIEW_DUCK_DB), ctx.currentTime);
+    // A test sequence silences the main mix completely: the main player is paused for it.
+    rampTo(mixInput.gain, opts.silenceMix ? 0 : dbToGain(PREVIEW_DUCK_DB), ctx.currentTime);
     this.cache.retain(id);
-    if (opts.auditionSeamSec !== undefined) preview.auditionSeam(opts.auditionSeamSec);
     const setPreview = (patch: Partial<NonNullable<EngineSnapshot['preview']>>) =>
       this.store.update((s) => (s.preview ? { ...s, preview: { ...s.preview, ...patch } } : s));
-    this.store.update((s) => ({ ...s, preview: { soundId: id, region, load: 'loading' } }));
+    this.store.update((s) => ({
+      ...s,
+      preview: { soundId: id, region: preview.currentConfig, load: 'loading' },
+    }));
 
     const active = () => this.preview === preview;
     this.loader.load(id).then(
       (buffer) => {
         if (!active()) return;
         preview.setBuffer(buffer);
-        setPreview({ load: 'ready', region: preview.currentRegion });
+        setPreview({ load: 'ready', region: preview.currentConfig });
       },
       (e: unknown) => {
         if (!active()) return;
@@ -705,13 +732,26 @@ class Engine implements AudioEngine {
     );
 
     return {
-      update: (r) => {
-        if (active()) setPreview({ region: preview.update(r) });
+      update: (c) => {
+        if (active()) setPreview({ region: preview.update(c) });
+      },
+      playFromStart: () => {
+        if (active()) preview.playFromStart();
+      },
+      seekTo: (sec) => {
+        if (active()) preview.seekTo(sec);
+      },
+      pause: () => {
+        if (active()) preview.pause();
+      },
+      resume: () => {
+        if (active()) preview.resume();
       },
       auditionSeam: (sec) => {
         if (active()) preview.auditionSeam(sec);
       },
       getPosition: () => preview.getPosition(),
+      isPlaying: () => preview.isPlaying(),
       stop: () => {
         if (!active()) return;
         preview.stop();

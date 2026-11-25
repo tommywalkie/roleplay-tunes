@@ -38,6 +38,10 @@ export function setup(
       maxInstances: s.maxInstances,
       loopStart: s.loopStart,
       loopEnd: s.loopEnd,
+      trackStart: s.trackStart,
+      trackEnd: s.trackEnd,
+      loopMode: s.loopMode,
+      crossfadeSec: s.crossfadeSec,
       channels: s.channels,
       gainDb: s.gainDb,
     };

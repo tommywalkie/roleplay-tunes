@@ -1,17 +1,21 @@
 import {
+  DEFAULT_CROSSFADE_SEC,
   DESCRIPTION_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
   SOUND_META_MAX,
+  type LoopSettings,
   type Me,
   type PlayMode,
   type Scene,
   type Sound,
   type UpdateSoundRequest,
 } from '@dnd/shared';
+import { AudioWaveform } from 'lucide-react';
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { useDelete, useLibraryEntry, useSaveSound } from '../api/hooks';
+import { soundLoop } from '../audio/player';
 import { Dialog } from '../components/Dialog';
 import { Disclosure } from '../components/Disclosure';
 import type { IllustrationDraft } from '../components/Illustration';
@@ -19,11 +23,12 @@ import { IllustrationField, illustrationChanges } from '../components/Illustrati
 import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
 import { SOUND_DETAILS, type SoundMetaKey } from '../components/SoundDetails';
-import { ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../components/ui';
+import { Button, ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../components/ui';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { EditorFooter } from './EditorFooter';
 import { LicenseField } from './LicenseField';
+import { LoopEditorDialog } from './LoopEditorDialog';
 import { TagFields, useTagsDraft } from './TagFields';
 import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
 
@@ -45,7 +50,7 @@ export function SoundEditor({
   me: Me;
   onClose: () => void;
 }) {
-  const { t, errorText } = useI18n();
+  const { t, errorText, duration } = useI18n();
   const save = useSaveSound();
   const remove = useDelete('sounds');
   const unlink = useLibraryEntry('sounds');
@@ -75,15 +80,43 @@ export function SoundEditor({
   const [gapMax, setGapMax] = useState(String(sound.intervalMaxSec));
   const [variation, setVariation] = useState(sound.volumeVariation);
   const [sceneIds, setSceneIds] = useState(sound.sceneIds);
+  const [loop, setLoop] = useState<LoopSettings>(() => soundLoop(sound));
+  const [loopOpen, setLoopOpen] = useState(false);
   const tags = useTagsDraft(sound);
 
   const error = save.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
 
+  // A marker at its usual edge is stored as null ("the default"), not as a number.
+  const loopBody = {
+    trackStartSec: loop.trackStartSec > 0 ? loop.trackStartSec : null,
+    trackEndSec: loop.trackEndSec < sound.durationSec ? loop.trackEndSec : null,
+    loopStartSec: loop.loopStartSec > loop.trackStartSec ? loop.loopStartSec : null,
+    loopEndSec: loop.loopEndSec < loop.trackEndSec ? loop.loopEndSec : null,
+    loopMode: loop.loopMode,
+    crossfadeSec:
+      loop.crossfadeSec === Math.min(DEFAULT_CROSSFADE_SEC, (loop.loopEndSec - loop.loopStartSec) / 2)
+        ? null
+        : loop.crossfadeSec,
+  };
+
   const submit = () => {
     if (!owned) {
+      // Their own loop settings, sent only once they changed them: the owner's stay untouched.
+      const initial = soundLoop(sound);
+      const loopChanged = (Object.keys(initial) as (keyof LoopSettings)[]).some(
+        (key) => initial[key] !== loop[key],
+      );
       save.mutate(
-        { id: sound.id, body: { defaultVolume: volume, sceneIds, ...tags.body } },
+        {
+          id: sound.id,
+          body: {
+            defaultVolume: volume,
+            sceneIds,
+            ...tags.body,
+            ...(loopChanged ? loopBody : {}),
+          },
+        },
         { onSuccess: onClose },
       );
       return;
@@ -102,6 +135,7 @@ export function SoundEditor({
       isPublic,
       defaultMode: mode,
       defaultVolume: volume,
+      ...loopBody,
       intervalMinSec: min,
       intervalMaxSec: max,
       volumeVariation: variation,
@@ -113,10 +147,11 @@ export function SoundEditor({
   };
 
   return (
-    <Dialog
-      title={t('sounds.edit')}
-      onClose={onClose}
-      onSubmit={submit}
+    <>
+      <Dialog
+        title={t('sounds.edit')}
+        onClose={onClose}
+        onSubmit={submit}
       footer={
         owned ? (
           <EditorFooter
@@ -205,7 +240,36 @@ export function SoundEditor({
           />
           <p className="text-[13px] leading-5 text-ink-3">{t(`mode.${mode}.hint` as MessageKey)}</p>
         </div>
+      </OwnerOnly>
 
+      {/* Anyone may set the loop: the owner sets the sound's own, others their own copy. */}
+      <Field label={t('loop.label')} hint={owned ? undefined : t('share.yourLoop')}>
+          {() => (
+            <div className="flex items-center gap-3">
+              <Button icon={AudioWaveform} onClick={() => setLoopOpen(true)}>
+                {t('loop.edit')}
+              </Button>
+              <span className="min-w-0 truncate font-mono text-[12px] leading-4 text-ink-3 tabular-nums">
+                {loop.trackStartSec <= 0 &&
+                loop.trackEndSec >= sound.durationSec &&
+                loop.loopStartSec <= loop.trackStartSec &&
+                loop.loopEndSec >= loop.trackEndSec &&
+                loop.loopMode === 'gapless'
+                  ? t('loop.wholeTrack')
+                  : t('loop.summary', {
+                      from: duration(loop.loopStartSec),
+                      to: duration(loop.loopEndSec),
+                      mode:
+                        loop.loopMode === 'crossfade'
+                          ? ` · ${t('loop.mode.crossfade')} ${loop.crossfadeSec.toFixed(1)} s`
+                          : '',
+                    })}
+              </span>
+            </div>
+          )}
+        </Field>
+
+      <OwnerOnly locked={!owned}>
         {mode === 'recurring' && (
           <div className="grid grid-cols-2 gap-4">
             <Field label={t('sounds.gapMin')} error={fields?.intervalMinSec}>
@@ -272,6 +336,17 @@ export function SoundEditor({
         fallback={FALLBACK_ICONS.scene}
         emptyText={t('sounds.noScenes')}
       />
-    </Dialog>
+      </Dialog>
+
+      {loopOpen && (
+        <LoopEditorDialog
+          sound={sound}
+          mode={mode}
+          initial={loop}
+          onSave={setLoop}
+          onClose={() => setLoopOpen(false)}
+        />
+      )}
+    </>
   );
 }

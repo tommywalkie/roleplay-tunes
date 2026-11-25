@@ -1,3 +1,6 @@
+# reflex indexing
+.reflex/
+
 # Dependencies
 node_modules/
 

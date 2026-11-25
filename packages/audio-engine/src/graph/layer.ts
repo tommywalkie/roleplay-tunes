@@ -1,6 +1,7 @@
-import { clampRegion } from '../loading/buffer-utils';
+import { resolveLoopConfig } from '../loading/buffer-utils';
 import { dbToGain, equalPowerFade, fadeTo, rampTo, sliderToGain } from '../params';
-import type { LayerConfig, LoopRegion, SoundDescriptor, Timers } from '../types';
+import { CrossfadeLoop } from './crossfade-loop';
+import type { LayerConfig, LoopConfig, LoopRegion, SoundDescriptor, Timers } from '../types';
 
 export const LAYER_FADE_IN_SEC = 0.3;
 /** Max overlapping voices of one recurring-interval layer (a long thunder clip won't stack). */
@@ -49,6 +50,7 @@ export class Layer {
   private muteGain: GainNode;
   private panner: StereoPannerNode | null = null;
   private loopSource: AudioBufferSourceNode | null = null;
+  private looper: CrossfadeLoop | null = null;
   private voices: Voice[] = [];
   private buffer: AudioBuffer | null = null;
   private nextTimer: unknown = null;
@@ -122,6 +124,7 @@ export class Layer {
     if (patch.volume !== undefined) rampTo(this.layerGain.gain, this.targetGain(), now);
     if (patch.muted !== undefined) rampTo(this.muteGain.gain, patch.muted ? 0 : 1, now);
     if (patch.pan !== undefined && this.panner) rampTo(this.panner.pan, patch.pan, now);
+    if (patch.mode !== undefined) this.syncLoop();
   }
 
   /** Carry-over into a new mix: keeps playing, glides to the new layer's settings. */
@@ -136,7 +139,7 @@ export class Layer {
   setDescriptor(descriptor: SoundDescriptor | undefined) {
     this.descriptor = descriptor;
     rampTo(this.layerGain.gain, this.targetGain(), this.ctx.currentTime);
-    if (this.loopSource && this.buffer) this.applyRegion(this.loopSource, this.buffer);
+    this.syncLoop();
   }
 
   stop(fadeSec = LAYER_FADE_IN_SEC, equalPower = false) {
@@ -153,6 +156,10 @@ export class Layer {
     const sources = [...this.voices.map((v) => v.source)];
     if (this.loopSource) sources.push(this.loopSource);
     this.loopSource = null;
+    if (this.looper) {
+      this.looper.stop(fadeSec);
+      this.looper = null;
+    }
     if (sources.length === 0) {
       disconnectChain();
       return;
@@ -183,17 +190,70 @@ export class Layer {
 
   private startLoop() {
     if (!this.buffer) return;
+    const cfg = this.loopConfig();
+    const randomStart = this.config.mode.type === 'loop' && this.config.mode.randomStart !== false;
+    const offset = randomStart
+      ? cfg.loopStart + this.deps.rng() * (cfg.loopEnd - cfg.loopStart)
+      : cfg.trackStart;
+    if (cfg.mode === 'crossfade' && cfg.crossfadeSec > 0.005) {
+      const looper = new CrossfadeLoop(this.deps, this.voiceGain);
+      looper.start(this.buffer, cfg, offset);
+      this.looper = looper;
+      return;
+    }
     const source = this.ctx.createBufferSource();
     source.buffer = this.buffer;
     source.loop = true;
-    const region = this.applyRegion(source, this.buffer);
-    const randomStart = this.config.mode.type === 'loop' && this.config.mode.randomStart !== false;
-    const offset = randomStart
-      ? region.loopStart + this.deps.rng() * (region.loopEnd - region.loopStart)
-      : region.loopStart;
+    source.loopStart = cfg.loopStart;
+    source.loopEnd = cfg.loopEnd;
     source.connect(this.voiceGain);
     source.start(this.ctx.currentTime, offset);
     this.loopSource = source;
+  }
+
+  /** The loop settings of this layer: the sound's descriptor overridden by the layer's own. */
+  private loopConfig(): LoopConfig {
+    const mode = this.config.mode;
+    return resolveLoopConfig(
+      {
+        trackStart: this.descriptor?.trackStart,
+        trackEnd: this.descriptor?.trackEnd,
+        loopStart: this.descriptor?.loopStart,
+        loopEnd: this.descriptor?.loopEnd,
+        mode: this.descriptor?.loopMode,
+        crossfadeSec: this.descriptor?.crossfadeSec,
+        ...(mode.loop ?? {}),
+      },
+      this.buffer?.duration ?? 0,
+    );
+  }
+
+  /** Applies the current loop settings to what plays, switching gapless/crossfade if needed. */
+  private syncLoop() {
+    if (!this.started || !this.buffer) return;
+    const cfg = this.loopConfig();
+    const crossfade = cfg.mode === 'crossfade' && cfg.crossfadeSec > 0.005;
+    if (crossfade && this.looper) {
+      this.looper.update(cfg);
+      return;
+    }
+    if (!crossfade && this.loopSource) {
+      this.loopSource.loopStart = cfg.loopStart;
+      this.loopSource.loopEnd = cfg.loopEnd;
+      return;
+    }
+    // The loop kind changed: restart the loop quickly with the new settings.
+    if (this.looper) {
+      this.looper.stop(VOICE_STEAL_FADE_SEC);
+      this.looper = null;
+    }
+    if (this.loopSource) {
+      const old = this.loopSource;
+      this.loopSource = null;
+      old.onended = () => old.disconnect();
+      old.stop(this.ctx.currentTime + VOICE_STEAL_FADE_SEC);
+    }
+    if (this.config.mode.type === 'loop') this.startLoop();
   }
 
   // undefined
@@ -234,7 +294,8 @@ export class Layer {
       return;
     }
     // The pause runs from the end of the play that just started, so plays never overlap.
-    this.scheduleNext(this.nextWhen + (this.buffer?.duration ?? 0));
+    const trackLen = this.loopConfig().trackEnd - this.loopConfig().trackStart;
+    this.scheduleNext(this.nextWhen + trackLen);
   }
 
   private queueEvent(when: number) {
@@ -270,18 +331,14 @@ export class Layer {
       this.voices = this.voices.filter((v) => v !== voice);
       nodes.forEach((n) => n.disconnect());
     };
-    source.start(when);
-    this.voices.push(voice);
-  }
-
-  private applyRegion(source: AudioBufferSourceNode, buffer: AudioBuffer): LoopRegion {
-    const region = clampRegion(
-      { loopStart: this.descriptor?.loopStart, loopEnd: this.descriptor?.loopEnd },
-      buffer.duration,
+    // Each play runs the track region: from the track start to the track end.
+    const track = this.loopConfig();
+    source.start(
+      when,
+      track.trackStart,
+      Math.max(MIN_RECURRING_INTERVAL_SEC, track.trackEnd - track.trackStart),
     );
-    source.loopStart = region.loopStart;
-    source.loopEnd = region.loopEnd;
-    return region;
+    this.voices.push(voice);
   }
 
   private targetGain() {

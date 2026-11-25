@@ -17,6 +17,114 @@ export const DEFAULT_INTERVAL_MIN_SEC = 20;
 export const DEFAULT_INTERVAL_MAX_SEC = 90;
 export const DEFAULT_VOLUME = 0.8;
 
+// Loop points and crossfading
+
+/** How a loop repeats at its end: straight back to the loop start, or blended over itself. */
+export const LOOP_MODES = ['gapless', 'crossfade'] as const;
+
+export const loopModeSchema = z.enum(LOOP_MODES);
+
+export type LoopMode = z.infer<typeof loopModeSchema>;
+
+/** Longest crossfade a loop may ask for, in seconds. */
+export const MAX_CROSSFADE_SEC = 10;
+
+/** A loop shorter than this is never offered a crossfade: it is too short to blend. */
+export const MIN_CROSSFADE_LOOP_SEC = 1;
+
+/** The crossfade used when none is set. */
+export const DEFAULT_CROSSFADE_SEC = 2;
+
+export const crossfadeSecSchema = z.number().min(0).max(MAX_CROSSFADE_SEC);
+
+/** The four markers of a sound's playback, in seconds. Null means "the usual edge". */
+export interface LoopSettingsInput {
+  durationSec: number;
+  trackStartSec?: number | null;
+  trackEndSec?: number | null;
+  loopStartSec?: number | null;
+  loopEndSec?: number | null;
+  loopMode?: LoopMode | null;
+  crossfadeSec?: number | null;
+}
+
+/** The same four markers, resolved: every field concrete and ordered. */
+export interface LoopSettings {
+  trackStartSec: number;
+  trackEndSec: number;
+  loopStartSec: number;
+  loopEndSec: number;
+  loopMode: LoopMode;
+  crossfadeSec: number;
+}
+
+const clampNum = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/**
+ * Resolves loop markers against a track length: a null marker falls back to the usual edge
+ * (track start 0, track end the duration, loop points the track edges), and everything is
+ * clamped into 0 <= trackStart <= loopStart < loopEnd <= trackEnd <= duration. The crossfade
+ * never exceeds half the loop, or `MAX_CROSSFADE_SEC`.
+ */
+export function resolveLoopSettings(input: LoopSettingsInput): LoopSettings {
+  const duration = Math.max(0, input.durationSec);
+  const trackStartSec = clampNum(input.trackStartSec ?? 0, 0, duration);
+  const trackEndSec = clampNum(input.trackEndSec ?? duration, trackStartSec, duration);
+  const loopStartSec = clampNum(input.loopStartSec ?? trackStartSec, trackStartSec, trackEndSec);
+  const loopEndSec = clampNum(
+    input.loopEndSec ?? trackEndSec,
+    loopStartSec + Math.min(0.1, trackEndSec - loopStartSec),
+    trackEndSec,
+  );
+  const loopMode = input.loopMode ?? 'gapless';
+  const maxCrossfade = Math.min(MAX_CROSSFADE_SEC, (loopEndSec - loopStartSec) / 2);
+  const crossfadeSec = clampNum(input.crossfadeSec ?? DEFAULT_CROSSFADE_SEC, 0, maxCrossfade);
+  return { trackStartSec, trackEndSec, loopStartSec, loopEndSec, loopMode, crossfadeSec };
+}
+
+/**
+ * Field-level check of raw loop markers before they are saved: returns the offending field
+ * and a message, or null when the values are sound. `current` supplies the values a patch
+ * does not change.
+ */
+export function loopSettingsError(
+  input: LoopSettingsInput,
+  current: LoopSettingsInput = input,
+): { field: string; message: string } | null {
+  const merged = { ...current, ...input, durationSec: input.durationSec };
+  const duration = merged.durationSec;
+  const num = (v: number | null | undefined) => v ?? null;
+  const ts =
+    num(input.trackStartSec) === null ? num(current.trackStartSec) : num(input.trackStartSec);
+  const te = num(input.trackEndSec) === null ? num(current.trackEndSec) : num(input.trackEndSec);
+  const ls = num(input.loopStartSec) === null ? num(current.loopStartSec) : num(input.loopStartSec);
+  const le = num(input.loopEndSec) === null ? num(current.loopEndSec) : num(input.loopEndSec);
+  if (ts !== null && ts < 0) return { field: 'trackStartSec', message: 'Must not be below 0' };
+  if (te !== null && te > duration + 0.05)
+    return { field: 'trackEndSec', message: 'Is past the end of the sound' };
+  if (le !== null && le > duration + 0.05)
+    return { field: 'loopEndSec', message: 'Is past the end of the sound' };
+  if (ls !== null && le !== null && ls >= le)
+    return { field: 'loopEndSec', message: 'Must be after the loop start' };
+  if (ts !== null && ls !== null && ts > ls)
+    return { field: 'loopStartSec', message: 'Must not be before the track start' };
+  if (te !== null && le !== null && le > te)
+    return { field: 'trackEndSec', message: 'Must not be before the loop end' };
+  if (ts !== null && te !== null && ts > te)
+    return { field: 'trackEndSec', message: 'Must be after the track start' };
+  const cf = input.crossfadeSec ?? current.crossfadeSec;
+  if (cf !== null && cf !== undefined) {
+    if (cf < 0 || cf > MAX_CROSSFADE_SEC) {
+      return { field: 'crossfadeSec', message: `Must be between 0 and ${MAX_CROSSFADE_SEC}` };
+    }
+    const resolved = resolveLoopSettings(merged);
+    if (cf > (resolved.loopEndSec - resolved.loopStartSec) / 2 + 0.05) {
+      return { field: 'crossfadeSec', message: 'Must not exceed half the loop length' };
+    }
+  }
+  return null;
+}
+
 // Limits
 
 export const LIMIT_KEYS = [
@@ -256,8 +364,13 @@ export const soundSchema = z.object({
   durationSec: z.number(),
   defaultMode: playModeSchema,
   defaultVolume: volumeSchema,
+  /** Playback markers in seconds; null is the usual edge (0, duration, or the track edge). */
+  trackStartSec: z.number().nullable(),
+  trackEndSec: z.number().nullable(),
   loopStartSec: z.number().nullable(),
   loopEndSec: z.number().nullable(),
+  loopMode: loopModeSchema,
+  crossfadeSec: z.number().nullable(),
   intervalMinSec: z.number(),
   intervalMaxSec: z.number(),
   volumeVariation: z.number(),
@@ -291,8 +404,12 @@ export const updateSoundSchema = z
     isPublic: z.boolean(),
     defaultMode: playModeSchema,
     defaultVolume: volumeSchema,
+    trackStartSec: z.number().min(0).nullable(),
+    trackEndSec: z.number().min(0).nullable(),
     loopStartSec: z.number().min(0).nullable(),
     loopEndSec: z.number().min(0).nullable(),
+    loopMode: loopModeSchema,
+    crossfadeSec: crossfadeSecSchema.nullable(),
     intervalMinSec: intervalSecSchema,
     intervalMaxSec: intervalSecSchema,
     volumeVariation: z.number().min(0).max(1),
@@ -314,6 +431,16 @@ export const mixItemSchema = z.object({
   intervalMinSec: z.number(),
   intervalMaxSec: z.number(),
   volumeVariation: z.number(),
+  /**
+   * This item's own loop markers, in seconds. Null means the sound's own values are used,
+   * so one sound can loop differently in two mixes without changing its defaults.
+   */
+  trackStartSec: z.number().nullable(),
+  trackEndSec: z.number().nullable(),
+  loopStartSec: z.number().nullable(),
+  loopEndSec: z.number().nullable(),
+  loopMode: loopModeSchema.nullable(),
+  crossfadeSec: z.number().nullable(),
 });
 export type MixItem = z.infer<typeof mixItemSchema>;
 
@@ -326,6 +453,12 @@ export const mixItemInputSchema = z
     intervalMinSec: intervalSecSchema.optional(),
     intervalMaxSec: intervalSecSchema.optional(),
     volumeVariation: z.number().min(0).max(1).optional(),
+    trackStartSec: z.number().min(0).nullable().optional(),
+    trackEndSec: z.number().min(0).nullable().optional(),
+    loopStartSec: z.number().min(0).nullable().optional(),
+    loopEndSec: z.number().min(0).nullable().optional(),
+    loopMode: loopModeSchema.nullable().optional(),
+    crossfadeSec: crossfadeSecSchema.nullable().optional(),
   })
   .strict();
 export type MixItemInput = z.infer<typeof mixItemInputSchema>;
@@ -371,9 +504,7 @@ export type UpdateMixRequest = z.infer<typeof updateMixSchema>;
  * The caller's own volume for sounds of a mix they added from the library, by sound id.
  * Replaces every volume they set before for that mix.
  */
-export const mixVolumesSchema = z
-  .object({ volumes: z.record(idSchema, volumeSchema) })
-  .strict();
+export const mixVolumesSchema = z.object({ volumes: z.record(idSchema, volumeSchema) }).strict();
 export type MixVolumesRequest = z.infer<typeof mixVolumesSchema>;
 
 // Library

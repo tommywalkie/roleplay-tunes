@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { Sound } from '@dnd/shared';
+import type { Library, Sound } from '@dnd/shared';
 import { buildApp } from '../app.js';
 import { config } from '../config.js';
 import {
@@ -14,6 +14,7 @@ import {
   uploadRaw,
   uploadSound,
   wavFile,
+  type TestUser,
 } from '../test/helpers.js';
 
 let app: FastifyInstance;
@@ -311,6 +312,121 @@ describe('PATCH validation', () => {
     expectError(await patch(sound, user, { loopStartSec: -1, loopEndSec: 5 }), 400, 'validation');
   });
 
+  describe('loop markers', () => {
+    it('gives a fresh upload the default loop markers', async () => {
+      const { sound } = await fixture();
+      expect(sound).toMatchObject({
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        loopMode: 'gapless',
+        crossfadeSec: null,
+      });
+    });
+
+    it('round-trips the track markers, loop mode and crossfade', async () => {
+      const { user, sound } = await fixture();
+      const res = await patch(sound, user, {
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      // And on a fresh read, not only in the patch response.
+      expect((await call(app, user, 'GET', `/api/sounds/${sound.id}`)).json()).toMatchObject({
+        trackStartSec: 1,
+        trackEndSec: 11,
+        loopStartSec: 2,
+        loopEndSec: 10,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+
+      // Clearing the markers stores nulls again ("the usual edge").
+      const cleared = await patch(sound, user, {
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        crossfadeSec: null,
+      });
+      expect(cleared.statusCode, cleared.body).toBe(200);
+      expect(cleared.json()).toMatchObject({
+        trackStartSec: null,
+        trackEndSec: null,
+        loopStartSec: null,
+        loopEndSec: null,
+        crossfadeSec: null,
+      });
+    });
+
+    it('rejects a loop start at or after the loop end and a loop end past the duration', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { loopStartSec: 6, loopEndSec: 2 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopStartSec: 3, loopEndSec: 3 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopStartSec: 1, loopEndSec: 12.5 }), 400, 'validation');
+    });
+
+    it('rejects a track start after the loop start and a loop end after the track end', async () => {
+      const { user, sound } = await fixture();
+      const start = await patch(sound, user, {
+        trackStartSec: 5,
+        loopStartSec: 2,
+        loopEndSec: 10,
+      });
+      expectError(start, 400, 'validation');
+      expect(start.json().error.fields).toHaveProperty('loopStartSec');
+
+      const end = await patch(sound, user, { trackEndSec: 8, loopStartSec: 2, loopEndSec: 10 });
+      expectError(end, 400, 'validation');
+      expect(end.json().error.fields).toHaveProperty('trackEndSec');
+    });
+
+    it('rejects a crossfade above 10 s or above half the loop length', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { crossfadeSec: 10.5 }), 400, 'validation');
+
+      const res = await patch(sound, user, {
+        loopStartSec: 1,
+        loopEndSec: 5,
+        loopMode: 'crossfade',
+        crossfadeSec: 3,
+      });
+      expectError(res, 400, 'validation');
+      expect(res.json().error.fields).toHaveProperty('crossfadeSec');
+    });
+
+    it('accepts a crossfade within half the loop length', async () => {
+      const { user, sound } = await fixture();
+      const res = await patch(sound, user, {
+        loopStartSec: 1,
+        loopEndSec: 9,
+        loopMode: 'crossfade',
+        crossfadeSec: 4,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ loopMode: 'crossfade', crossfadeSec: 4 });
+    });
+
+    it('still requires both loop points or neither', async () => {
+      const { user, sound } = await fixture();
+      expectError(await patch(sound, user, { loopStartSec: 2 }), 400, 'validation');
+      expectError(await patch(sound, user, { loopEndSec: 8 }), 400, 'validation');
+    });
+  });
+
   it('rejects an interval minimum above the maximum', async () => {
     const { user, sound } = await fixture();
     expectError(
@@ -410,6 +526,169 @@ describe('PATCH validation', () => {
     expectError(await patch(sound, user, { sceneIds: ['nope'] }), 400, 'validation');
     expectError(await patch(sound, user, { name: 'Changed', sceneIds: ['nope'] }), 400, 'validation');
     expect((await call(app, user, 'GET', `/api/sounds/${sound.id}`)).json().name).toBe(sound.name);
+  });
+});
+
+describe('own loop settings of an added sound', () => {
+  type Loop = Pick<
+    Sound,
+    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'loopMode' | 'crossfadeSec'
+  >;
+  const OWNER_LOOP: Loop = {
+    trackStartSec: 0.5,
+    trackEndSec: 11,
+    loopStartSec: 1,
+    loopEndSec: 10,
+    loopMode: 'crossfade',
+    crossfadeSec: 2,
+  };
+  const OWN_LOOP: Loop = {
+    trackStartSec: 2,
+    trackEndSec: 9,
+    loopStartSec: 3,
+    loopEndSec: 8,
+    loopMode: 'gapless',
+    crossfadeSec: 1,
+  };
+
+  const getSound = async (user: TestUser, id: string): Promise<Sound> =>
+    (await call(app, user, 'GET', `/api/sounds/${id}`)).json();
+  const listed = async (user: TestUser, id: string): Promise<Sound | undefined> =>
+    ((await call(app, user, 'GET', '/api/sounds')).json() as Sound[]).find((s) => s.id === id);
+  const inLibrary = async (user: TestUser, id: string) =>
+    ((await call(app, user, 'GET', '/api/library')).json() as Library).sounds.find(
+      (s) => s.id === id,
+    );
+
+  /** A public 12 s sound with the owner's loop, added by b and by c. */
+  async function shared() {
+    const owner = await signUp(app);
+    const b = await signUp(app);
+    const c = await signUp(app);
+    const sound = await uploadSound(app, owner, { content: wavFile(12) });
+    const res = await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, {
+      isPublic: true,
+      ...OWNER_LOOP,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    for (const user of [b, c]) {
+      expect((await call(app, user, 'PUT', `/api/library/sounds/${sound.id}`)).statusCode).toBe(
+        204,
+      );
+    }
+    return { owner, b, c, sound: res.json() as Sound };
+  }
+
+  it('are saved for who added the sound and shown to them everywhere', async () => {
+    const { owner, b, c, sound } = await shared();
+    const res = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, OWN_LOOP);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ ...OWN_LOOP, access: 'added' });
+    expect(await getSound(b, sound.id)).toMatchObject(OWN_LOOP);
+    expect(await listed(b, sound.id)).toMatchObject(OWN_LOOP);
+    expect(await inLibrary(b, sound.id)).toMatchObject({ ...OWN_LOOP, access: 'added' });
+
+    // The owner and another user who added it still see the owner's settings.
+    expect(await getSound(owner, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await listed(owner, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await inLibrary(owner, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await getSound(c, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await listed(c, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await inLibrary(c, sound.id)).toMatchObject(OWNER_LOOP);
+  });
+
+  it('take the fields sent over their own earlier settings, over the owner’s', async () => {
+    const { owner, b, sound } = await shared();
+    const first = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { crossfadeSec: 1 });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toMatchObject({ ...OWNER_LOOP, crossfadeSec: 1 });
+
+    const second = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, {
+      loopMode: 'gapless',
+      defaultVolume: 0.3,
+    });
+    expect(second.statusCode, second.body).toBe(200);
+    expect(second.json()).toMatchObject({
+      ...OWNER_LOOP,
+      loopMode: 'gapless',
+      crossfadeSec: 1,
+      defaultVolume: 0.3,
+    });
+    expect(await getSound(owner, sound.id)).toMatchObject({ ...OWNER_LOOP, defaultVolume: 0.8 });
+  });
+
+  it('leave the loop alone when a patch sends no loop field', async () => {
+    const { b, sound } = await shared();
+    await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, OWN_LOOP);
+    const res = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { defaultVolume: 0.4 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ ...OWN_LOOP, defaultVolume: 0.4 });
+  });
+
+  it('are validated, with the offending field, and nothing is saved on error', async () => {
+    const { b, sound } = await shared();
+    const reversed = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, {
+      loopStartSec: 9,
+      loopEndSec: 4,
+    });
+    expectError(reversed, 400, 'validation');
+    expect(reversed.json().error.fields).toHaveProperty('loopEndSec');
+
+    // Checked against the owner's values for the fields left out: their loop ends at 10.
+    const pastEnd = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { loopStartSec: 10.5 });
+    expectError(pastEnd, 400, 'validation');
+    expect(pastEnd.json().error.fields).toHaveProperty('loopEndSec');
+
+    const fat = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, {
+      loopStartSec: 2,
+      loopEndSec: 4,
+      loopMode: 'crossfade',
+      crossfadeSec: 3,
+    });
+    expectError(fat, 400, 'validation');
+    expect(fat.json().error.fields).toHaveProperty('crossfadeSec');
+
+    expect(await getSound(b, sound.id)).toMatchObject(OWNER_LOOP);
+  });
+
+  it('still refuse every field outside the allowed ones', async () => {
+    const { owner, b, sound } = await shared();
+    expectError(
+      await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { ...OWN_LOOP, name: 'Mine' }),
+      403,
+      'forbidden',
+    );
+    expectError(
+      await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, { loopStartSec: 3, intervalMinSec: 2 }),
+      403,
+      'forbidden',
+    );
+    expect(await getSound(b, sound.id)).toMatchObject(OWNER_LOOP);
+    expect(await getSound(owner, sound.id)).toMatchObject(OWNER_LOOP);
+  });
+
+  it('do not stop the owner from changing their own loop as before', async () => {
+    const { owner, b, c, sound } = await shared();
+    await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, OWN_LOOP);
+    const next: Loop = { ...OWNER_LOOP, loopStartSec: 4, loopEndSec: 11, crossfadeSec: 3 };
+    const res = await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, {
+      loopStartSec: 4,
+      loopEndSec: 11,
+      crossfadeSec: 3,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ ...next, access: 'owner' });
+    expect(await getSound(c, sound.id)).toMatchObject(next);
+    expect(await getSound(b, sound.id)).toMatchObject(OWN_LOOP);
+  });
+
+  it('are dropped when the sound leaves their library by going private', async () => {
+    const { owner, b, sound } = await shared();
+    await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, OWN_LOOP);
+    await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: false });
+    await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: true });
+    expect((await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`)).statusCode).toBe(204);
+    expect(await getSound(b, sound.id)).toMatchObject(OWNER_LOOP);
   });
 });
 
