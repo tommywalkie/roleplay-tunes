@@ -14,6 +14,7 @@ import { LocateFixed, Pause, Play, Repeat, SkipBack, Square } from 'lucide-react
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -24,7 +25,8 @@ import { usePlayer } from '../audio/player';
 
 import { Dialog } from '../components/Dialog';
 
-import { Button, Field, IconButton, Segmented, cx } from '../components/ui';
+import { Button, Field, IconButton, cx } from '../components/ui';
+import { Popover } from '../components/Popover';
 
 import { useI18n } from '../i18n';
 
@@ -33,6 +35,9 @@ import type { MessageKey } from '../i18n/en';
 type Marker = 'trackStartSec' | 'loopStartSec' | 'loopEndSec' | 'trackEndSec';
 
 const MARKERS: Marker[] = ['trackStartSec', 'loopStartSec', 'loopEndSec', 'trackEndSec'];
+
+/** The markers of a track-only editor (a sound of a playlist). */
+const TRACK_MARKERS: Marker[] = ['trackStartSec', 'trackEndSec'];
 
 /** The marker chips, two per row: the loop pair, then the track pair. */
 const CHIP_ORDER: Marker[] = ['loopStartSec', 'loopEndSec', 'trackStartSec', 'trackEndSec'];
@@ -201,7 +206,7 @@ function drawEnvelope(
   const top = 6;
   const bottom = h - 6;
   const yOf = (g: number) => bottom - g * (bottom - top);
-  const cf = looping && draft.loopMode === 'crossfade' ? draft.crossfadeSec : 0;
+  const cf = looping ? draft.crossfadeSec : 0;
   const curve = (gain: (t: number) => number, x0: number, x1: number) => {
     const pts: [number, number][] = [];
     for (let x = x0; x <= x1; x += 1) pts.push([x, yOf(gain(start + (x / w) * len))]);
@@ -258,10 +263,9 @@ function TimeInput({
       spellCheck={false}
       autoComplete="off"
       placeholder="00:00:00"
-      className="h-full w-full min-w-0 bg-transparent px-2 font-mono text-[13px] leading-5 text-ink tabular-nums outline-none"
+      className="ml-2 mr-1.5 h-full w-full min-w-0 bg-transparent px-2 font-mono text-[13px] leading-5 text-ink tabular-nums outline-none"
       value={text ?? clock(value)}
       aria-label={label}
-      title={label}
       onFocus={(e) => e.currentTarget.select()}
       // Digits and colons only: the format is enforced as it is typed.
       onChange={(e) => setText(e.target.value.replace(/[^\d:]/g, ''))}
@@ -300,10 +304,16 @@ export function LoopEditorDialog({
   initial,
   mode = 'loop',
   live = false,
+  trackOnly = false,
   onSave,
   onClose,
 }: {
   sound: Sound;
+  /**
+   * Only the track range: for a sound of a playlist, played once from track start to track
+   * end. No loop markers, loop mode or crossfade (the playlist has its own crossfade).
+   */
+  trackOnly?: boolean;
   /**
    * How the sound plays where these settings apply. Once and random gaps play track start
    * to track end, so the volume line shows that; a loop shows the loop pass.
@@ -319,10 +329,24 @@ export function LoopEditorDialog({
   const { t, duration } = useI18n();
   const player = usePlayer();
   const durationSec = sound.durationSec;
-  const looping = mode === 'loop';
-  const [draft, setDraft] = useState<LoopSettings>(() =>
+  const looping = mode === 'loop' && !trackOnly;
+  const [edited, setDraft] = useState<LoopSettings>(() =>
     resolveLoopSettings({ durationSec, ...initial }),
   );
+  // Track only: the whole range plays straight through, so the loop is the track itself.
+  const draft = useMemo<LoopSettings>(
+    () =>
+      trackOnly
+        ? {
+            ...edited,
+            loopStartSec: edited.trackStartSec,
+            loopEndSec: edited.trackEndSec,
+          }
+        : edited,
+    [edited, trackOnly],
+  );
+  const markers = trackOnly ? TRACK_MARKERS : MARKERS;
+  const chips = trackOnly ? TRACK_MARKERS : CHIP_ORDER;
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
   const [testing, setTesting] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -367,7 +391,7 @@ export function LoopEditorDialog({
       trackEnd: draft.trackEndSec,
       loopStart: draft.loopStartSec,
       loopEnd: draft.loopEndSec,
-      mode: draft.loopMode,
+      mode: draft.crossfadeSec > 0 ? 'crossfade' : 'gapless',
       crossfadeSec: draft.crossfadeSec,
     });
   }, [draft, testing]);
@@ -656,7 +680,7 @@ export function LoopEditorDialog({
 
   const loopLen = draft.loopEndSec - draft.loopStartSec;
   const maxCrossfade = Math.min(MAX_CROSSFADE_SEC, loopLen / 2);
-  const showCrossfade = draft.loopMode === 'crossfade' && loopLen >= MIN_CROSSFADE_LOOP_SEC;
+  const showCrossfade = loopLen >= MIN_CROSSFADE_LOOP_SEC;
   const playing = testing && !paused;
 
   const apply = () => {
@@ -674,7 +698,7 @@ export function LoopEditorDialog({
 
   return (
     <Dialog
-      title={t('loop.title')}
+      title={t(trackOnly ? 'loop.trackTitle' : 'loop.title')}
       onClose={close}
       onSubmit={apply}
       footer={
@@ -704,7 +728,7 @@ export function LoopEditorDialog({
           role="group"
           aria-label={t('loop.waveform')}
         >
-          {MARKERS.map((m) => {
+          {markers.map((m) => {
             const x = xPct(draft[m]);
             if (!inView(x)) return null;
             return (
@@ -809,7 +833,7 @@ export function LoopEditorDialog({
                 />
               </div>
             )}
-            {MARKERS.map((m) => {
+            {markers.map((m) => {
               const x = xPct(draft[m]);
               if (!inView(x)) return null;
               return (
@@ -883,7 +907,9 @@ export function LoopEditorDialog({
             label={t('loop.playTrackTest')}
             onClick={() => startTest('track')}
           />
-          <IconButton icon={Repeat} label={t('loop.playLoopTest')} onClick={() => startTest('loop')} />
+          {!trackOnly && (
+            <IconButton icon={Repeat} label={t('loop.playLoopTest')} onClick={() => startTest('loop')} />
+          )}
           <IconButton icon={Square} label={t('loop.stopTest')} onClick={stopTest} disabled={!testing} />
         </div>
         <div className="flex min-w-40 flex-1 items-center gap-3">
@@ -912,45 +938,36 @@ export function LoopEditorDialog({
 
       {/* The four markers: tag, exact time, and "move it to the playhead". */}
       <div className="grid grid-cols-2 gap-2">
-        {CHIP_ORDER.map((m) => (
+        {chips.map((m) => (
           <div
             key={m}
             className="flex h-11 items-center rounded-[10px] border border-line bg-raised pl-2 focus-within:border-line-strong"
           >
-            <span
-              className="w-8 shrink-0 rounded-[4px] py-0.5 text-center font-mono text-[11px] leading-4 font-medium text-white"
-              style={{ background: MARKER_COLOR[m] }}
-              aria-hidden
-            >
-              {t(MARKER_TAG[m])}
-            </span>
+            <Popover wrap label={t(MARKER_LABEL[m])} note={t(MARKER_LABEL[m])}>
+              <span
+                className="w-8 shrink-0 rounded-[4px] py-0.5 text-center font-mono text-[11px] leading-4 font-medium text-white"
+                style={{ background: MARKER_COLOR[m] }}
+                aria-hidden
+              >
+                {t(MARKER_TAG[m])}
+              </span>
+            </Popover>
             <TimeInput
               value={draft[m]}
               label={t(MARKER_LABEL[m])}
               onCommit={(v) => setMarker(m, v)}
             />
-            <IconButton
-              icon={LocateFixed}
-              label={t(SET_LABEL[m])}
-              onClick={() => setMarker(m, position)}
-              className="!size-10 shrink-0"
-            />
+            <Popover wrap label={t(SET_LABEL[m])} note={t(SET_LABEL[m])}>
+              <IconButton
+                icon={LocateFixed}
+                label={t(SET_LABEL[m])}
+                title={undefined}
+                onClick={() => setMarker(m, position)}
+                className="!size-10 shrink-0"
+              />
+            </Popover>
           </div>
         ))}
-      </div>
-
-      {/* Gapless or crossfading loop. */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[13px] leading-5 text-ink-2">{t('loop.mode')}</span>
-        <Segmented
-          label={t('loop.mode')}
-          value={draft.loopMode}
-          onChange={(loopMode) => setDraft((d) => clamped({ ...d, loopMode }))}
-          options={[
-            { value: 'gapless', label: t('loop.mode.gapless') },
-            { value: 'crossfade', label: t('loop.mode.crossfade') },
-          ]}
-        />
       </div>
 
       {showCrossfade && (

@@ -27,8 +27,27 @@ export interface SoundDescriptor {
   maxInstances?: number;
 }
 
+/** One sound of a playlist: played once, track start to track end, at its own volume. */
+export interface SequenceItem {
+  soundId: SoundId;
+  /** 0..1 slider value, on top of the layer's volume. */
+  volume: number;
+  /** Its track range (`trackStart`, `trackEnd`); the other loop fields are not used. */
+  loop?: Partial<LoopConfig>;
+}
+
 export type LayerMode =
   | { type: 'loop'; randomStart?: boolean; loop?: Partial<LoopConfig> }
+  /**
+   * A playlist: `items` play one after another and start over after the last. The layer's
+   * `soundId` is the first item's, which the layer loads first.
+   */
+  | {
+      type: 'sequence';
+      items: SequenceItem[];
+      /** Each item blends into the next over this long, last into first; 0 = back to back. */
+      crossfadeSec?: number;
+    }
   | {
       type: 'recurring';
       minInterval: number;
@@ -63,6 +82,8 @@ export type LoadState = 'pending' | 'loading' | 'ready' | 'error';
 
 export interface LayerState extends LayerConfig {
   load: LoadState;
+  /** For a sequence layer: index of the item being heard. */
+  current?: number;
 }
 
 export interface EngineSnapshot {
@@ -217,6 +238,8 @@ export interface AudioEngine {
   updateLayer(layerId: string, patch: Partial<Omit<LayerConfig, 'id'>>): void;
   addLayer(layer: LayerConfig): void;
   removeLayer(layerId: string, opts?: { fadeSec?: number }): void;
+  /** For a sequence (playlist) layer: jumps `delta` items ahead or back, wrapping around. */
+  skipLayer(layerId: string, delta: number): void;
   /** Re-reads the descriptor (e.g. new loop points) and applies it to playing layers. */
   refreshSound(id: SoundId): void;
 

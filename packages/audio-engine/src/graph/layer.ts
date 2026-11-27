@@ -1,7 +1,15 @@
 import { resolveLoopConfig } from '../loading/buffer-utils';
 import { dbToGain, equalPowerFade, fadeTo, rampTo, sliderToGain } from '../params';
 import { CrossfadeLoop } from './crossfade-loop';
-import type { LayerConfig, LoopConfig, LoopRegion, SoundDescriptor, Timers } from '../types';
+import { Sequence } from './sequence';
+import type {
+  LayerConfig,
+  LoopConfig,
+  LoopRegion,
+  SoundDescriptor,
+  SoundId,
+  Timers,
+} from '../types';
 
 export const LAYER_FADE_IN_SEC = 0.3;
 /** Max overlapping voices of one recurring-interval layer (a long thunder clip won't stack). */
@@ -27,6 +35,11 @@ export interface LayerDeps {
   destination: AudioNode;
   rng: () => number;
   timers: Timers;
+  /** For sequence layers: loads the items after the first, and reads their settings. */
+  load?: (id: SoundId) => Promise<AudioBuffer>;
+  resolve?: (id: SoundId) => SoundDescriptor | undefined;
+  /** For sequence layers: the item being heard changed. */
+  onSequenceIndex?: (index: number) => void;
 }
 
 /** How the layer fades in once its buffer is ready. 'hold' waits for beginFadeIn() (crossfade). */
@@ -51,6 +64,7 @@ export class Layer {
   private panner: StereoPannerNode | null = null;
   private loopSource: AudioBufferSourceNode | null = null;
   private looper: CrossfadeLoop | null = null;
+  private sequence: Sequence | null = null;
   private voices: Voice[] = [];
   private buffer: AudioBuffer | null = null;
   private nextTimer: unknown = null;
@@ -102,6 +116,7 @@ export class Layer {
     this.buffer = buffer;
     this.started = true;
     if (this.config.mode.type === 'loop') this.startLoop();
+    else if (this.config.mode.type === 'sequence') this.startSequence(buffer);
     else {
       // The first play starts right away, like any other mode; pauses only come between plays.
       const now = this.ctx.currentTime;
@@ -124,13 +139,52 @@ export class Layer {
     if (patch.volume !== undefined) rampTo(this.layerGain.gain, this.targetGain(), now);
     if (patch.muted !== undefined) rampTo(this.muteGain.gain, patch.muted ? 0 : 1, now);
     if (patch.pan !== undefined && this.panner) rampTo(this.panner.pan, patch.pan, now);
-    if (patch.mode !== undefined) this.syncLoop();
+    if (patch.mode !== undefined) {
+      if (patch.mode.type === 'sequence') {
+        this.sequence?.setItems(patch.mode.items, patch.mode.crossfadeSec ?? 0);
+      }
+      else this.syncLoop();
+    }
+  }
+
+  /** For a sequence layer: the item being heard, or -1 before the first starts. */
+  get sequenceIndex() {
+    return this.sequence?.currentIndex ?? -1;
+  }
+
+  /** For a sequence layer: jumps `delta` items ahead or back, wrapping around. */
+  skip(delta: number) {
+    this.sequence?.skip(delta);
+  }
+
+  private startSequence(first: AudioBuffer) {
+    const mode = this.config.mode;
+    const { load, resolve } = this.deps;
+    if (mode.type !== 'sequence' || !load || !resolve) return;
+    const sequence = new Sequence(
+      {
+        ctx: this.ctx,
+        timers: this.deps.timers,
+        load,
+        resolve,
+        onIndex: this.deps.onSequenceIndex,
+      },
+      this.voiceGain,
+      mode.items,
+      mode.crossfadeSec ?? 0,
+    );
+    sequence.start(first);
+    this.sequence = sequence;
   }
 
   /** Carry-over into a new mix: keeps playing, glides to the new layer's settings. */
   reassign(config: LayerConfig, glideSec: number) {
     const now = this.ctx.currentTime;
     this.config = { ...config };
+    // A playlist carried into the next mix keeps its place and takes the new list.
+    if (config.mode.type === 'sequence') {
+      this.sequence?.setItems(config.mode.items, config.mode.crossfadeSec ?? 0);
+    }
     fadeTo(this.layerGain.gain, this.targetGain(), now, glideSec);
     rampTo(this.muteGain.gain, config.muted ? 0 : 1, now);
     if (this.panner) rampTo(this.panner.pan, config.pan ?? 0, now);
@@ -159,6 +213,15 @@ export class Layer {
     if (this.looper) {
       this.looper.stop(fadeSec);
       this.looper = null;
+    }
+    if (this.sequence) {
+      this.sequence.stop(fadeSec);
+      this.sequence = null;
+      // The chain fades with voiceGain; let the last fade finish before disconnecting it.
+      if (sources.length === 0) {
+        this.deps.timers.setTimeout(disconnectChain, (fadeSec + 0.1) * 1000);
+        return;
+      }
     }
     if (sources.length === 0) {
       disconnectChain();
@@ -222,7 +285,7 @@ export class Layer {
         loopEnd: this.descriptor?.loopEnd,
         mode: this.descriptor?.loopMode,
         crossfadeSec: this.descriptor?.crossfadeSec,
-        ...(mode.loop ?? {}),
+        ...(mode.type !== 'sequence' ? (mode.loop ?? {}) : {}),
       },
       this.buffer?.duration ?? 0,
     );
@@ -230,7 +293,8 @@ export class Layer {
 
   /** Applies the current loop settings to what plays, switching gapless/crossfade if needed. */
   private syncLoop() {
-    if (!this.started || !this.buffer) return;
+    // A sequence reads each item's settings as it starts it: nothing to restart here.
+    if (!this.started || !this.buffer || this.config.mode.type === 'sequence') return;
     const cfg = this.loopConfig();
     const crossfade = cfg.mode === 'crossfade' && cfg.crossfadeSec > 0.005;
     if (crossfade && this.looper) {

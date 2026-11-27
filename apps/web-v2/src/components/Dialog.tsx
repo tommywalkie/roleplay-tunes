@@ -125,7 +125,7 @@ export function Dialog({
         action={post}
         noValidate={!post}
         className={cx(
-          'relative max-h-[92dvh] w-full animate-sheet flex-col rounded-t-[20px] border border-line bg-card outline-none md:max-h-[86dvh] md:max-w-[560px] md:rounded-[20px]',
+          'relative max-h-[92dvh] w-full animate-sheet flex-col rounded-t-[20px] border border-line bg-card outline-none! md:max-h-[86dvh] md:max-w-[560px] md:rounded-[20px]',
           onTop ? 'flex' : 'hidden',
           fixedHeight && 'h-[92dvh] md:h-[min(720px,86dvh)]',
         )}

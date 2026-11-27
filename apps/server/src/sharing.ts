@@ -13,7 +13,6 @@ import {
   images,
   libraryMixes,
   librarySounds,
-  mixItems,
   mixVolumes,
   mixes,
   scenes,
@@ -33,13 +32,14 @@ export type CountedSound = SoundRow & { addedCount: number };
 export type CountedMix = MixRow & { addedCount: number };
 
 /**
- * How many users have the item in their library, counted by the database inside the query
- * that fetches the item itself: one number per row, and no second query to chase it.
+ * How many other users have the item in their library, counted by the database inside the query
+ * that fetches the item itself: one number per row, and no second query to chase it. The owner
+ * is never counted, so the number only ever reads other users.
  */
 export const soundAddedCount =
-  sql<number>`(select count(*) from ${librarySounds} where ${librarySounds.soundId} = ${sounds.id})`;
+  sql<number>`(select count(*) from ${librarySounds} where ${librarySounds.soundId} = ${sounds.id} and ${librarySounds.userId} <> ${sounds.ownerId})`;
 export const mixAddedCount =
-  sql<number>`(select count(*) from ${libraryMixes} where ${libraryMixes.mixId} = ${mixes.id})`;
+  sql<number>`(select count(*) from ${libraryMixes} where ${libraryMixes.mixId} = ${mixes.id} and ${libraryMixes.userId} <> ${mixes.ownerId})`;
 
 /** A sound row as every query here brings it back, count included. */
 export const soundColumns = { ...getTableColumns(sounds), addedCount: soundAddedCount };
@@ -61,6 +61,13 @@ const CAN_USE_SOUND = `
           SELECT 1 FROM library_mixes cu_lm JOIN mix_items cu_mi ON cu_mi.mixId = cu_lm.mixId
           WHERE cu_lm.userId = :u AND cu_mi.soundId = cu_s.id
         )
+        OR EXISTS (
+          SELECT 1 FROM library_mixes cu_lp
+            JOIN mix_playlists cu_mp ON cu_mp.mixId = cu_lp.mixId
+            JOIN mixes cu_pl ON cu_pl.id = cu_mp.playlistId AND cu_pl.isPublic = 1
+            JOIN mix_items cu_pi ON cu_pi.mixId = cu_mp.playlistId
+          WHERE cu_lp.userId = :u AND cu_pi.soundId = cu_s.id
+        )
       ))
     )
   )`;
@@ -68,9 +75,40 @@ const CAN_USE_SOUND = `
 const canUseSound = (user: string, sound: string) =>
   CAN_USE_SOUND.replaceAll(':u', user).replaceAll(':s', sound);
 
+/**
+ * True when user `:u` can use mix `:m`: owns it, added it, or added a mix that holds it (a
+ * playlist inside a mix comes with the mix, like its sounds). Playlists hold no playlists,
+ * so this goes one level deep and never chains.
+ */
+const CAN_USE_MIX = `
+  EXISTS (
+    SELECT 1 FROM mixes cm_m WHERE cm_m.id = :m AND (
+      cm_m.ownerId = :u OR (cm_m.isPublic = 1 AND (
+        EXISTS (
+          SELECT 1 FROM library_mixes cm_lm WHERE cm_lm.userId = :u AND cm_lm.mixId = cm_m.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM library_mixes cm_lh JOIN mix_playlists cm_mp ON cm_mp.mixId = cm_lh.mixId
+          WHERE cm_lh.userId = :u AND cm_mp.playlistId = cm_m.id
+        )
+      ))
+    )
+  )`;
+
+const canUseMix = (user: string, mix: string) =>
+  CAN_USE_MIX.replaceAll(':u', user).replaceAll(':m', mix);
+
 const PRUNE_STATEMENTS = [
   `DELETE FROM library_sounds WHERE soundId IN (SELECT id FROM sounds WHERE isPublic = 0)`,
   `DELETE FROM library_mixes WHERE mixId IN (SELECT id FROM mixes WHERE isPublic = 0)`,
+  // A public mix holds public sounds and playlists only: one made private leaves it, and the
+  // mix stays public. Its owner's own public mixes are no exception.
+  `DELETE FROM mix_items
+   WHERE EXISTS (SELECT 1 FROM mixes m WHERE m.id = mix_items.mixId AND m.isPublic = 1)
+     AND EXISTS (SELECT 1 FROM sounds s WHERE s.id = mix_items.soundId AND s.isPublic = 0)`,
+  `DELETE FROM mix_playlists
+   WHERE EXISTS (SELECT 1 FROM mixes m WHERE m.id = mix_playlists.mixId AND m.isPublic = 1)
+     AND EXISTS (SELECT 1 FROM mixes p WHERE p.id = mix_playlists.playlistId AND p.isPublic = 0)`,
   `DELETE FROM mix_items WHERE NOT ${canUseSound(
     '(SELECT ownerId FROM mixes WHERE mixes.id = mix_items.mixId)',
     'mix_items.soundId',
@@ -79,12 +117,16 @@ const PRUNE_STATEMENTS = [
     '(SELECT ownerId FROM scenes WHERE scenes.id = scene_sounds.sceneId)',
     'scene_sounds.soundId',
   )}`,
-  `DELETE FROM scene_mixes WHERE NOT EXISTS (
-     SELECT 1 FROM mixes m, scenes sc
-     WHERE m.id = scene_mixes.mixId AND sc.id = scene_mixes.sceneId
-       AND (m.ownerId = sc.ownerId OR EXISTS (
-         SELECT 1 FROM library_mixes lm WHERE lm.userId = sc.ownerId AND lm.mixId = m.id
-       ))
+  `DELETE FROM scene_mixes WHERE NOT ${canUseMix(
+    '(SELECT ownerId FROM scenes WHERE scenes.id = scene_mixes.sceneId)',
+    'scene_mixes.mixId',
+  )}`,
+  // Playlists in a mix its owner can no longer use, or that are not playlists.
+  `DELETE FROM mix_playlists WHERE NOT ${canUseMix(
+    '(SELECT ownerId FROM mixes WHERE mixes.id = mix_playlists.mixId)',
+    'mix_playlists.playlistId',
+  )} OR NOT EXISTS (
+     SELECT 1 FROM mixes p WHERE p.id = mix_playlists.playlistId AND p.kind = 'playlist'
    )`,
   `DELETE FROM sound_volumes WHERE NOT ${canUseSound('sound_volumes.userId', 'sound_volumes.soundId')}`,
   `DELETE FROM sound_loops WHERE NOT ${canUseSound('sound_loops.userId', 'sound_loops.soundId')}`,
@@ -99,14 +141,7 @@ const PRUNE_STATEMENTS = [
       `(SELECT ownerId FROM ${tags} WHERE ${tags}.id = ${links}.${tag}Id)`;
     return [
       `DELETE FROM sound_${tags} WHERE NOT ${canUseSound(owner(`sound_${tags}`), `sound_${tags}.soundId`)}`,
-      `DELETE FROM mix_${tags} WHERE NOT EXISTS (
-         SELECT 1 FROM mixes m WHERE m.id = mix_${tags}.mixId AND (
-           m.ownerId = ${owner(`mix_${tags}`)} OR EXISTS (
-             SELECT 1 FROM library_mixes lm
-             WHERE lm.userId = ${owner(`mix_${tags}`)} AND lm.mixId = m.id
-           )
-         )
-       )`,
+      `DELETE FROM mix_${tags} WHERE NOT ${canUseMix(owner(`mix_${tags}`), `mix_${tags}.mixId`)}`,
       `DELETE FROM scene_${tags} WHERE NOT EXISTS (
          SELECT 1 FROM scenes sc
          WHERE sc.id = scene_${tags}.sceneId AND sc.ownerId = ${owner(`scene_${tags}`)}
@@ -145,16 +180,51 @@ export function addedSoundIds(userId: string): Set<string> {
   return new Set(rows.map((r) => r.id));
 }
 
-/** Ids of the public mixes the user added. */
+/** Ids of the public mixes the user added, and of the playlists inside those. */
 export function addedMixIds(userId: string): Set<string> {
-  return new Set(
-    db
-      .select({ id: libraryMixes.mixId })
-      .from(libraryMixes)
-      .where(eq(libraryMixes.userId, userId))
-      .all()
-      .map((r) => r.id),
+  const rows = sqlite
+    .prepare(`SELECT m.id FROM mixes m WHERE m.ownerId != @u AND ${canUseMix('@u', 'm.id')}`)
+    .all({ u: userId }) as { id: string }[];
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * Checks that every id is a playlist the user can use, for a mix to hold. A playlist holds
+ * no playlists, so this is only asked of a mix.
+ */
+export function assertUsablePlaylists(userId: string, ids: string[], field: string) {
+  const unique = [...new Set(ids)];
+  if (unique.length !== ids.length) {
+    throw invalid('Invalid request', { [field]: 'A playlist can appear only once in a mix' });
+  }
+  if (unique.length === 0) return;
+  const added = addedMixIds(userId);
+  const rows = db
+    .select({ id: mixes.id, ownerId: mixes.ownerId, kind: mixes.kind })
+    .from(mixes)
+    .where(inArray(mixes.id, unique))
+    .all();
+  const ok = rows.filter(
+    (r) => r.kind === 'playlist' && (r.ownerId === userId || added.has(r.id)),
   );
+  if (ok.length !== unique.length) {
+    throw invalid('Unknown id', { [field]: 'Contains an id that is not one of your playlists' });
+  }
+}
+
+/** A public mix may only hold public playlists, so everyone who adds it hears all of it. */
+export function assertPublicPlaylists(ids: string[], field: string) {
+  if (ids.length === 0) return;
+  const privateOnes = db
+    .select({ id: mixes.id })
+    .from(mixes)
+    .where(and(inArray(mixes.id, ids), eq(mixes.isPublic, false)))
+    .all();
+  if (privateOnes.length > 0) {
+    throw invalid('A public mix can only hold public playlists', {
+      [field]: 'Make these playlists public first, or keep the mix private',
+    });
+  }
 }
 
 /** Ids of the public sounds the user added one by one (not through a mix). */
@@ -199,7 +269,7 @@ export function soundVolumesOf(userId: string): Map<string, number> {
 export type LoopFields = Pick<
   SoundRow,
   'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'crossfadeSec'
-> & { loopMode: SoundRow['loopMode'] | null };
+>;
 
 /** The user's own loop settings for sounds they did not upload, by sound id. */
 export function soundLoopsOf(userId: string): Map<string, LoopFields> {
@@ -211,7 +281,6 @@ export function soundLoopsOf(userId: string): Map<string, LoopFields> {
         trackEndSec: soundLoops.trackEndSec,
         loopStartSec: soundLoops.loopStartSec,
         loopEndSec: soundLoops.loopEndSec,
-        loopMode: soundLoops.loopMode,
         crossfadeSec: soundLoops.crossfadeSec,
       })
       .from(soundLoops)
@@ -235,7 +304,6 @@ export function ownerLoopsOf(
         trackEndSec: sounds.trackEndSec,
         loopStartSec: sounds.loopStartSec,
         loopEndSec: sounds.loopEndSec,
-        loopMode: sounds.loopMode,
         crossfadeSec: sounds.crossfadeSec,
       })
       .from(sounds)
@@ -331,17 +399,6 @@ export function assertAllPublic(soundIds: string[], field: string) {
       [field]: 'Make these sounds public first, or keep the mix private',
     });
   }
-}
-
-/** Names of the public mixes of `ownerId` that hold the sound. */
-export function publicMixesHolding(ownerId: string, soundId: string): string[] {
-  return db
-    .select({ name: mixes.name })
-    .from(mixes)
-    .innerJoin(mixItems, eq(mixItems.mixId, mixes.id))
-    .where(and(eq(mixes.ownerId, ownerId), eq(mixes.isPublic, true), eq(mixItems.soundId, soundId)))
-    .all()
-    .map((r) => r.name);
 }
 
 // Images

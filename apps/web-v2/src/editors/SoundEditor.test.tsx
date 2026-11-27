@@ -1,4 +1,4 @@
-import type { Category, Sound } from '@dnd/shared';
+import type { Category, Mix, Sound } from '@dnd/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayerProvider } from '../audio/player';
 import { illustrationChanges } from '../components/IllustrationField';
 import { I18nProvider } from '../i18n';
-import { makeFakeEngine, makeMe, makeSound } from '../test/fixtures';
+import { makeFakeEngine, makeMe, makeMix, makeMixItem, makeSound } from '../test/fixtures';
 import { SoundEditor } from './SoundEditor';
 
 const json = (status: number, body: unknown) =>
@@ -32,7 +32,7 @@ const icons = {
   },
 };
 
-function renderEditor(sound: Sound = makeSound(), categories: Category[] = []) {
+function renderEditor(sound: Sound = makeSound(), categories: Category[] = [], mixes?: Mix[]) {
   const routes: Record<string, unknown> = {
     '/api/synonyms': [],
     '/api/categories': categories,
@@ -51,7 +51,7 @@ function renderEditor(sound: Sound = makeSound(), categories: Category[] = []) {
     <QueryClientProvider client={client}>
       <I18nProvider initial="en">
         <PlayerProvider sounds={[sound]} engine={fake.engine}>
-          <SoundEditor sound={sound} scenes={[]} me={makeMe()} onClose={() => {}} />
+          <SoundEditor sound={sound} scenes={[]} mixes={mixes} me={makeMe()} onClose={() => {}} />
         </PlayerProvider>
       </I18nProvider>
     </QueryClientProvider>,
@@ -60,7 +60,12 @@ function renderEditor(sound: Sound = makeSound(), categories: Category[] = []) {
   const saves = () =>
     fetchMock.mock.calls
       .filter(([, init]) => init?.method && init.method !== 'GET')
-      .map(([url, init]) => ({ url, method: init!.method, body: JSON.parse(String(init!.body)) }));
+      .map(([url, init]) => ({
+        url,
+        method: init!.method,
+        // A DELETE carries no body.
+        body: init!.body === undefined ? undefined : JSON.parse(String(init!.body)),
+      }));
   return { user: userEvent.setup(), fetchMock, saves, fake };
 }
 
@@ -261,24 +266,17 @@ describe('SoundEditor loop editor', () => {
     }
   });
 
-  it('shows the crossfade slider only in crossfade mode', async () => {
+  it('always offers the crossfade slider, at 0 (gapless) by default', async () => {
     const { user } = renderEditor();
     await user.click(screen.getByRole('button', { name: 'Edit loop' }));
     const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
-
-    // Gapless (the default): no crossfade slider.
-    expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
-    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
-    expect(loop.getByRole('slider', { name: 'Crossfade length, seconds' })).toBeInTheDocument();
-    await user.click(loop.getByRole('radio', { name: 'Gapless' }));
-    expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
+    expect(loop.getByRole('slider', { name: 'Crossfade length, seconds' })).toHaveValue('0');
   });
 
   it('hides the crossfade slider when the loop is shorter than 1 s', async () => {
     const { user } = renderEditor(makeSound({ durationSec: 0.5 }));
     await user.click(screen.getByRole('button', { name: 'Edit loop' }));
     const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
-    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
     expect(loop.queryByRole('slider', { name: 'Crossfade length, seconds' })).not.toBeInTheDocument();
   });
 
@@ -301,7 +299,6 @@ describe('SoundEditor loop editor', () => {
       trackEndSec: null,
       loopStartSec: null,
       loopEndSec: null,
-      loopMode: 'gapless',
       crossfadeSec: null,
     });
   });
@@ -311,9 +308,8 @@ describe('SoundEditor loop editor', () => {
     await user.click(screen.getByRole('button', { name: 'Edit loop' }));
     const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
 
-    // Move the loop start by one step (0.1 s), switch to crossfade and set 3 s.
+    // Move the loop start by one step (0.1 s) and set a 3 s crossfade.
     fireEvent.keyDown(loop.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
-    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
     fireEvent.change(loop.getByRole('slider', { name: 'Crossfade length, seconds' }), {
       target: { value: '3' },
     });
@@ -328,7 +324,6 @@ describe('SoundEditor loop editor', () => {
       trackEndSec: null,
       loopStartSec: 0.1,
       loopEndSec: null,
-      loopMode: 'crossfade',
       crossfadeSec: 3,
     });
   });
@@ -416,7 +411,6 @@ describe('SoundEditor loop of an added sound', () => {
     await user.click(screen.getByRole('button', { name: 'Edit loop' }));
     const loop = within(screen.getByRole('dialog', { name: 'Loop editor' }));
     fireEvent.keyDown(loop.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
-    await user.click(loop.getByRole('radio', { name: 'Crossfade' }));
     await user.click(loop.getByRole('button', { name: 'Apply' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -432,14 +426,13 @@ describe('SoundEditor loop of an added sound', () => {
       trackEndSec: null,
       loopStartSec: 0.1,
       loopEndSec: null,
-      loopMode: 'crossfade',
       crossfadeSec: null,
     });
   });
 
   it('sends no loop field when the loop was applied unchanged', async () => {
     const { user, saves } = renderEditor(
-      added({ loopStartSec: 5, loopEndSec: 20, loopMode: 'crossfade', crossfadeSec: 1.5 }),
+      added({ loopStartSec: 5, loopEndSec: 20, crossfadeSec: 1.5 }),
     );
     await user.click(screen.getByRole('button', { name: 'Edit loop' }));
     await user.click(
@@ -454,6 +447,169 @@ describe('SoundEditor loop of an added sound', () => {
       synonyms: [],
       categoryIds: [],
     });
+  });
+});
+
+describe('SoundEditor making a public sound private', () => {
+  const sound = (over: Partial<Sound> = {}) => makeSound({ id: 's1', isPublic: true, ...over });
+  const holder = (id: string, name: string, over: Partial<Mix> = {}) =>
+    makeMix({
+      id,
+      name,
+      isPublic: true,
+      items: [makeMixItem({ id: `${id}-i`, soundId: 's1' })],
+      ...over,
+    });
+  const harbor = holder('m1', 'Harbor');
+  const road = holder('p1', 'Road', { kind: 'playlist' });
+  const hidden = holder('m3', 'Hidden', { isPublic: false });
+  const theirs = holder('m4', 'Theirs', { access: 'added' });
+  const unrelated = makeMix({ id: 'm5', name: 'Unrelated', isPublic: true });
+  const question = () => screen.queryByRole('dialog', { name: 'Make it private?' });
+  const sent = (saves: () => { url: string; method?: string }[]) =>
+    saves().map(({ url, method }) => `${method} ${url}`);
+  const INTRO = (n: number) =>
+    `A public mix can only hold public items, so it will be taken out of these ${n} public mixes of yours:`;
+
+  it('lists the owner’s public mixes and playlists that hold it, each staying public', async () => {
+    const { user, saves } = renderEditor(sound(), [], [harbor, road, hidden, theirs, unrelated]);
+    await user.click(screen.getByRole('radio', { name: 'Private' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const dialog = within(question()!);
+    expect(dialog.getByText(INTRO(2))).toBeInTheDocument();
+    expect(dialog.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Harborstays public',
+      'Roadstays public',
+    ]);
+    expect(dialog.getByRole('button', { name: 'Make it private' })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(dialog.queryByText(/other game master/)).not.toBeInTheDocument();
+    expect(saves()).toEqual([]);
+  });
+
+  it('says how many other game masters added it, even with no mix holding it', async () => {
+    const { user, saves } = renderEditor(sound({ addedCount: 1 }), [], []);
+    await user.click(screen.getByRole('radio', { name: 'Private' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = within(question()!);
+    expect(dialog.getByText('1 other game master added it and will lose it.')).toBeInTheDocument();
+    expect(dialog.queryByText(/public mixes of yours/)).not.toBeInTheDocument();
+    expect(saves()).toEqual([]);
+    cleanup();
+
+    const second = renderEditor(sound({ addedCount: 4 }), [], [harbor]);
+    await second.user.click(screen.getByRole('radio', { name: 'Private' }));
+    await second.user.click(screen.getByRole('button', { name: 'Save' }));
+    const both = within(question()!);
+    expect(both.getByText(INTRO(1))).toBeInTheDocument();
+    expect(both.getByText('4 other game masters added it and will lose it.')).toBeInTheDocument();
+  });
+
+  it('confirming only saves the sound as private, never the holding mixes', async () => {
+    const { user, saves } = renderEditor(sound({ addedCount: 2 }), [], [harbor, road]);
+    await user.click(screen.getByRole('radio', { name: 'Private' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(within(question()!).getByRole('button', { name: 'Make it private' }));
+
+    expect(sent(saves)).toEqual(['PATCH /api/sounds/s1']);
+    expect(saves()[0].body).toMatchObject({ isPublic: false });
+    expect(question()).not.toBeInTheDocument();
+  });
+
+  it('saves nothing when the question is cancelled', async () => {
+    const { user, saves } = renderEditor(sound(), [], [harbor]);
+    await user.click(screen.getByRole('radio', { name: 'Private' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(within(question()!).getByRole('button', { name: 'Cancel' }));
+    expect(question()).not.toBeInTheDocument();
+    expect(saves()).toEqual([]);
+  });
+
+  it('asks nothing when only a private own mix or another user’s mix holds it, and nobody added it', async () => {
+    const { user, saves } = renderEditor(sound(), [], [hidden, theirs, unrelated]);
+    await user.click(screen.getByRole('radio', { name: 'Private' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(question()).not.toBeInTheDocument();
+    expect(sent(saves)).toEqual(['PATCH /api/sounds/s1']);
+    expect(saves()[0].body).toMatchObject({ isPublic: false });
+  });
+
+  it('asks nothing when the sound stays public, or was private already', async () => {
+    const first = renderEditor(sound({ addedCount: 3 }), [], [harbor]);
+    await first.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(question()).not.toBeInTheDocument();
+    expect(sent(first.saves)).toEqual(['PATCH /api/sounds/s1']);
+    expect(first.saves()[0].body).toMatchObject({ isPublic: true });
+    cleanup();
+
+    const second = renderEditor(sound({ isPublic: false }), [], [harbor]);
+    await second.user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(question()).not.toBeInTheDocument();
+    expect(sent(second.saves)).toEqual(['PATCH /api/sounds/s1']);
+    expect(second.saves()[0].body).toMatchObject({ isPublic: false });
+  });
+});
+
+describe('SoundEditor removing an added sound from the library', () => {
+  const added = makeSound({ id: 's1', access: 'added', ownerName: 'Grace', isPublic: true });
+  const REMOVE = 'Remove from my library';
+  const BLOCKED =
+    'Mixes you added from the Library use this sound. They are not yours and need it, so it stays until you remove them:';
+  const addedMix = (id: string, name: string, over: Partial<Mix> = {}) =>
+    makeMix({
+      id,
+      name,
+      isPublic: true,
+      access: 'added',
+      ownerName: 'Grace',
+      items: [makeMixItem({ id: `${id}-i`, soundId: 's1' })],
+      ...over,
+    });
+
+  it('explains which added mixes keep it, with only a Back button, and sends nothing', async () => {
+    const docks = addedMix('m1', 'Docks');
+    const ballads = addedMix('p1', 'Ballads', { kind: 'playlist' });
+    // The user's own mix holding the sound does not block anything.
+    const mine = makeMix({
+      id: 'm2',
+      name: 'Mine',
+      items: [makeMixItem({ id: 'm2-i', soundId: 's1' })],
+    });
+    const { user, saves } = renderEditor(added, [], [docks, ballads, mine]);
+    await user.click(screen.getByRole('button', { name: REMOVE }));
+
+    const dialog = within(screen.getByRole('dialog', { name: REMOVE }));
+    expect(dialog.getByText(BLOCKED)).toBeInTheDocument();
+    expect(dialog.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Docks',
+      'Ballads',
+    ]);
+    expect(dialog.getAllByRole('button').map((b) => b.textContent)).not.toContain(REMOVE);
+    expect(dialog.queryByRole('button', { name: REMOVE })).not.toBeInTheDocument();
+
+    await user.click(dialog.getByRole('button', { name: 'Back' }));
+    expect(screen.queryByText(BLOCKED)).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Edit sound' })).toBeInTheDocument();
+    expect(saves()).toEqual([]);
+  });
+
+  it('confirms and removes it when no added mix holds it', async () => {
+    const mine = makeMix({
+      id: 'm2',
+      name: 'Mine',
+      items: [makeMixItem({ id: 'm2-i', soundId: 's1' })],
+    });
+    const elsewhere = addedMix('m3', 'Elsewhere', { items: [] });
+    const { user, saves } = renderEditor(added, [], [mine, elsewhere]);
+    await user.click(screen.getByRole('button', { name: REMOVE }));
+
+    const dialog = within(screen.getByRole('dialog', { name: REMOVE }));
+    expect(dialog.queryByText(BLOCKED)).not.toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: REMOVE }));
+    expect(saves().map(({ url, method }) => `${method} ${url}`)).toEqual([
+      'DELETE /api/library/sounds/s1',
+    ]);
   });
 });
 

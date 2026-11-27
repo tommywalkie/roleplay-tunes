@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { MixTile } from '../board/tiles';
-import { FALLBACK_ICONS } from '../components/kinds';
+import { FALLBACK_ICONS, KIND_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
 import {
   gridPageSize,
@@ -29,8 +29,9 @@ export function MixesPage({ me }: { me: Me }) {
   const sounds = useSounds();
   const scenes = useScenes();
   const [query, setQuery] = useState('');
-  /** A mix id, `'new'` for a mix being created, or nothing. */
+  /** A mix id, `'new'` / `'new-playlist'` for one being created, or nothing. */
   const [editingId, setEditingId] = useState<string | null>(null);
+  const creating = editingId === 'new' || editingId === 'new-playlist';
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [sort, setSort] = useState<Sort>('name-asc');
 
@@ -51,9 +52,14 @@ export function MixesPage({ me }: { me: Me }) {
       description={t('mixes.description')}
       meta={mixes.data ? String(all.length) : undefined}
       action={
-        <Button variant="primary" icon={Plus} onClick={() => setEditingId('new')}>
-          {t('mixes.new')}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button icon={KIND_ICONS.playlist} onClick={() => setEditingId('new-playlist')}>
+            {t('mixes.newPlaylist')}
+          </Button>
+          <Button variant="primary" icon={Plus} onClick={() => setEditingId('new')}>
+            {t('mixes.new')}
+          </Button>
+        </div>
       }
       search={{ value: query, onChange: setQuery }}
       filters={<CategoryFilter value={categoryIds} onChange={setCategoryIds} />}
@@ -81,9 +87,11 @@ export function MixesPage({ me }: { me: Me }) {
         )}
       </QueryGate>
 
-      {(editing || editingId === 'new') && (
+      {(editing || creating) && (
         <MixEditor
           mix={editing ?? null}
+          kind={editingId === 'new-playlist' ? 'playlist' : undefined}
+          mixes={all}
           sounds={sounds.data ?? []}
           scenes={scenes.data ?? []}
           me={me}

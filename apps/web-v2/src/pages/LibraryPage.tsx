@@ -448,7 +448,7 @@ function Row({
       </div>
       <div className="flex w-full items-center gap-3 md:w-auto md:shrink-0">
         <OwnerBadge owner={owner} />
-        <AddedBadge count={addedCount} used />
+        <AddedBadge count={addedCount} />
 
         <span className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
           <IconButton

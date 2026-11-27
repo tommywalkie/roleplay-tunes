@@ -39,7 +39,7 @@ const engineLoop = (s: Sound) => {
     trackEnd: l.trackEndSec,
     loopStart: l.loopStartSec,
     loopEnd: l.loopEndSec,
-    mode: l.loopMode,
+    mode: l.crossfadeSec > 0 ? 'crossfade' : 'gapless',
     crossfadeSec: l.crossfadeSec,
   };
 };
@@ -54,7 +54,6 @@ describe('toDescriptor', () => {
           loopEndSec: 9,
           trackStartSec: 0.5,
           trackEndSec: 20,
-          loopMode: 'crossfade',
           crossfadeSec: 3,
           defaultVolume: 0.5,
         }),
@@ -203,7 +202,7 @@ describe('playSoundAs', () => {
         loopStart: 0,
         loopEnd: 168,
         mode: 'gapless',
-        crossfadeSec: 2,
+        crossfadeSec: 0,
       },
     });
   });
@@ -384,7 +383,6 @@ describe('layerLoop', () => {
     durationSec: 60,
     loopStartSec: 5,
     loopEndSec: 50,
-    loopMode: 'crossfade',
     crossfadeSec: 3,
   });
 
@@ -393,10 +391,9 @@ describe('layerLoop', () => {
   });
 
   it('takes the layer’s markers over the sound’s', () => {
-    expect(layerLoop(sound, { loopStart: 10, mode: 'gapless' })).toEqual({
+    expect(layerLoop(sound, { loopStart: 10 })).toEqual({
       ...soundLoop(sound),
       loopStartSec: 10,
-      loopMode: 'gapless',
     });
   });
 });
@@ -447,7 +444,6 @@ describe('layersToMixItems', () => {
         trackEndSec: null,
         loopStartSec: null,
         loopEndSec: null,
-        loopMode: null,
         crossfadeSec: null,
       },
       {
@@ -461,7 +457,6 @@ describe('layersToMixItems', () => {
         trackEndSec: null,
         loopStartSec: null,
         loopEndSec: null,
-        loopMode: null,
         crossfadeSec: null,
       },
     ]);
@@ -491,7 +486,6 @@ describe('layersToMixItems', () => {
       trackEndSec: 60,
       loopStartSec: 5,
       loopEndSec: 40,
-      loopMode: 'crossfade',
       crossfadeSec: 4,
     });
   });
@@ -598,5 +592,273 @@ describe('transport', () => {
     off();
     emitError({ code: 'DECODE_FAILED', soundId: 'door' });
     expect(seen).toEqual(['crowd']);
+  });
+});
+
+describe('playlists', () => {
+  const road = makeMix({
+    id: 'p1',
+    name: 'Road',
+    kind: 'playlist',
+    items: [
+      makeMixItem({ id: 'pi1', soundId: 'crowd', volume: 0.5 }),
+      makeMixItem({ id: 'pi2', soundId: 'drip', volume: 0.7 }),
+    ],
+  });
+  const songs = makeMix({
+    id: 'p2',
+    name: 'Songs',
+    kind: 'playlist',
+    items: [makeMixItem({ id: 'pi3', soundId: 'drip', volume: 1 })],
+  });
+  const tavern = makeMix({
+    id: 'm1',
+    name: 'Tavern',
+    items: [makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop', volume: 0.6 })],
+  });
+  const holding = makeMix({
+    id: 'm2',
+    name: 'Journey',
+    items: [makeMixItem({ id: 'i2', soundId: 'drip', mode: 'loop', volume: 0.4 })],
+    playlists: [{ playlistId: 'p1', volume: 0.3 }],
+  });
+  /** A playlist item carries its track range only: no loop markers, mode or crossfade. */
+  const trackOf = (s: Sound) => {
+    const { trackStart, trackEnd } = engineLoop(s);
+    return { trackStart, trackEnd };
+  };
+  const roadItems = [
+    { soundId: 'crowd', volume: 0.5, loop: trackOf(loop) },
+    { soundId: 'drip', volume: 0.7, loop: trackOf(drip) },
+  ];
+
+  function setupWithMixes() {
+    const fake = makeFakeEngine();
+    const sounds = new Map([loop, drip, door].map((s) => [s.id, s]));
+    const mixes = new Map([road, songs, tavern, holding].map((m) => [m.id, m]));
+    const player = () =>
+      createPlayer(
+        fake.engine,
+        fake.engine.getSnapshot(),
+        (id) => sounds.get(id),
+        (id) => mixes.get(id),
+      );
+    return { ...fake, player };
+  }
+  const ids = (engine: ReturnType<typeof setupWithMixes>['engine']) =>
+    engine.getSnapshot().mix?.layers.map((l) => l.id) ?? [];
+
+  it('plays a playlist alone as one sequence layer, and stops it on a second tap', () => {
+    const { player, spies } = setupWithMixes();
+    player().togglePlaylist(road);
+    expect(spies.playMix).toHaveBeenLastCalledWith({
+      id: LOOSE_MIX_ID,
+      name: '',
+      layers: [
+        {
+          id: 'playlist:p1',
+          soundId: 'crowd',
+          volume: 1,
+          muted: false,
+          mode: { type: 'sequence', items: roadItems, crossfadeSec: 0 },
+        },
+      ],
+    });
+    expect(player().isMixPlaying('p1')).toBe(true);
+
+    player().togglePlaylist(road);
+    expect(spies.removeLayer).toHaveBeenCalledWith('playlist:p1');
+    expect(spies.stop).toHaveBeenCalledTimes(1);
+    expect(player().isMixPlaying('p1')).toBe(false);
+  });
+
+  it('carries the playlist’s crossfade, and only each item’s track range', () => {
+    const { player, engine } = setupWithMixes();
+    // Old per-item loop settings (markers, crossfade mode) are not used in a playlist.
+    const blended = makeMix({
+      id: 'p3',
+      name: 'Blend',
+      kind: 'playlist',
+      crossfadeSec: 3,
+      items: [
+        makeMixItem({
+          id: 'pi4',
+          soundId: 'crowd',
+          volume: 1,
+          trackStartSec: 2,
+          trackEndSec: 50,
+          loopStartSec: 10,
+          loopEndSec: 40,
+          crossfadeSec: 4,
+        }),
+        makeMixItem({ id: 'pi5', soundId: 'drip', volume: 1 }),
+      ],
+    });
+    player().togglePlaylist(blended);
+    const [layer] = engine.getSnapshot().mix!.layers;
+    expect(layer.mode).toEqual({
+      type: 'sequence',
+      crossfadeSec: 3,
+      items: [
+        { soundId: 'crowd', volume: 1, loop: { trackStart: 2, trackEnd: 50 } },
+        { soundId: 'drip', volume: 1, loop: trackOf(drip) },
+      ],
+    });
+  });
+
+  it('hands the sequence layer a 2.5 s crossfade, items keeping track start and end only', () => {
+    const { player, engine } = setupWithMixes();
+    const blended = makeMix({
+      id: 'p4',
+      name: 'Blend',
+      kind: 'playlist',
+      crossfadeSec: 2.5,
+      items: [
+        makeMixItem({
+          id: 'pi6',
+          soundId: 'crowd',
+          volume: 0.9,
+          loopStartSec: 5,
+          loopEndSec: 30,
+          crossfadeSec: 1.5,
+        }),
+        makeMixItem({
+          id: 'pi7',
+          soundId: 'drip',
+          volume: 0.8,
+          trackStartSec: 1,
+          trackEndSec: 20,
+          loopStartSec: 2,
+          loopEndSec: 10,
+          crossfadeSec: 0.5,
+        }),
+      ],
+    });
+    player().togglePlaylist(blended);
+    const [layer] = engine.getSnapshot().mix!.layers;
+    if (layer.mode.type !== 'sequence') throw new Error('expected a sequence layer');
+    expect(layer.mode.crossfadeSec).toBe(2.5);
+    expect(layer.mode.items).toHaveLength(2);
+    for (const item of layer.mode.items) {
+      expect(Object.keys(item.loop ?? {}).sort()).toEqual(['trackEnd', 'trackStart']);
+    }
+    expect(layer.mode.items[0].loop).toEqual(trackOf(loop));
+    expect(layer.mode.items[1].loop).toEqual({ trackStart: 1, trackEnd: 20 });
+  });
+
+  it('is what toggleMix does with a playlist', () => {
+    const { player, engine } = setupWithMixes();
+    player().toggleMix(road);
+    expect(ids(engine)).toEqual(['playlist:p1']);
+    player().toggleMix(road);
+    expect(engine.getSnapshot().mix).toBeNull();
+  });
+
+  it('plays on top of the mix, one playlist at a time', () => {
+    const { player, spies, engine } = setupWithMixes();
+    player().toggleMix(tavern);
+    player().togglePlaylist(road);
+    expect(spies.addLayer).toHaveBeenCalledWith(expect.objectContaining({ id: 'playlist:p1' }));
+    expect(ids(engine)).toEqual(['item:i1', 'playlist:p1']);
+    expect(player().isMixPlaying('m1')).toBe(true);
+    expect(player().isMixPlaying('p1')).toBe(true);
+
+    player().togglePlaylist(songs);
+    expect(ids(engine)).toEqual(['item:i1', 'playlist:p2']);
+    expect(player().isMixPlaying('p1')).toBe(false);
+
+    // Tapping the playing one takes it off, the mix goes on.
+    player().togglePlaylist(songs);
+    expect(ids(engine)).toEqual(['item:i1']);
+    expect(spies.stop).not.toHaveBeenCalled();
+  });
+
+  it('is carried into the next mix, settings unchanged', () => {
+    const { player, engine } = setupWithMixes();
+    player().togglePlaylist(road);
+    player().toggleMix(tavern);
+    const mix = engine.getSnapshot().mix!;
+    expect(mix.id).toBe('m1');
+    expect(mix.layers.map((l) => l.id)).toEqual(['item:i1', 'playlist:p1']);
+    expect(mix.layers[1]).toMatchObject({
+      volume: 1,
+      mode: { type: 'sequence', items: roadItems, crossfadeSec: 0 },
+    });
+  });
+
+  it('keeps playing alone when the playing mix is tapped off', () => {
+    const { player, spies, engine } = setupWithMixes();
+    player().toggleMix(tavern);
+    player().togglePlaylist(road);
+    player().toggleMix(tavern);
+    expect(spies.stop).not.toHaveBeenCalled();
+    expect(engine.getSnapshot().mix?.id).toBe(LOOSE_MIX_ID);
+    expect(ids(engine)).toEqual(['playlist:p1']);
+    expect(player().isMixPlaying('m1')).toBe(false);
+    expect(player().isMixPlaying('p1')).toBe(true);
+  });
+
+  it('plays the playlists a mix holds as layers of the mix, at their volume', () => {
+    const { player, engine } = setupWithMixes();
+    player().toggleMix(holding);
+    const layers = engine.getSnapshot().mix!.layers;
+    expect(layers.map((l) => l.id)).toEqual(['item:i2', 'in-mix:m2:p1']);
+    expect(layers[1]).toMatchObject({
+      soundId: 'crowd',
+      volume: 0.3,
+      mode: { type: 'sequence', items: roadItems, crossfadeSec: 0 },
+    });
+    // A held playlist is part of the mix, not the one on top.
+    expect(player().isMixPlaying('p1')).toBe(false);
+    player().toggleMix(holding);
+    expect(engine.getSnapshot().mix).toBeNull();
+  });
+
+  it('leaves out a held playlist it does not know', () => {
+    const { engine } = setupWithMixes();
+    const player = createPlayer(engine, engine.getSnapshot(), (id) =>
+      [loop, drip].find((s) => s.id === id),
+    );
+    player.toggleMix(holding);
+    expect(ids(engine)).toEqual(['item:i2']);
+  });
+
+  it('skips a playing playlist through the engine, resuming first', () => {
+    const { player, spies } = setupWithMixes();
+    player().togglePlaylist(road);
+    player().togglePause();
+    player().skipPlaylist('playlist:p1', 1);
+    expect(spies.resume).toHaveBeenCalledTimes(1);
+    expect(spies.skipLayer).toHaveBeenLastCalledWith('playlist:p1', 1);
+    player().skipPlaylist('playlist:p1', -1);
+    expect(spies.skipLayer).toHaveBeenLastCalledWith('playlist:p1', -1);
+  });
+
+  it('is never touched by tapping a sound it holds', () => {
+    const { player, spies, engine } = setupWithMixes();
+    player().togglePlaylist(road);
+    expect(player().isSoundPlaying('crowd')).toBe(false);
+
+    player().toggleSound(loop);
+    expect(spies.removeLayer).not.toHaveBeenCalled();
+    expect(ids(engine)).toEqual(['playlist:p1', 'sound:crowd']);
+    expect(player().isSoundPlaying('crowd')).toBe(true);
+
+    player().toggleSound(loop);
+    expect(spies.removeLayer).toHaveBeenLastCalledWith('sound:crowd');
+    expect(ids(engine)).toEqual(['playlist:p1']);
+
+    player().playSoundAs(loop, { mode: 'loop' });
+    expect(ids(engine)).toEqual(['playlist:p1', 'sound:crowd']);
+    expect(spies.removeLayer).not.toHaveBeenCalledWith('playlist:p1');
+  });
+
+  it('is not saved as an item of a new mix', () => {
+    const { player, engine } = setupWithMixes();
+    player().toggleMix(tavern);
+    player().togglePlaylist(road);
+    expect(layersToMixItems(engine.getSnapshot().mix!.layers).map((i) => i.soundId)).toEqual([
+      'crowd',
+    ]);
   });
 });

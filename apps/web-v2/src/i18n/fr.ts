@@ -258,10 +258,7 @@ export const fr: Messages = {
   'count.mixes_other': '{n} mix',
   'count.gameMasters_one': '{n} maître de jeu',
   'count.gameMasters_other': '{n} maîtres de jeu',
-  'count.otherGameMasters_one': '{n} autre maître de jeu',
-  'count.otherGameMasters_other': '{n} autres maîtres de jeu',
   'added.by': 'Ajouté par {count}',
-  'used.by': 'Utilisé par {count}',
   'count.scenes_one': '{n} scène',
   'count.scenes_other': '{n} scènes',
   'count.categories_one': '{n} catégorie',
@@ -292,6 +289,7 @@ export const fr: Messages = {
   'loop.edit': 'Modifier la boucle',
   'loop.editItem': 'Modifier la boucle de {name}',
   'loop.title': 'Éditeur de boucle',
+  'loop.trackTitle': 'Plage de piste',
   'loop.hint':
     'Glissez un marqueur par son étiquette. Glissez la waveform pour défiler, pincez ou utilisez la molette pour zoomer',
   'loop.waveform': 'Waveform avec les marqueurs de piste et de boucle',
@@ -312,10 +310,8 @@ export const fr: Messages = {
   'loop.setTrackEnd': 'Placer la fin de piste à la tête de lecture',
   'loop.setLoopStart': 'Placer le début de boucle à la tête de lecture',
   'loop.setLoopEnd': 'Placer la fin de boucle à la tête de lecture',
-  'loop.mode': 'Mode de boucle',
-  'loop.mode.gapless': 'Sans couture',
-  'loop.mode.crossfade': 'Fondu croisé',
   'loop.crossfade': 'Durée du fondu croisé, secondes',
+  'loop.crossfadeShort': 'Fondu croisé',
   'loop.crossfadeHint': 'La moitié de la boucle au maximum, et 10 s au plus',
   'loop.seconds': '{n} s',
   'loop.playhead': 'Tête de lecture',
@@ -372,6 +368,18 @@ export const fr: Messages = {
 
   'mixes.title': 'Mix',
   'mixes.new': 'Nouveau mix',
+  'mixes.newPlaylist': 'Nouvelle playlist',
+  'mixes.editPlaylist': 'Modifier la playlist',
+  'mixes.playlistHint':
+    'Les sons jouent l’un après l’autre dans cet ordre, chacun de son début à sa fin de piste, puis recommencent',
+  'mixes.playlistCrossfade': 'Fondu croisé entre les sons, secondes',
+  'mixes.playlistCrossfadePreview': 'Deux sons qui se fondent sur {n} s',
+  'mixes.playlistCrossfadeHint':
+    'Chaque son se fond dans le suivant, le dernier dans le premier aussi. À 0, ils s’enchaînent sans fondu',
+  'mixes.moveUp': 'Monter {name}',
+  'mixes.moveDown': 'Descendre {name}',
+  'mixes.playlists': 'Playlists',
+  'mixes.noPlaylists': 'Aucune playlist pour l’instant. Créez-en une avec Nouvelle playlist',
   'mixes.edit': 'Modifier le mix',
   'mixes.empty.title': 'Aucun mix pour l’instant',
   'mixes.empty.body':
@@ -382,6 +390,7 @@ export const fr: Messages = {
     'Vous pouvez aussi ajouter des mix partagés par d’autres, prêts à jouer, depuis la librairie',
   'mixes.description': 'Un mix joue plusieurs sons ensemble, chacun à son propre volume',
   'mixes.sounds': 'Sons de ce mix',
+  'mixes.items': 'Sons',
   'mixes.addSounds': 'Ajouter des sons',
   'mixes.noSounds': 'Ce mix ne contient encore aucun son',
   'mixes.limit': 'Un mix contient jusqu’à {n} sons',
@@ -392,8 +401,20 @@ export const fr: Messages = {
   'mixes.publish.title': 'Publier ce mix ?',
   'mixes.publish.confirm': 'Les publier aussi',
   'mixes.publish.intro':
-    'Un mix public ne peut contenir que des sons publics, et {n} de ses sons sont encore privés :',
+    'Un mix public ne peut contenir que des sons et des playlists publics. Si vous le publiez, ces {n} éléments privés seront publiés aussi :',
   'mixes.publish.becomesPublic': 'sera public',
+  'mixes.publish.becomesPublic.playlist': 'playlist, sera publique',
+  'unpublish.title': 'Le rendre privé ?',
+  'unpublish.confirm': 'Rendre privé',
+  'unpublish.holders':
+    'Un mix public ne peut contenir que des éléments publics : il sera retiré de ces {n} mix publics qui vous appartiennent :',
+  'unpublish.staysPublic': 'reste public',
+  'unpublish.added_one': '1 autre maître de jeu l’a ajouté et le perdra.',
+  'unpublish.added_other': '{n} autres maîtres de jeu l’ont ajouté et le perdront.',
+  'unpublish.note':
+    'Il quitte la Librairie, et les mix et scènes des autres utilisateurs. Vos mix et scènes privés le gardent.',
+  'share.removeBlocked':
+    'Des mix ajoutés depuis la Librairie utilisent ce son. Ils ne sont pas à vous et en ont besoin : il reste tant que vous ne les retirez pas :',
   'mixes.publish.note':
     'Tout le monde sur ce serveur les trouvera dans la Librairie et pourra les ajouter. Vous seul pourrez les modifier.',
 
@@ -451,11 +472,17 @@ export const fr: Messages = {
   'timer.start': 'Lancer',
   'timer.update': 'Modifier',
   'timer.turnOff': 'Désactiver',
-  'player.modeOf': 'Répétition de {name}',
+  'player.optionsOf': 'Options de {name}',
+  'player.playlist.hint': 'Joue un son après l’autre. Appuyez pour le son précédent ou suivant',
+  'player.previous': 'Son précédent',
+  'player.next': 'Son suivant',
+  'kind.playlist': 'Playlist',
   'player.loopSettings': 'Réglages de boucle',
   'loop.liveHint': "Les changements s'appliquent à ce son pendant qu'il joue. Rien n'est enregistré",
-  'player.mode.loop.hint': 'Joue en boucle. Appuyez pour choisir une autre façon de répéter',
-  'player.mode.recurring.hint': 'Joue avec des pauses aléatoires. Appuyez pour changer cela',
+  'player.mode.loop.hint':
+    'Joue en boucle. Appuyez pour choisir une autre façon de répéter, ou régler sa boucle',
+  'player.mode.recurring.hint':
+    'Joue avec des pauses aléatoires. Appuyez pour changer cela, ou régler sa boucle',
   'player.mute.hint': 'Coupe ce son sans déplacer son curseur',
   'player.remove.hint': 'Arrête ce son et le retire de ce qui joue',
   'player.current': 'Actuel',

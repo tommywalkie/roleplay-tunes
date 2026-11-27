@@ -3,7 +3,7 @@
  * own library lets you use it without copying it: it stays its owner's, and does not
  * count against your storage.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Access, Library } from '@dnd/shared';
 import { requireUser } from '../auth.js';
@@ -24,7 +24,7 @@ import {
 } from '../sharing.js';
 import { tagsOfMany } from '../tags.js';
 import { sceneIdsByMix, sceneIdsBySound } from './common.js';
-import { itemsByMix, mixResponse, toMix } from './mixes.js';
+import { itemsByMix, mixResponse, playlistsByMix, toMix } from './mixes.js';
 import { soundResponse, toSound } from './sounds.js';
 
 const idParams = {
@@ -85,6 +85,7 @@ export function libraryRoutes(app: FastifyInstance) {
     const soundLoops = soundLoopsOf(user.id);
     const mixVolumes = mixVolumesOf(user.id);
     const items = itemsByMix(mixRows.map((r) => r.id));
+    const playlists = playlistsByMix(mixRows.map((r) => r.id));
     const soundTags = tagsOfMany('sound', user.id, new Map(soundRows.map((r) => [r.id, r.ownerId])));
     const mixTags = tagsOfMany('mix', user.id, new Map(mixRows.map((r) => [r.id, r.ownerId])));
 
@@ -110,6 +111,7 @@ export function libraryRoutes(app: FastifyInstance) {
           ownerName: names.get(row.ownerId) ?? '',
           sceneIds: mixScenes.get(row.id) ?? [],
           volumes: access === 'owner' ? undefined : mixVolumes.get(row.id),
+          playlists: playlists.get(row.id),
           ...mixTags(row.id),
         });
       }),
@@ -148,13 +150,18 @@ export function libraryRoutes(app: FastifyInstance) {
     const user = await requireUser(request);
     const { id } = request.params as { id: string };
     if (!directlyAddedSoundIds(user.id).has(id)) throw notFound('Sound');
-    const viaMix = db
-      .select({ name: mixes.name })
-      .from(mixItems)
-      .innerJoin(libraryMixes, eq(libraryMixes.mixId, mixItems.mixId))
-      .innerJoin(mixes, eq(mixes.id, mixItems.mixId))
-      .where(and(eq(libraryMixes.userId, user.id), eq(mixItems.soundId, id)))
-      .get();
+    // All or nothing: while a mix the user added (or a playlist that came with one) holds the
+    // sound, nothing changes. Those mixes are not theirs and need it.
+    const added = [...addedMixIds(user.id)];
+    const viaMix =
+      added.length === 0
+        ? undefined
+        : db
+            .select({ name: mixes.name })
+            .from(mixItems)
+            .innerJoin(mixes, eq(mixes.id, mixItems.mixId))
+            .where(and(inArray(mixItems.mixId, added), eq(mixItems.soundId, id)))
+            .get();
     if (viaMix) {
       throw conflict('A mix in your library uses this sound', {
         sound: `Remove "${viaMix.name}" from your library first`,

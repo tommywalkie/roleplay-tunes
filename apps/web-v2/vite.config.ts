@@ -46,6 +46,12 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: { '/api': 'http://localhost:3000' },
+    // A file written in pieces, or replaced by an atomic rename, is read only once its
+    // write has settled: Vite never serves a half-written or intermediate version of it.
+    watch: { awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 } },
+    // Development modules are never cached, so a plain reload refetches the current file
+    // instead of replaying a transform the browser already holds.
+    headers: { 'Cache-Control': 'no-store' },
   },
   test: {
     environment: 'jsdom',

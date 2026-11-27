@@ -1,7 +1,76 @@
+import type { Mix } from '@dnd/shared';
 import { Globe, Lock, UserRound } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { cx, Field, Icon, Segmented } from '../components/ui';
+import { Dialog } from '../components/Dialog';
+import { Thumb } from '../components/Illustration';
+import { KIND_ICONS } from '../components/kinds';
+import { Button, cx, Field, Icon, Segmented } from '../components/ui';
 import { useI18n } from '../i18n';
+
+/**
+ * Before an item turns private: what it is taken out of. It is removed from the user's
+ * public mixes that hold it (they stay public), and leaves the library of everyone who
+ * added it. Nothing else changes, so confirming only saves the item.
+ */
+export function UnpublishDialog({
+  holders,
+  addedCount,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  /** The user's own public mixes and playlists that hold the item. */
+  holders: Mix[];
+  /** How many other users have it in their library. */
+  addedCount: number;
+  busy: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const { t, tn } = useI18n();
+  return (
+    <Dialog
+      title={t('unpublish.title')}
+      onClose={onClose}
+      onSubmit={onConfirm}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} className="ml-auto">
+            {t('common.cancel')}
+          </Button>
+          <Button type="submit" variant="primary" busy={busy} disabled={busy}>
+            {t('unpublish.confirm')}
+          </Button>
+        </>
+      }
+    >
+      {holders.length > 0 && (
+        <>
+          <p className="text-[14px] leading-5 text-ink-2">
+            {t('unpublish.holders', { n: holders.length })}
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {holders.map((holder) => (
+              <li key={holder.id} className="flex items-center gap-3">
+                <Thumb value={holder.illustration} fallback={KIND_ICONS[holder.kind]} size="size-8" />
+                <span className="min-w-0 flex-1 truncate text-[14px] leading-5 text-ink">
+                  {holder.name}
+                </span>
+                <span className="shrink-0 text-[12px] leading-4 text-ink-3">
+                  {t('unpublish.staysPublic')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {addedCount > 0 && (
+        <p className="text-[14px] leading-5 text-ink-2">{tn('unpublish.added', addedCount)}</p>
+      )}
+      <p className="text-[13px] leading-5 text-ink-3">{t('unpublish.note')}</p>
+    </Dialog>
+  );
+}
 
 /** Private or public, with what each means. */
 export function VisibilityField({

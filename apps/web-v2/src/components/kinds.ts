@@ -1,9 +1,31 @@
-import type { PlayMode } from '@dnd/shared';
-import { AudioLines, Layers, Map as MapIcon, Repeat, Shuffle, Zap, type LucideIcon } from 'lucide-react';
+import type { MixKind, PlayMode } from '@dnd/shared';
+import {
+  AudioLines,
+  Layers,
+  ListMusic,
+  Map as MapIcon,
+  Repeat,
+  Shuffle,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import type { MessageKey } from '../i18n/en';
 
 /** Shown on a tile when no icon or image was chosen. */
-export const FALLBACK_ICONS = { sound: AudioLines, mix: Layers, scene: MapIcon } as const;
+export const FALLBACK_ICONS = {
+  sound: AudioLines,
+  mix: Layers,
+  playlist: ListMusic,
+  scene: MapIcon,
+} as const;
+
+/** What a mix object is: sounds played together, or one after another. */
+export const KIND_ICONS: Record<MixKind, LucideIcon> = { mix: Layers, playlist: ListMusic };
+
+export const KIND_LABELS: Record<MixKind, MessageKey> = {
+  mix: 'kind.mix',
+  playlist: 'kind.playlist',
+};
 
 export const MODE_ICONS: Record<PlayMode, LucideIcon> = {
   loop: Repeat,

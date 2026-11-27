@@ -1,26 +1,26 @@
 import {
-  DEFAULT_CROSSFADE_SEC,
   DESCRIPTION_MAX,
   MAX_INTERVAL_SEC,
   MIN_INTERVAL_SEC,
   SOUND_META_MAX,
   type LoopSettings,
   type Me,
+  type Mix,
   type PlayMode,
   type Scene,
   type Sound,
   type UpdateSoundRequest,
 } from '@dnd/shared';
 import { AudioWaveform } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ApiError } from '../api/client';
 import { useDelete, useLibraryEntry, useSaveSound } from '../api/hooks';
 import { soundLoop } from '../audio/player';
 import { Dialog } from '../components/Dialog';
 import { Disclosure } from '../components/Disclosure';
-import type { IllustrationDraft } from '../components/Illustration';
+import { Thumb, type IllustrationDraft } from '../components/Illustration';
 import { IllustrationField, illustrationChanges } from '../components/IllustrationField';
-import { FALLBACK_ICONS, MODE_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
+import { FALLBACK_ICONS, KIND_ICONS, MODE_ICONS, MODE_LABELS, MODE_ORDER } from '../components/kinds';
 import { PickField } from '../components/PickField';
 import { SOUND_DETAILS, type SoundMetaKey } from '../components/SoundDetails';
 import { Button, ErrorNote, Fader, Field, Percent, Segmented, TextInput } from '../components/ui';
@@ -30,7 +30,7 @@ import { EditorFooter } from './EditorFooter';
 import { LicenseField } from './LicenseField';
 import { LoopEditorDialog } from './LoopEditorDialog';
 import { TagFields, useTagsDraft } from './TagFields';
-import { OwnerNote, OwnerOnly, TextArea, VisibilityField } from './Sharing';
+import { OwnerNote, OwnerOnly, TextArea, UnpublishDialog, VisibilityField } from './Sharing';
 
 const clampInterval = (n: number) =>
   Math.min(MAX_INTERVAL_SEC, Math.max(MIN_INTERVAL_SEC, Number.isFinite(n) ? n : MIN_INTERVAL_SEC));
@@ -42,11 +42,14 @@ const clampInterval = (n: number) =>
 export function SoundEditor({
   sound,
   scenes,
+  mixes = [],
   me,
   onClose,
 }: {
   sound: Sound;
   scenes: Scene[];
+  /** The user's mixes and playlists: which of them hold this sound. */
+  mixes?: Mix[];
   me: Me;
   onClose: () => void;
 }) {
@@ -83,6 +86,21 @@ export function SoundEditor({
   const [loop, setLoop] = useState<LoopSettings>(() => soundLoop(sound));
   const [loopOpen, setLoopOpen] = useState(false);
   const tags = useTagsDraft(sound);
+  const [unpublishing, setUnpublishing] = useState(false);
+
+  /** The mixes and playlists of the user that hold this sound. */
+  const holding = useMemo(
+    () => mixes.filter((m) => m.items.some((item) => item.soundId === sound.id)),
+    [mixes, sound.id],
+  );
+  /** Turning it private takes it out of these public mixes of the owner (they stay public). */
+  const holders = holding.filter((m) => m.access === 'owner' && m.isPublic);
+  /**
+   * Mixes the user added from the Library that hold this sound: they are not theirs and
+   * need it, so it cannot leave their library while those stay (nothing changes at all).
+   */
+  const blockers = owned ? [] : holding.filter((m) => m.access !== 'owner');
+  const turningPrivate = owned && sound.isPublic && !isPublic;
 
   const error = save.error ?? remove.error ?? unlink.error;
   const fields = error instanceof ApiError ? error.fields : undefined;
@@ -93,14 +111,18 @@ export function SoundEditor({
     trackEndSec: loop.trackEndSec < sound.durationSec ? loop.trackEndSec : null,
     loopStartSec: loop.loopStartSec > loop.trackStartSec ? loop.loopStartSec : null,
     loopEndSec: loop.loopEndSec < loop.trackEndSec ? loop.loopEndSec : null,
-    loopMode: loop.loopMode,
-    crossfadeSec:
-      loop.crossfadeSec === Math.min(DEFAULT_CROSSFADE_SEC, (loop.loopEndSec - loop.loopStartSec) / 2)
-        ? null
-        : loop.crossfadeSec,
+    crossfadeSec: loop.crossfadeSec > 0 ? loop.crossfadeSec : null,
   };
 
   const submit = () => {
+    if (turningPrivate && (holders.length > 0 || sound.addedCount > 0)) {
+      setUnpublishing(true);
+      return;
+    }
+    saveSound();
+  };
+
+  const saveSound = () => {
     if (!owned) {
       // Their own loop settings, sent only once they changed them: the owner's stay untouched.
       const initial = soundLoop(sound);
@@ -167,6 +189,25 @@ export function SoundEditor({
             onDelete={() => unlink.mutate({ id: sound.id, add: false }, { onSuccess: onClose })}
             deleteLabel={t('share.remove')}
             confirmText={t('share.confirmRemove')}
+            blocked={
+              blockers.length > 0 && (
+                <>
+                  <p className="text-[15px] leading-[22px] text-ink-2">
+                    {t('share.removeBlocked')}
+                  </p>
+                  <ul className="flex flex-col gap-1.5">
+                    {blockers.map((m) => (
+                      <li key={m.id} className="flex items-center gap-3">
+                        <Thumb value={m.illustration} fallback={KIND_ICONS[m.kind]} size="size-8" />
+                        <span className="min-w-0 flex-1 truncate text-[14px] leading-5 text-ink">
+                          {m.name}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )
+            }
             saving={save.isPending}
             deleting={unlink.isPending}
           />
@@ -254,14 +295,14 @@ export function SoundEditor({
                 loop.trackEndSec >= sound.durationSec &&
                 loop.loopStartSec <= loop.trackStartSec &&
                 loop.loopEndSec >= loop.trackEndSec &&
-                loop.loopMode === 'gapless'
+                loop.crossfadeSec <= 0
                   ? t('loop.wholeTrack')
                   : t('loop.summary', {
                       from: duration(loop.loopStartSec),
                       to: duration(loop.loopEndSec),
                       mode:
-                        loop.loopMode === 'crossfade'
-                          ? ` · ${t('loop.mode.crossfade')} ${loop.crossfadeSec.toFixed(1)} s`
+                        loop.crossfadeSec > 0
+                          ? ` · ${t('loop.crossfadeShort')} ${loop.crossfadeSec.toFixed(1)} s`
                           : '',
                     })}
               </span>
@@ -337,6 +378,19 @@ export function SoundEditor({
         emptyText={t('sounds.noScenes')}
       />
       </Dialog>
+
+      {unpublishing && (
+        <UnpublishDialog
+          holders={holders}
+          addedCount={sound.addedCount}
+          busy={save.isPending}
+          onConfirm={() => {
+            setUnpublishing(false);
+            saveSound();
+          }}
+          onClose={() => setUnpublishing(false)}
+        />
+      )}
 
       {loopOpen && (
         <LoopEditorDialog
