@@ -21,14 +21,13 @@ import { taggedBody, taggedResponse } from './tags.js';
 import { requireUser } from '../auth.js';
 import { db } from '../db/index.js';
 import { scenes, soundLoops, soundVolumes, sounds } from '../db/schema.js';
-import { AppError, conflict, forbidden, invalid, notFound, parse } from '../errors.js';
+import { AppError, forbidden, invalid, notFound, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
 import { effectiveLimits, storageUsed } from '../settings.js';
 import {
   addedSoundIds,
   ownerNames,
   prune,
-  publicMixesHolding,
   releaseImages,
   soundColumns,
   soundLoopsOf,
@@ -73,7 +72,6 @@ export const soundResponse = {
     trackEndSec: { type: 'number', nullable: true },
     loopStartSec: { type: 'number', nullable: true },
     loopEndSec: { type: 'number', nullable: true },
-    loopMode: { type: 'string', enum: ['gapless', 'crossfade'] },
     crossfadeSec: { type: 'number', nullable: true },
     intervalMinSec: { type: 'number' },
     intervalMaxSec: { type: 'number' },
@@ -134,7 +132,6 @@ export function toSound(row: CountedSound, view: SoundView): Sound {
     trackEndSec: loop.trackEndSec,
     loopStartSec: loop.loopStartSec,
     loopEndSec: loop.loopEndSec,
-    loopMode: loop.loopMode ?? 'gapless',
     crossfadeSec: loop.crossfadeSec,
     intervalMinSec: row.intervalMinSec,
     intervalMaxSec: row.intervalMaxSec,
@@ -197,7 +194,6 @@ const LOOP_KEYS = [
   'trackEndSec',
   'loopStartSec',
   'loopEndSec',
-  'loopMode',
   'crossfadeSec',
 ] as const;
 
@@ -382,7 +378,7 @@ export function soundsRoutes(app: FastifyInstance) {
       tags: ['sounds'],
       summary: 'Update sound',
       description:
-        "Updates a sound. The owner may change every field. A user who added the sound from the library may change only `defaultVolume` (their own volume, the owner's is kept), the loop fields (`trackStartSec`, `trackEndSec`, `loopStartSec`, `loopEndSec`, `loopMode`, `crossfadeSec`: their own loop settings, the owner's are kept) and `sceneIds` (their own scenes).",
+        "Updates a sound. The owner may change every field. A user who added the sound from the library may change only `defaultVolume` (their own volume, the owner's is kept), the loop fields (`trackStartSec`, `trackEndSec`, `loopStartSec`, `loopEndSec`, `crossfadeSec`: their own loop settings, the owner's are kept) and `sceneIds` (their own scenes).",
       params: idParams,
       body: {
         type: 'object',
@@ -404,7 +400,6 @@ export function soundsRoutes(app: FastifyInstance) {
           trackEndSec: { type: 'number', minimum: 0, nullable: true },
           loopStartSec: { type: 'number', minimum: 0, nullable: true },
           loopEndSec: { type: 'number', minimum: 0, nullable: true },
-          loopMode: { type: 'string', enum: ['gapless', 'crossfade'] },
           crossfadeSec: { type: 'number', minimum: 0, maximum: 10, nullable: true },
           intervalMinSec: { type: 'number', minimum: 1, maximum: 3600 },
           intervalMaxSec: { type: 'number', minimum: 1, maximum: 3600 },
@@ -451,7 +446,6 @@ export function soundsRoutes(app: FastifyInstance) {
         trackEndSec: changes.trackEndSec !== undefined ? changes.trackEndSec : base.trackEndSec,
         loopStartSec: changes.loopStartSec !== undefined ? changes.loopStartSec : base.loopStartSec,
         loopEndSec: changes.loopEndSec !== undefined ? changes.loopEndSec : base.loopEndSec,
-        loopMode: changes.loopMode ?? base.loopMode ?? 'gapless',
         crossfadeSec: changes.crossfadeSec !== undefined ? changes.crossfadeSec : base.crossfadeSec,
       };
       if (sentLoop) {
@@ -511,15 +505,9 @@ export function soundsRoutes(app: FastifyInstance) {
     if (intervalMin > intervalMax) {
       throw invalid('Invalid request', { intervalMaxSec: 'Must not be below the minimum' });
     }
+    // Unpublishing takes the sound out of every public mix that holds it, the owner's own
+    // included; those mixes stay public (prune). Its private status is never passed on.
     const unpublishing = changes.isPublic === false && current.isPublic;
-    if (unpublishing) {
-      const holding = publicMixesHolding(user.id, current.id);
-      if (holding.length > 0) {
-        throw conflict('This sound is in a public mix', {
-          isPublic: `Make these mixes private first: ${holding.join(', ')}`,
-        });
-      }
-    }
     if (sceneIds) assertOwned(scenes, user.id, sceneIds, 'sceneIds');
     const illustrationChange = illustration ? illustrationValues(illustration, user.id) : undefined;
 

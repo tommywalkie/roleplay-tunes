@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Dialog } from '../components/Dialog';
 import { Button } from '../components/ui';
 import { useI18n } from '../i18n';
@@ -17,7 +17,13 @@ export function EditorFooter({
   canSave = true,
   deleteLabel,
   confirmText,
+  blocked,
 }: {
+  /**
+   * Why the delete cannot happen right now. Set, the delete button opens a dialog that says
+   * so, with no way to confirm, instead of a refusal on the form after a click.
+   */
+  blocked?: ReactNode;
   onCancel: () => void;
   /** Omit for an item that does not exist yet. */
   onDelete?: () => void;
@@ -56,7 +62,20 @@ export function EditorFooter({
           {t('common.save')}
         </Button>
       </div>
-      {confirming && onDelete && (
+      {confirming && onDelete && blocked && (
+        <Dialog
+          title={label}
+          onClose={() => setConfirming(false)}
+          footer={
+            <Button variant="primary" onClick={() => setConfirming(false)} className="ml-auto">
+              {t('common.back')}
+            </Button>
+          }
+        >
+          {blocked}
+        </Dialog>
+      )}
+      {confirming && onDelete && !blocked && (
         <Dialog
           title={label}
           onClose={() => setConfirming(false)}

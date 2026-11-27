@@ -320,19 +320,17 @@ describe('PATCH validation', () => {
         trackEndSec: null,
         loopStartSec: null,
         loopEndSec: null,
-        loopMode: 'gapless',
         crossfadeSec: null,
       });
     });
 
-    it('round-trips the track markers, loop mode and crossfade', async () => {
+    it('round-trips the track markers and crossfade', async () => {
       const { user, sound } = await fixture();
       const res = await patch(sound, user, {
         trackStartSec: 1,
         trackEndSec: 11,
         loopStartSec: 2,
         loopEndSec: 10,
-        loopMode: 'crossfade',
         crossfadeSec: 3,
       });
       expect(res.statusCode, res.body).toBe(200);
@@ -341,7 +339,6 @@ describe('PATCH validation', () => {
         trackEndSec: 11,
         loopStartSec: 2,
         loopEndSec: 10,
-        loopMode: 'crossfade',
         crossfadeSec: 3,
       });
       // And on a fresh read, not only in the patch response.
@@ -350,7 +347,6 @@ describe('PATCH validation', () => {
         trackEndSec: 11,
         loopStartSec: 2,
         loopEndSec: 10,
-        loopMode: 'crossfade',
         crossfadeSec: 3,
       });
 
@@ -401,7 +397,6 @@ describe('PATCH validation', () => {
       const res = await patch(sound, user, {
         loopStartSec: 1,
         loopEndSec: 5,
-        loopMode: 'crossfade',
         crossfadeSec: 3,
       });
       expectError(res, 400, 'validation');
@@ -413,11 +408,10 @@ describe('PATCH validation', () => {
       const res = await patch(sound, user, {
         loopStartSec: 1,
         loopEndSec: 9,
-        loopMode: 'crossfade',
         crossfadeSec: 4,
       });
       expect(res.statusCode, res.body).toBe(200);
-      expect(res.json()).toMatchObject({ loopMode: 'crossfade', crossfadeSec: 4 });
+      expect(res.json()).toMatchObject({ crossfadeSec: 4 });
     });
 
     it('still requires both loop points or neither', async () => {
@@ -532,14 +526,13 @@ describe('PATCH validation', () => {
 describe('own loop settings of an added sound', () => {
   type Loop = Pick<
     Sound,
-    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'loopMode' | 'crossfadeSec'
+    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'crossfadeSec'
   >;
   const OWNER_LOOP: Loop = {
     trackStartSec: 0.5,
     trackEndSec: 11,
     loopStartSec: 1,
     loopEndSec: 10,
-    loopMode: 'crossfade',
     crossfadeSec: 2,
   };
   const OWN_LOOP: Loop = {
@@ -547,7 +540,6 @@ describe('own loop settings of an added sound', () => {
     trackEndSec: 9,
     loopStartSec: 3,
     loopEndSec: 8,
-    loopMode: 'gapless',
     crossfadeSec: 1,
   };
 
@@ -604,13 +596,13 @@ describe('own loop settings of an added sound', () => {
     expect(first.json()).toMatchObject({ ...OWNER_LOOP, crossfadeSec: 1 });
 
     const second = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, {
-      loopMode: 'gapless',
+      loopStartSec: 2,
       defaultVolume: 0.3,
     });
     expect(second.statusCode, second.body).toBe(200);
     expect(second.json()).toMatchObject({
       ...OWNER_LOOP,
-      loopMode: 'gapless',
+      loopStartSec: 2,
       crossfadeSec: 1,
       defaultVolume: 0.3,
     });
@@ -642,7 +634,6 @@ describe('own loop settings of an added sound', () => {
     const fat = await call(app, b, 'PATCH', `/api/sounds/${sound.id}`, {
       loopStartSec: 2,
       loopEndSec: 4,
-      loopMode: 'crossfade',
       crossfadeSec: 3,
     });
     expectError(fat, 400, 'validation');

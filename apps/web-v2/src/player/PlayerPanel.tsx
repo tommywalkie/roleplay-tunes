@@ -1,13 +1,16 @@
-import type { Sound } from '@dnd/shared';
+import type { Mix, Sound } from '@dnd/shared';
 import {
   AudioLines,
   AudioWaveform,
   ChevronDown,
   ChevronUp,
+  Ellipsis,
   ListPlus,
   LoaderCircle,
   Pause,
   Play,
+  SkipBack,
+  SkipForward,
   Square,
   Volume2,
   VolumeX,
@@ -16,7 +19,14 @@ import {
 } from 'lucide-react';
 import type { LayerState } from '@dnd/audio-engine';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { layerLoop, layersToMixItems, LOOSE_MIX_ID, usePlayer, useSleepTimer } from '../audio/player';
+import {
+  layerLoop,
+  layersToMixItems,
+  LOOSE_MIX_ID,
+  playlistIdOfLayer,
+  usePlayer,
+  useSleepTimer,
+} from '../audio/player';
 import { PausesDialog } from '../board/PausesDialog';
 import { LoopEditorDialog } from '../editors/LoopEditorDialog';
 import { Thumb } from '../components/Illustration';
@@ -41,9 +51,12 @@ const DOCKED = '(max-width: 1331.98px)';
  */
 export function PlayerPanel({
   sounds,
+  mixes = [],
   onSaveAsMix,
 }: {
   sounds: Sound[];
+  /** To name a playlist playing on top. */
+  mixes?: Mix[];
   /** Opens a new mix made of what plays. Without it, the player offers no such button. */
   onSaveAsMix?: (items: ReturnType<typeof layersToMixItems>) => void;
 }) {
@@ -60,6 +73,7 @@ export function PlayerPanel({
   const expanded = docked && open;
   const { snapshot } = player;
   const byId = useMemo(() => new Map(sounds.map((s) => [s.id, s])), [sounds]);
+  const mixesById = useMemo(() => new Map(mixes.map((m) => [m.id, m])), [mixes]);
   const nameOf = (soundId: string) => byId.get(soundId)?.name ?? t('player.unknownSound');
 
   useEffect(
@@ -228,9 +242,21 @@ export function PlayerPanel({
               <p className="px-2 py-6 text-[14px] leading-5 text-ink-3">{t('player.empty')}</p>
             ) : (
               <ul className="flex flex-col gap-0.5">
-                {layers.map((layer) => {
-                  const name = nameOf(layer.soundId);
-                  const sound = byId.get(layer.soundId);
+                {playlistsFirst(layers).map((layer) => {
+                  const mode = layer.mode;
+                  const sequence = mode.type === 'sequence' ? mode : null;
+                  // A playlist row shows the sound being heard, under the playlist's name.
+                  const heard = sequence
+                    ? (sequence.items[layer.current ?? 0] ?? sequence.items[0])
+                    : null;
+                  const playlistName = sequence
+                    ? (mixesById.get(playlistIdOfLayer(layer.id))?.name ?? t('kind.playlist'))
+                    : '';
+                  const soundId = heard?.soundId ?? layer.soundId;
+                  const name = sequence
+                    ? `${playlistName} · ${nameOf(soundId)}`
+                    : nameOf(soundId);
+                  const sound = byId.get(soundId);
                   const live = layer.load === 'ready' && !layer.muted && !paused;
                   return (
                     <li key={layer.id} className="flex h-16 items-center gap-3 rounded-[10px] px-2">
@@ -270,7 +296,11 @@ export function PlayerPanel({
                         </div>
                       </div>
                       <div className="flex shrink-0">
-                        {sound && <LayerModeButton layer={layer} sound={sound} name={name} />}
+                        {sequence ? (
+                          <PlaylistMenuButton layerId={layer.id} name={playlistName} />
+                        ) : (
+                          sound && <LayerModeButton layer={layer} sound={sound} name={name} />
+                        )}
                         <Popover wrap label={t(layer.muted ? 'player.unmute' : 'player.mute', { name })} note={t('player.mute.hint')}>
                           <IconButton
                             icon={layer.muted ? VolumeX : Volume2}
@@ -322,8 +352,63 @@ export function PlayerPanel({
 }
 
 /**
- * Shows how a playing sound repeats (loop or random pauses) and changes it in place: the
- * sound keeps its volume and its place, in a saved mix or among loose sounds.
+ * Playlists first, then the rest in the order they play: a playlist over a mix is what the
+ * user is most likely to reach for (next, previous). Display only; playback is unchanged.
+ */
+function playlistsFirst(layers: LayerState[]): LayerState[] {
+  return [
+    ...layers.filter((l) => l.mode.type === 'sequence'),
+    ...layers.filter((l) => l.mode.type !== 'sequence'),
+  ];
+}
+
+/** A playing playlist's menu: its previous and next sound. */
+function PlaylistMenuButton({ layerId, name }: { layerId: string; name: string }) {
+  const { t } = useI18n();
+  const player = usePlayer();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => setAnchor(null), []);
+  const label = t('player.optionsOf', { name });
+
+  return (
+    <>
+      <Popover wrap label={label} note={t('player.playlist.hint')}>
+        <IconButton
+          icon={Ellipsis}
+          label={label}
+          title={undefined}
+          aria-haspopup="menu"
+          aria-expanded={anchor !== null}
+          onClick={(e) => setAnchor(e.currentTarget)}
+          className="w-10"
+        />
+      </Popover>
+      {anchor && (
+        <Menu
+          title={name}
+          anchor={anchor}
+          onClose={closeMenu}
+          items={[
+            {
+              label: t('player.previous'),
+              icon: SkipBack,
+              onSelect: () => player.skipPlaylist(layerId, -1),
+            },
+            {
+              label: t('player.next'),
+              icon: SkipForward,
+              onSelect: () => player.skipPlaylist(layerId, 1),
+            },
+          ]}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * The menu of a playing sound: how it repeats (loop or random pauses), changed in place,
+ * and its loop settings, live. The sound keeps its volume and its place.
  */
 function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sound; name: string }) {
   const { t } = useI18n();
@@ -334,7 +419,7 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
   const closeMenu = useCallback(() => setAnchor(null), []);
   const mode = layer.mode;
   const recurring = mode.type === 'recurring';
-  const label = t('player.modeOf', { name });
+  const label = t('player.optionsOf', { name });
 
   return (
     <>
@@ -344,7 +429,7 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
         note={t(recurring ? 'player.mode.recurring.hint' : 'player.mode.loop.hint')}
       >
         <IconButton
-          icon={recurring ? MODE_ICONS.recurring : MODE_ICONS.loop}
+          icon={Ellipsis}
           label={label}
           title={undefined}
           aria-haspopup="menu"
@@ -383,7 +468,7 @@ function LayerModeButton({ layer, sound, name }: { layer: LayerState; sound: Sou
         <LoopEditorDialog
           sound={sound}
           mode={recurring ? 'recurring' : 'loop'}
-          initial={layerLoop(sound, mode.loop)}
+          initial={layerLoop(sound, mode.type === 'sequence' ? undefined : mode.loop)}
           live
           onSave={(loop) => player.setLayerLoop(layer.id, loop)}
           onClose={() => setEditLoop(false)}

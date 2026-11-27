@@ -2,7 +2,14 @@ import type { Mix, Scene, Sound } from '@dnd/shared';
 import { Pencil, Play } from 'lucide-react';
 import { useState } from 'react';
 import { defaultPlay, usePlayer } from '../audio/player';
-import { FALLBACK_ICONS, MODE_HINTS, MODE_ICONS, MODE_LABELS } from '../components/kinds';
+import {
+  FALLBACK_ICONS,
+  KIND_ICONS,
+  KIND_LABELS,
+  MODE_HINTS,
+  MODE_ICONS,
+  MODE_LABELS,
+} from '../components/kinds';
 import { LicenseBadge } from '../components/LicenseBadge';
 import type { MenuItem } from '../components/Menu';
 import { Popover } from '../components/Popover';
@@ -85,17 +92,20 @@ export function SoundTile({ sound, onEdit }: { sound: Sound; onEdit: () => void 
   );
 }
 
-/** A mix on the board: tap to start it in place of what plays, tap again to stop it. */
+/**
+ * A mix on the board: tap to start it in place of what plays, tap again to stop it. A
+ * playlist plays on top of what plays instead, one sound after another.
+ */
 export function MixTile({ mix, onEdit }: { mix: Mix; onEdit: () => void }) {
   const { t, tn } = useI18n();
   const player = usePlayer();
-  const MixIcon = FALLBACK_ICONS.mix;
+  const MixIcon = KIND_ICONS[mix.kind];
   const SoundIcon = FALLBACK_ICONS.sound;
   return (
     <Tile
       name={mix.name}
       illustration={mix.illustration}
-      fallback={FALLBACK_ICONS.mix}
+      fallback={KIND_ICONS[mix.kind]}
       active={player.isMixPlaying(mix.id)}
       onPress={() => player.toggleMix(mix)}
       onEdit={onEdit}
@@ -106,7 +116,7 @@ export function MixTile({ mix, onEdit }: { mix: Mix; onEdit: () => void }) {
       meta={
         <span className="flex min-w-0 items-center gap-1.5">
           <MixIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />
-          {t('kind.mix')}
+          {t(KIND_LABELS[mix.kind])}
           <Popover label={tn('count.sounds', mix.items.length)} note={tn('count.sounds', mix.items.length)}>
             <span className="flex min-w-0 items-center gap-1.5">
               <SoundIcon size={12} strokeWidth={1.5} aria-hidden className="shrink-0" />

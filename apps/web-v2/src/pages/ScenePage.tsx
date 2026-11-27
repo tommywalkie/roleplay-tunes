@@ -125,10 +125,23 @@ export function ScenePage({ me }: { me: Me }) {
         />
       )}
       {editedMix && (
-        <MixEditor mix={editedMix} sounds={allSounds} scenes={scenes.data ?? []} me={me} onClose={close} />
+        <MixEditor
+          mix={editedMix}
+          mixes={mixes.data}
+          sounds={allSounds}
+          scenes={scenes.data ?? []}
+          me={me}
+          onClose={close}
+        />
       )}
       {editedSound && (
-        <SoundEditor sound={editedSound} scenes={scenes.data ?? []} me={me} onClose={close} />
+        <SoundEditor
+          sound={editedSound}
+          scenes={scenes.data ?? []}
+          mixes={mixes.data}
+          me={me}
+          onClose={close}
+        />
       )}
     </Page>
   );

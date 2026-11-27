@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlayerProvider } from '../audio/player';
 import { I18nProvider } from '../i18n';
-import { makeFakeEngine, makeSound } from '../test/fixtures';
-import { SoundTile } from './tiles';
+import { makeFakeEngine, makeMix, makeMixItem, makeSound } from '../test/fixtures';
+import { MixTile, SoundTile } from './tiles';
 
 const drip = makeSound({
   id: 'drip',
@@ -168,12 +168,61 @@ describe('Added badge on a sound tile', () => {
 
   it('hides the mark for a sound nobody else added', () => {
     show(makeSound({ id: 'quiet', name: 'Quiet', addedCount: 0 }));
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Added by/ })).not.toBeInTheDocument();
   });
 
-  it('shows how many others added it, with the words on its note', () => {
+  it('shows how many added it, with the note', () => {
     show(makeSound({ id: 'birds', name: 'Birds', addedCount: 2 }));
-    const badge = screen.getByRole('button', { name: 'Added by 2 other game masters' });
+    const badge = screen.getByRole('button', { name: 'Added by 2 game masters' });
     expect(badge).toHaveTextContent('2');
+  });
+});
+
+describe('MixTile kind', () => {
+  const road = makeMix({
+    id: 'p1',
+    name: 'Road',
+    kind: 'playlist',
+    items: [makeMixItem({ id: 'pi1', soundId: 'drip', volume: 1 })],
+  });
+  const tavern = makeMix({
+    id: 'm1',
+    name: 'Tavern',
+    items: [makeMixItem({ id: 'i1', soundId: 'drip', mode: 'loop', volume: 1 })],
+  });
+
+  function show() {
+    const fake = makeFakeEngine();
+    render(
+      <I18nProvider initial="en">
+        <PlayerProvider sounds={[drip]} mixes={[road, tavern]} engine={fake.engine}>
+          <ul>
+            <MixTile mix={road} onEdit={vi.fn()} />
+            <MixTile mix={tavern} onEdit={vi.fn()} />
+          </ul>
+        </PlayerProvider>
+      </I18nProvider>,
+    );
+    const tile = (name: string) =>
+      within(screen.getByRole('button', { name: new RegExp(`^${name}`) }).closest('li')!);
+    return { ...fake, tile, user: userEvent.setup() };
+  }
+
+  it('reads Playlist on a playlist and Mix on a mix', () => {
+    const { tile } = show();
+    expect(tile('Road').getByText('Playlist')).toBeInTheDocument();
+    expect(tile('Road').queryByText('Mix')).not.toBeInTheDocument();
+    expect(tile('Tavern').getByText('Mix')).toBeInTheDocument();
+    expect(tile('Tavern').queryByText('Playlist')).not.toBeInTheDocument();
+  });
+
+  it('plays a playlist on top of the mix and lights both tiles', async () => {
+    const { user, engine } = show();
+    await user.click(screen.getByRole('button', { name: /^Tavern/ }));
+    await user.click(screen.getByRole('button', { name: /^Road/ }));
+    expect(engine.getSnapshot().mix?.layers.map((l) => l.id)).toEqual(['item:i1', 'playlist:p1']);
+    expect(screen.getByRole('button', { name: /^Road/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Tavern/ })).toHaveAttribute('aria-pressed', 'true');
   });
 });

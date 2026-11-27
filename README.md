@@ -20,8 +20,9 @@ A soundboard for tabletop game masters, made for a tablet or phone at the table.
 | `packages/shared` | Types and validation rules shared by the app and the server |
 | `packages/audio-engine` | The Web Audio engine behind the player |
 | `scripts` | Builds the icon libraries used by the icon picker |
+| `docs` | The working guide: rules and one doc per domain, starting at `docs/README.md` |
 
-`apps/web-v2/AGENTS.md` is the working guide for the web app (behavior rules, design direction, status).
+`docs/` is the working guide for the whole project (rules, and one doc per domain and feature).
 
 ## Run it locally
 

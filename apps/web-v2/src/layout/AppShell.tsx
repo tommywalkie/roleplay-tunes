@@ -11,7 +11,15 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { useAcceptTerms, useLibrary, useScenes, useSignOut, useSounds, useTerms } from '../api/hooks';
+import {
+  useAcceptTerms,
+  useLibrary,
+  useMixes,
+  useScenes,
+  useSignOut,
+  useSounds,
+  useTerms,
+} from '../api/hooks';
 import { termsAwait } from '@dnd/shared';
 import { MixEditor, type ItemDraft } from '../editors/MixEditor';
 import { PlayerProvider } from '../audio/player';
@@ -67,6 +75,7 @@ export function AppShell({ me }: { me: Me }) {
   const library = useLibrary().data?.sounds;
   const sounds = useMemo(() => playableSounds(own ?? [], library ?? []), [own, library]);
   const scenes = useScenes().data;
+  const mixes = useMixes().data;
   const terms = useTerms(locale);
   const accept = useAcceptTerms();
   const signOut = useSignOut();
@@ -92,7 +101,7 @@ export function AppShell({ me }: { me: Me }) {
     active || (item.also?.some((path) => pathname.startsWith(path)) ?? false);
 
   return (
-    <PlayerProvider sounds={sounds}>
+    <PlayerProvider sounds={sounds} mixes={mixes}>
       {/* Phones and tablets: tab bar and docked player. Desktop: rail and player column. */}
       <div className="grid h-full grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)_344px]">
         <nav
@@ -141,7 +150,7 @@ export function AppShell({ me }: { me: Me }) {
           <Outlet />
         </main>
 
-        <PlayerPanel sounds={sounds} onSaveAsMix={setNewMixItems} />
+        <PlayerPanel sounds={sounds} mixes={mixes} onSaveAsMix={setNewMixItems} />
         {newMixItems && (
           <MixEditor
             mix={null}
@@ -149,6 +158,7 @@ export function AppShell({ me }: { me: Me }) {
             scenes={scenes ?? []}
             me={me}
             initialItems={newMixItems.filter((item) => ownIds.has(item.soundId))}
+            mixes={mixes}
             onClose={() => setNewMixItems(null)}
           />
         )}

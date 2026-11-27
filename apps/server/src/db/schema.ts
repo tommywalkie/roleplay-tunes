@@ -141,9 +141,6 @@ export const sounds = sqliteTable(
     trackEndSec: real('trackEndSec'),
     loopStartSec: real('loopStartSec'),
     loopEndSec: real('loopEndSec'),
-    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] })
-      .notNull()
-      .default('gapless'),
     crossfadeSec: real('crossfadeSec'),
     intervalMinSec: real('intervalMinSec').notNull(),
     intervalMaxSec: real('intervalMaxSec').notNull(),
@@ -165,6 +162,16 @@ export const mixes = sqliteTable(
     name: text('name').notNull(),
     description: text('description'),
     isPublic: integer('isPublic', { mode: 'boolean' }).notNull().default(false),
+    /** 'mix': its sounds play together. 'playlist': its sounds play one after another. */
+    kind: text('kind', { enum: ['mix', 'playlist'] })
+      .notNull()
+      .default('mix'),
+    /**
+     * For a playlist: crossfade between its sounds, in seconds; null or 0 = back to back.
+     * Nullable on purpose: drizzle-kit push empties a table when it adds a NOT NULL column
+     * whose default is falsy (0), so a new column on a table with data is never NOT NULL 0.
+     */
+    crossfadeSec: real('crossfadeSec'),
     ...illustrationColumns,
     createdAt: timestamp('createdAt').notNull(),
     updatedAt: timestamp('updatedAt').notNull(),
@@ -193,7 +200,6 @@ export const mixItems = sqliteTable(
     trackEndSec: real('trackEndSec'),
     loopStartSec: real('loopStartSec'),
     loopEndSec: real('loopEndSec'),
-    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] }),
     crossfadeSec: real('crossfadeSec'),
   },
   (t) => [
@@ -323,6 +329,28 @@ export const soundVolumes = sqliteTable(
 );
 
 /**
+ * Playlists a mix holds, beside its sounds: each plays as one more layer of the mix, its
+ * sounds one after another. Only a mix ('mix' kind) holds playlists, never a playlist.
+ */
+export const mixPlaylists = sqliteTable(
+  'mix_playlists',
+  {
+    mixId: text('mixId')
+      .notNull()
+      .references(() => mixes.id, { onDelete: 'cascade' }),
+    playlistId: text('playlistId')
+      .notNull()
+      .references(() => mixes.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    volume: real('volume').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.mixId, t.playlistId] }),
+    index('mix_playlists_by_playlist_idx').on(t.playlistId),
+  ],
+);
+
+/**
  * A user's own loop settings for a sound they did not upload. Null fields follow the
  * owner's values. Used wherever they play the sound, except inside mixes they did not create.
  */
@@ -339,7 +367,6 @@ export const soundLoops = sqliteTable(
     trackEndSec: real('trackEndSec'),
     loopStartSec: real('loopStartSec'),
     loopEndSec: real('loopEndSec'),
-    loopMode: text('loopMode', { enum: ['gapless', 'crossfade'] }),
     crossfadeSec: real('crossfadeSec'),
   },
   (t) => [

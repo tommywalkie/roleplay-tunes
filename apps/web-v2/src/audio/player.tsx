@@ -53,7 +53,6 @@ export const soundLoop = (sound: Sound): LoopSettings =>
     trackEndSec: sound.trackEndSec,
     loopStartSec: sound.loopStartSec,
     loopEndSec: sound.loopEndSec,
-    loopMode: sound.loopMode,
     crossfadeSec: sound.crossfadeSec,
   });
 
@@ -62,7 +61,7 @@ export const itemLoop = (
   sound: Sound,
   item: Pick<
     MixItem,
-    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'loopMode' | 'crossfadeSec'
+    'trackStartSec' | 'trackEndSec' | 'loopStartSec' | 'loopEndSec' | 'crossfadeSec'
   >,
 ): LoopSettings =>
   resolveLoopSettings({
@@ -71,7 +70,6 @@ export const itemLoop = (
     trackEndSec: item.trackEndSec ?? sound.trackEndSec,
     loopStartSec: item.loopStartSec ?? sound.loopStartSec,
     loopEndSec: item.loopEndSec ?? sound.loopEndSec,
-    loopMode: item.loopMode ?? sound.loopMode,
     crossfadeSec: item.crossfadeSec ?? sound.crossfadeSec,
   });
 
@@ -84,7 +82,6 @@ export const layerLoop = (sound: Sound, loop: Partial<LoopConfig> | undefined): 
     ...(loop?.trackEnd !== undefined ? { trackEndSec: loop.trackEnd } : {}),
     ...(loop?.loopStart !== undefined ? { loopStartSec: loop.loopStart } : {}),
     ...(loop?.loopEnd !== undefined ? { loopEndSec: loop.loopEnd } : {}),
-    ...(loop?.mode !== undefined ? { loopMode: loop.mode } : {}),
     ...(loop?.crossfadeSec !== undefined ? { crossfadeSec: loop.crossfadeSec } : {}),
   });
 
@@ -94,7 +91,7 @@ function toEngineLoop(loop: LoopSettings): Partial<LoopConfig> {
     trackEnd: loop.trackEndSec,
     loopStart: loop.loopStartSec,
     loopEnd: loop.loopEndSec,
-    mode: loop.loopMode,
+    mode: loop.crossfadeSec > 0 ? 'crossfade' : 'gapless',
     crossfadeSec: loop.crossfadeSec,
   };
 }
@@ -108,7 +105,7 @@ export function toDescriptor(sound: Sound): SoundDescriptor {
     loopEnd: sound.loopEndSec ?? undefined,
     trackStart: sound.trackStartSec ?? undefined,
     trackEnd: sound.trackEndSec ?? undefined,
-    loopMode: sound.loopMode,
+    loopMode: (sound.crossfadeSec ?? 0) > 0 ? 'crossfade' : 'gapless',
     crossfadeSec: sound.crossfadeSec ?? undefined,
     defaultVolume: sound.defaultVolume,
   };
@@ -149,9 +146,10 @@ const soundSettings = (sound: Sound): LayerSettings => ({
 export function layersToMixItems(layers: LayerState[]): Required<MixItemInput>[] {
   const seen = new Set<string>();
   return layers.flatMap((layer) => {
-    if (seen.has(layer.soundId)) return [];
-    seen.add(layer.soundId);
     const mode = layer.mode;
+    // A playlist on top is not part of the bed: it stays a playlist of its own.
+    if (mode.type === 'sequence' || seen.has(layer.soundId)) return [];
+    seen.add(layer.soundId);
     const recurring = mode.type === 'recurring';
     const loop = mode.loop ?? {};
     return [
@@ -170,7 +168,6 @@ export function layersToMixItems(layers: LayerState[]): Required<MixItemInput>[]
         trackEndSec: loop.trackEnd ?? null,
         loopStartSec: loop.loopStart ?? null,
         loopEndSec: loop.loopEnd ?? null,
-        loopMode: loop.mode ?? null,
         crossfadeSec: loop.crossfadeSec ?? null,
       },
     ];
@@ -193,10 +190,42 @@ export const defaultPlay = (sound: Sound): SoundPlay =>
       }
     : { mode: sound.defaultMode };
 
+const NO_MIXES: Mix[] = [];
+
+/** Layer id of a playlist held by a mix: plays and stops with that mix. */
+export const mixPlaylistLayerId = (mixId: string, playlistId: string) =>
+  `in-mix:${mixId}:${playlistId}`;
+
+/** The playlist a sequence layer plays, from its layer id (on top or inside a mix). */
+export const playlistIdOfLayer = (layerId: string) => layerId.slice(layerId.lastIndexOf(':') + 1);
+
+/** Layer id of a playlist playing on top of the mix. One at a time. */
+export const PLAYLIST_LAYER_PREFIX = 'playlist:';
+export const playlistLayerId = (playlistId: string) => `${PLAYLIST_LAYER_PREFIX}${playlistId}`;
+export const isPlaylistLayer = (layerId: string) => layerId.startsWith(PLAYLIST_LAYER_PREFIX);
+
+/** A layer's settings without what the engine adds to its state. */
+function layerConfig(state: LayerState): LayerConfig {
+  const config: LayerConfig & Partial<Pick<LayerState, 'load' | 'current'>> = { ...state };
+  delete config.load;
+  delete config.current;
+  return config;
+}
+
 export interface Player {
   snapshot: EngineSnapshot;
-  /** Starts the mix, replacing what plays. Tapping the mix that plays stops it. */
+  /**
+   * Starts the mix, replacing what plays. Tapping the mix that plays stops it. A playlist
+   * playing on top goes on through both. For a playlist, see `togglePlaylist`.
+   */
   toggleMix: (mix: Mix) => void;
+  /**
+   * Plays a playlist on top of what plays, one sound after another, starting over after the
+   * last. Another playlist playing stops; tapping the playing one stops it.
+   */
+  togglePlaylist: (playlist: Mix) => void;
+  /** Jumps a playing playlist (on top or inside a mix) to its next (1) or previous (-1) sound. */
+  skipPlaylist: (layerId: string, delta: number) => void;
   /** One-shot sounds fire on every tap. Others switch on and off, on top of what plays. */
   toggleSound: (sound: Sound) => void;
   /**
@@ -250,6 +279,8 @@ export function createPlayer(
   engine: AudioEngine,
   snapshot: EngineSnapshot,
   getSound: (id: string) => Sound | undefined = (id) => lookup(id),
+  /** For the playlists a mix holds. */
+  getMix: (id: string) => Mix | undefined = () => undefined,
 ): Player {
   const layers = () => engine.getSnapshot().mix?.layers ?? [];
   const wake = () => {
@@ -280,17 +311,69 @@ export function createPlayer(
             trackEndSec: item.trackEndSec,
             loopStartSec: item.loopStartSec,
             loopEndSec: item.loopEndSec,
-            loopMode: item.loopMode,
             crossfadeSec: item.crossfadeSec,
           }),
     };
   };
 
-  return {
+  /** Layers playing this sound on its own or in the mix; a playlist holding it is not one. */
+  const soundLayers = (soundId: string) =>
+    layers().filter((l) => l.soundId === soundId && l.mode.type !== 'sequence');
+  /**
+   * The playlist's sounds as one sequence layer, each with its own volume and track range;
+   * the hand-over between them is the playlist's own crossfade.
+   */
+  const playlistLayer = (
+    playlist: Mix,
+    id = playlistLayerId(playlist.id),
+    volume = 1,
+  ): LayerConfig | null => {
+    const items = playlist.items.flatMap((item) => {
+      const sound = getSound(item.soundId);
+      if (!sound) return [];
+      const range = itemLoop(sound, item);
+      return [
+        {
+          soundId: item.soundId,
+          volume: item.volume,
+          loop: { trackStart: range.trackStartSec, trackEnd: range.trackEndSec },
+        },
+      ];
+    });
+    if (items.length === 0) return null;
+    return {
+      id,
+      soundId: items[0].soundId,
+      volume,
+      muted: false,
+      mode: { type: 'sequence', items, crossfadeSec: playlist.crossfadeSec },
+    };
+  };
+  /** The playlists a mix holds, each as one more layer of it. */
+  const heldPlaylists = (mix: Mix): LayerConfig[] =>
+    mix.playlists.flatMap((entry) => {
+      const playlist = getMix(entry.playlistId);
+      const layer =
+        playlist && playlistLayer(playlist, mixPlaylistLayerId(mix.id, playlist.id), entry.volume);
+      return layer ? [layer] : [];
+    });
+  /** The playlist playing on top, carried through a change of mix. */
+  const carriedPlaylist = (): LayerConfig[] =>
+    layers()
+      .filter((l) => isPlaylistLayer(l.id))
+      .map(layerConfig);
+
+  const player: Player = {
     snapshot,
     toggleMix(mix) {
+      if (mix.kind === 'playlist') {
+        player.togglePlaylist(mix);
+        return;
+      }
+      const keep = carriedPlaylist();
       if (engine.getSnapshot().mix?.id === mix.id) {
-        engine.stop();
+        if (keep.length > 0) engine.playMix({ id: LOOSE_MIX_ID, name: '', layers: keep });
+        else engine.stop();
         return;
       }
       wake();
@@ -298,7 +381,11 @@ export function createPlayer(
       engine.playMix({
         id: mix.id,
         name: mix.name,
-        layers: playable.map((i) => toLayer(`item:${i.id}`, i.soundId, itemSettings(i))),
+        layers: [
+          ...playable.map((i) => toLayer(`item:${i.id}`, i.soundId, itemSettings(i))),
+          ...heldPlaylists(mix),
+          ...keep,
+        ],
       });
       // A "once" item has no place in a looping bed: it is heard once, as the mix starts.
       for (const item of mix.items) {
@@ -318,7 +405,7 @@ export function createPlayer(
         engine.playOneshot(sound.id);
         return;
       }
-      const playing = layers().filter((l) => l.soundId === sound.id);
+      const playing = soundLayers(sound.id);
       if (playing.length > 0) {
         for (const layer of playing) engine.removeLayer(layer.id);
         stopIfEmpty();
@@ -332,7 +419,7 @@ export function createPlayer(
         engine.playOneshot(sound.id);
         return;
       }
-      const replaced = layers().filter((l) => l.soundId === sound.id);
+      const replaced = soundLayers(sound.id);
       for (const layer of replaced) engine.removeLayer(layer.id);
       startLayer(sound, {
         ...soundSettings(sound),
@@ -346,7 +433,7 @@ export function createPlayer(
     },
     setLayerPlay(layerId, sound, play) {
       const current = layers().find((l) => l.id === layerId);
-      if (!current) return;
+      if (!current || current.mode.type === 'sequence') return;
       const jitter: [number, number] =
         current.mode.type === 'recurring' && current.mode.volumeJitter
           ? current.mode.volumeJitter
@@ -369,9 +456,28 @@ export function createPlayer(
     },
     setLayerLoop(layerId, loop) {
       const current = layers().find((l) => l.id === layerId);
-      if (!current) return;
+      if (!current || current.mode.type === 'sequence') return;
       wake();
       engine.updateLayer(layerId, { mode: { ...current.mode, loop: toEngineLoop(loop) } });
+    },
+    togglePlaylist(playlist) {
+      const id = playlistLayerId(playlist.id);
+      if (layers().some((l) => l.id === id)) {
+        engine.removeLayer(id);
+        stopIfEmpty();
+        return;
+      }
+      const layer = playlistLayer(playlist);
+      if (!layer) return;
+      wake();
+      // One playlist at a time on top of the mix.
+      for (const l of layers()) if (isPlaylistLayer(l.id)) engine.removeLayer(l.id);
+      if (engine.getSnapshot().mix) engine.addLayer(layer);
+      else engine.playMix({ id: LOOSE_MIX_ID, name: '', layers: [layer] });
+    },
+    skipPlaylist(layerId, delta) {
+      wake();
+      engine.skipLayer(layerId, delta);
     },
     stopAll() {
       engine.stop();
@@ -389,9 +495,12 @@ export function createPlayer(
       engine.removeLayer(layerId);
       stopIfEmpty();
     },
-    isMixPlaying: (mixId) => snapshot.mix?.id === mixId,
+    isMixPlaying: (mixId) =>
+      snapshot.mix?.id === mixId ||
+      (snapshot.mix?.layers.some((l) => l.id === playlistLayerId(mixId)) ?? false),
     isSoundPlaying: (soundId) =>
-      (snapshot.mix?.layers.some((l) => l.soundId === soundId) ?? false) ||
+      (snapshot.mix?.layers.some((l) => l.soundId === soundId && l.mode.type !== 'sequence') ??
+        false) ||
       snapshot.activeOneshots.some((o) => o.soundId === soundId),
     previewLoopTest: (sound, loop) =>
       engine.previewSequence(
@@ -401,7 +510,7 @@ export function createPlayer(
           trackEnd: loop.trackEndSec,
           loopStart: loop.loopStartSec,
           loopEnd: loop.loopEndSec,
-          mode: loop.loopMode,
+          mode: loop.crossfadeSec > 0 ? 'crossfade' : 'gapless',
           crossfadeSec: loop.crossfadeSec,
         },
         { volume: sound.defaultVolume, silenceMix: true },
@@ -413,6 +522,7 @@ export function createPlayer(
         if (e.code === 'LOAD_FAILED' || e.code === 'DECODE_FAILED') cb(e.soundId);
       }),
   };
+  return player;
 }
 
 // One engine for the whole visit: an AudioContext is expensive, and React may mount twice
@@ -514,10 +624,13 @@ export function useSleepTimer(): SleepTimer {
 
 export function PlayerProvider({
   sounds,
+  mixes = NO_MIXES,
   engine: injected,
   children,
 }: {
   sounds: Sound[];
+  /** The user's mixes and playlists, to play the playlists a mix holds. */
+  mixes?: Mix[];
   /** Tests pass their own engine. */
   engine?: AudioEngine;
   children: ReactNode;
@@ -527,10 +640,18 @@ export function PlayerProvider({
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
   if (!injected) lookup = (id) => byIdRef.current.get(id);
+  const mixesRef = useRef(mixes);
+  mixesRef.current = mixes;
 
   const snapshot = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
   const player = useMemo(
-    () => createPlayer(engine, snapshot, (id) => byIdRef.current.get(id)),
+    () =>
+      createPlayer(
+        engine,
+        snapshot,
+        (id) => byIdRef.current.get(id),
+        (id) => mixesRef.current.find((m) => m.id === id),
+      ),
     [engine, snapshot],
   );
   const timer = useSleepTimerRunner(engine, snapshot);

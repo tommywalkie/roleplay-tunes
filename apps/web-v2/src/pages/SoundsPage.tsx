@@ -1,7 +1,7 @@
 import type { Me } from '@dnd/shared';
 import { Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { useScenes, useSounds } from '../api/hooks';
+import { useMixes, useScenes, useSounds } from '../api/hooks';
 import { SoundTile } from '../board/tiles';
 import { FALLBACK_ICONS } from '../components/kinds';
 import { CategoryFilter, inCategories } from '../components/Categories';
@@ -28,6 +28,7 @@ export function SoundsPage({ me }: { me: Me }) {
   const { t, tn } = useI18n();
   const sounds = useSounds();
   const scenes = useScenes();
+  const mixes = useMixes();
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -86,6 +87,7 @@ export function SoundsPage({ me }: { me: Me }) {
         <SoundEditor
           sound={editing}
           scenes={scenes.data ?? []}
+          mixes={mixes.data}
           me={me}
           onClose={() => setEditingId(null)}
         />

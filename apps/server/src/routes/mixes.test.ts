@@ -337,7 +337,6 @@ describe('loop overrides', () => {
           mode: 'loop',
           loopStartSec: 5,
           loopEndSec: 20,
-          loopMode: 'crossfade',
           crossfadeSec: 3,
         },
         { soundId: wind.id },
@@ -350,7 +349,6 @@ describe('loop overrides', () => {
       trackEndSec: null,
       loopStartSec: 5,
       loopEndSec: 20,
-      loopMode: 'crossfade',
       crossfadeSec: 3,
     });
     // No override: every loop field is null, so the item follows the sound's own values.
@@ -360,7 +358,6 @@ describe('loop overrides', () => {
       trackEndSec: null,
       loopStartSec: null,
       loopEndSec: null,
-      loopMode: null,
       crossfadeSec: null,
     });
     // And on a fresh read, not only in the create response.
@@ -368,13 +365,11 @@ describe('loop overrides', () => {
     expect(read.items[0]).toMatchObject({
       loopStartSec: 5,
       loopEndSec: 20,
-      loopMode: 'crossfade',
       crossfadeSec: 3,
     });
     expect(read.items[1]).toMatchObject({
       loopStartSec: null,
       loopEndSec: null,
-      loopMode: null,
       crossfadeSec: null,
     });
   });
@@ -383,7 +378,7 @@ describe('loop overrides', () => {
     const { user, sounds } = await loopFixture();
     const [rain] = sounds;
     const mix = await createMix(app, user, { name: 'M', items: [{ soundId: rain.id }] });
-    expect(mix.items[0]).toMatchObject({ loopStartSec: null, loopMode: null, crossfadeSec: null });
+    expect(mix.items[0]).toMatchObject({ loopStartSec: null, crossfadeSec: null });
 
     const res = await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, {
       items: [
@@ -392,7 +387,6 @@ describe('loop overrides', () => {
           mode: 'loop',
           loopStartSec: 2,
           loopEndSec: 8,
-          loopMode: 'gapless',
           crossfadeSec: 2,
         },
       ],
@@ -401,13 +395,11 @@ describe('loop overrides', () => {
     expect(res.json().items[0]).toMatchObject({
       loopStartSec: 2,
       loopEndSec: 8,
-      loopMode: 'gapless',
       crossfadeSec: 2,
     });
     expect((await getMix(user, mix.id)).items[0]).toMatchObject({
       loopStartSec: 2,
       loopEndSec: 8,
-      loopMode: 'gapless',
       crossfadeSec: 2,
     });
   });
@@ -426,7 +418,7 @@ describe('loop overrides', () => {
     const tooFat = await call(app, user, 'POST', '/api/mixes', {
       name: 'X',
       items: [
-        { soundId: rain.id, loopStartSec: 5, loopEndSec: 9, loopMode: 'crossfade', crossfadeSec: 3 },
+        { soundId: rain.id, loopStartSec: 5, loopEndSec: 9, crossfadeSec: 3 },
       ],
     });
     expectError(tooFat, 400, 'validation');
@@ -452,25 +444,22 @@ describe('loop overrides', () => {
           soundId: rain.id,
           loopStartSec: 5,
           loopEndSec: 20,
-          loopMode: 'crossfade',
           crossfadeSec: 3,
         },
       ],
     });
     const b = await createMix(app, user, {
       name: 'B',
-      items: [{ soundId: rain.id, loopStartSec: 1, loopEndSec: 6, loopMode: 'gapless' }],
+      items: [{ soundId: rain.id, loopStartSec: 1, loopEndSec: 6 }],
     });
     expect(a.items[0]).toMatchObject({
       loopStartSec: 5,
       loopEndSec: 20,
-      loopMode: 'crossfade',
       crossfadeSec: 3,
     });
     expect(b.items[0]).toMatchObject({
       loopStartSec: 1,
       loopEndSec: 6,
-      loopMode: 'gapless',
       crossfadeSec: null,
     });
 
@@ -481,7 +470,6 @@ describe('loop overrides', () => {
       trackEndSec: null,
       loopStartSec: null,
       loopEndSec: null,
-      loopMode: 'gapless',
       crossfadeSec: null,
     });
   });
@@ -493,7 +481,6 @@ describe('loop settings of an added mix', () => {
     trackEndSec: 28,
     loopStartSec: 2,
     loopEndSec: 25,
-    loopMode: 'crossfade' as const,
     crossfadeSec: 4,
   };
   const OWN_LOOP = {
@@ -501,7 +488,6 @@ describe('loop settings of an added mix', () => {
     trackEndSec: 9,
     loopStartSec: 3,
     loopEndSec: 8,
-    loopMode: 'gapless' as const,
     crossfadeSec: 1,
   };
   const NULL_LOOP = {
@@ -509,7 +495,6 @@ describe('loop settings of an added mix', () => {
     trackEndSec: null,
     loopStartSec: null,
     loopEndSec: null,
-    loopMode: null,
     crossfadeSec: null,
   };
 
@@ -550,7 +535,7 @@ describe('loop settings of an added mix', () => {
       resolveLoopSettings({ durationSec: rain.durationSec, ...OWNER_LOOP, loopStartSec: 5, loopEndSec: 20 }),
       resolveLoopSettings({ durationSec: wind.durationSec, ...OWNER_LOOP }),
     ];
-    expect(expected[0]).toMatchObject({ loopStartSec: 5, loopEndSec: 20, loopMode: 'crossfade' });
+    expect(expected[0]).toMatchObject({ loopStartSec: 5, loopEndSec: 20, crossfadeSec: 4 });
 
     const single = await getMix(b, mix.id);
     expect(single.access).toBe('added');
@@ -605,6 +590,330 @@ describe('loop settings of an added mix', () => {
       items: [{ soundId: rain.id, loopStartSec: 10 }],
     });
     expect(ownerMix.statusCode, ownerMix.body).toBe(201);
+  });
+});
+
+describe('playlists', () => {
+  const mixesOf = async (user: TestUser) =>
+    (await call(app, user, 'GET', '/api/mixes')).json() as Mix[];
+  const soundsOf = async (user: TestUser) =>
+    (await call(app, user, 'GET', '/api/sounds')).json() as Sound[];
+
+  async function publicSound(owner: TestUser, name: string): Promise<Sound> {
+    const sound = await uploadSound(app, owner, { fields: { name } });
+    const res = await call(app, owner, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: true });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json();
+  }
+
+  async function playlist(owner: TestUser, soundIds: string[], isPublic = false) {
+    return createMix(app, owner, {
+      name: 'Road',
+      kind: 'playlist',
+      isPublic,
+      items: soundIds.map((soundId) => ({ soundId })),
+    });
+  }
+
+  it('creates a playlist, and a mix by default', async () => {
+    const { user, sounds } = await fixture(2);
+    const list = await playlist(user, sounds.map((s) => s.id));
+    expect(list).toMatchObject({ kind: 'playlist', playlists: [] });
+    expect(soundIdsOf(list)).toEqual(sounds.map((s) => s.id));
+    expect((await getMix(user, list.id)).kind).toBe('playlist');
+
+    const plain = await createMix(app, user, { name: 'Plain' });
+    expect(plain).toMatchObject({ kind: 'mix', playlists: [] });
+    expectError(
+      await call(app, user, 'POST', '/api/mixes', { name: 'Odd', kind: 'album' }),
+      400,
+      'validation',
+    );
+  });
+
+  it('stores a playlist’s crossfade, 0 by default, and changes it with PATCH', async () => {
+    const { user, sounds } = await fixture(2);
+    const ids = sounds.map((s) => s.id);
+    const plain = await playlist(user, ids);
+    expect(plain.crossfadeSec).toBe(0);
+
+    const blended = await createMix(app, user, {
+      name: 'Blend',
+      kind: 'playlist',
+      crossfadeSec: 2.5,
+      items: ids.map((soundId) => ({ soundId })),
+    });
+    expect(blended.crossfadeSec).toBe(2.5);
+    expect((await getMix(user, blended.id)).crossfadeSec).toBe(2.5);
+    expect((await mixesOf(user)).find((m) => m.id === blended.id)?.crossfadeSec).toBe(2.5);
+
+    const res = await call(app, user, 'PATCH', `/api/mixes/${blended.id}`, { crossfadeSec: 4 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().crossfadeSec).toBe(4);
+    // Left out, it stays.
+    const renamed = await call(app, user, 'PATCH', `/api/mixes/${blended.id}`, { name: 'Still' });
+    expect(renamed.json().crossfadeSec).toBe(4);
+    const zero = await call(app, user, 'PATCH', `/api/mixes/${blended.id}`, { crossfadeSec: 0 });
+    expect(zero.json().crossfadeSec).toBe(0);
+    expect((await getMix(user, blended.id)).crossfadeSec).toBe(0);
+  });
+
+  it('always reports a crossfade of 0 for a mix, even when one is sent', async () => {
+    const { user } = await fixture(0);
+    const mix = await createMix(app, user, { name: 'Bed', crossfadeSec: 3 });
+    expect(mix.crossfadeSec).toBe(0);
+    const res = await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, { crossfadeSec: 5 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().crossfadeSec).toBe(0);
+    expect((await getMix(user, mix.id)).crossfadeSec).toBe(0);
+  });
+
+  it('refuses a crossfade below 0 or above 10 seconds', async () => {
+    const { user } = await fixture(0);
+    for (const crossfadeSec of [-1, 10.5]) {
+      expectError(
+        await call(app, user, 'POST', '/api/mixes', { name: 'Bad', kind: 'playlist', crossfadeSec }),
+        400,
+        'validation',
+      );
+    }
+    const list = await playlist(user, []);
+    for (const crossfadeSec of [-0.1, 11]) {
+      expectError(
+        await call(app, user, 'PATCH', `/api/mixes/${list.id}`, { crossfadeSec }),
+        400,
+        'validation',
+      );
+    }
+    expect((await getMix(user, list.id)).crossfadeSec).toBe(0);
+    // The bounds themselves are fine.
+    const top = await call(app, user, 'PATCH', `/api/mixes/${list.id}`, { crossfadeSec: 10 });
+    expect(top.json().crossfadeSec).toBe(10);
+  });
+
+  it('never changes kind after creation', async () => {
+    const { user } = await fixture(0);
+    const mix = await createMix(app, user, { name: 'Plain' });
+    expectError(
+      await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, { kind: 'playlist' }),
+      400,
+      'validation',
+    );
+    expect((await getMix(user, mix.id)).kind).toBe('mix');
+  });
+
+  it('lets a mix hold playlists, in order, each at its own volume', async () => {
+    const { user, sounds } = await fixture(2);
+    const first = await playlist(user, [sounds[0].id]);
+    const second = await playlist(user, [sounds[1].id]);
+    const mix = await createMix(app, user, {
+      name: 'Journey',
+      items: [{ soundId: sounds[0].id }],
+      playlists: [
+        { playlistId: second.id, volume: 0.4 },
+        { playlistId: first.id, volume: 0.9 },
+      ],
+    });
+    const expected = [
+      { playlistId: second.id, volume: 0.4 },
+      { playlistId: first.id, volume: 0.9 },
+    ];
+    expect(mix.playlists).toEqual(expected);
+    expect((await getMix(user, mix.id)).playlists).toEqual(expected);
+    expect((await mixesOf(user)).find((m) => m.id === mix.id)?.playlists).toEqual(expected);
+
+    // PATCH replaces the whole list; leaving it out keeps it.
+    const renamed = await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, { name: 'Trip' });
+    expect(renamed.json().playlists).toEqual(expected);
+    const replaced = await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, {
+      playlists: [{ playlistId: first.id, volume: 0.2 }],
+    });
+    expect(replaced.statusCode, replaced.body).toBe(200);
+    expect(replaced.json().playlists).toEqual([{ playlistId: first.id, volume: 0.2 }]);
+    const cleared = await call(app, user, 'PATCH', `/api/mixes/${mix.id}`, { playlists: [] });
+    expect(cleared.json().playlists).toEqual([]);
+  });
+
+  it('refuses playlists inside a playlist', async () => {
+    const { user, sounds } = await fixture(1);
+    const inner = await playlist(user, [sounds[0].id]);
+    const res = await call(app, user, 'POST', '/api/mixes', {
+      name: 'Nested',
+      kind: 'playlist',
+      playlists: [{ playlistId: inner.id, volume: 1 }],
+    });
+    expectError(res, 400, 'validation');
+    expect(res.json().error.fields).toHaveProperty('playlists');
+
+    const outer = await playlist(user, [sounds[0].id]);
+    const patched = await call(app, user, 'PATCH', `/api/mixes/${outer.id}`, {
+      playlists: [{ playlistId: inner.id, volume: 1 }],
+    });
+    expectError(patched, 400, 'validation');
+    expect(patched.json().error.fields).toHaveProperty('playlists');
+  });
+
+  it('refuses a mix that is not a playlist, an unknown id, someone else’s playlist and a duplicate', async () => {
+    const { user, sounds } = await fixture(1);
+    const plain = await createMix(app, user, { name: 'Plain' });
+    const list = await playlist(user, [sounds[0].id]);
+    const stranger = await signUp(app);
+    const theirs = await playlist(stranger, [(await uploadSound(app, stranger)).id]);
+    for (const playlists of [
+      [{ playlistId: plain.id, volume: 1 }],
+      [{ playlistId: 'nope', volume: 1 }],
+      [{ playlistId: theirs.id, volume: 1 }],
+      [
+        { playlistId: list.id, volume: 1 },
+        { playlistId: list.id, volume: 0.5 },
+      ],
+    ]) {
+      const res = await call(app, user, 'POST', '/api/mixes', { name: 'Bad', playlists });
+      expectError(res, 400, 'validation');
+      expect(res.json().error.fields).toHaveProperty('playlists');
+    }
+  });
+
+  it('keeps private playlists out of a public mix', async () => {
+    const owner = await signUp(app);
+    const sound = await publicSound(owner, 'Hooves');
+    const list = await playlist(owner, [sound.id]);
+    const res = await call(app, owner, 'POST', '/api/mixes', {
+      name: 'Ride',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+      playlists: [{ playlistId: list.id, volume: 1 }],
+    });
+    expectError(res, 400, 'validation');
+    expect(res.json().error.fields).toHaveProperty('playlists');
+
+    const mix = await createMix(app, owner, {
+      name: 'Ride',
+      items: [{ soundId: sound.id }],
+      playlists: [{ playlistId: list.id, volume: 1 }],
+    });
+    const publish = await call(app, owner, 'PATCH', `/api/mixes/${mix.id}`, { isPublic: true });
+    expectError(publish, 400, 'validation');
+    expect(publish.json().error.fields).toHaveProperty('playlists');
+  });
+
+  /** a's public mix holding a's public playlist; b added the mix only. */
+  async function sharedPlaylist() {
+    const a = await signUp(app);
+    const b = await signUp(app);
+    const bed = await publicSound(a, 'Wind');
+    const song = await publicSound(a, 'Lute song');
+    const list = await playlist(a, [song.id], true);
+    const mix = await createMix(app, a, {
+      name: 'Inn',
+      isPublic: true,
+      items: [{ soundId: bed.id }],
+      playlists: [{ playlistId: list.id, volume: 0.5 }],
+    });
+    expect((await call(app, b, 'PUT', `/api/library/mixes/${mix.id}`)).statusCode).toBe(204);
+    return { a, b, bed, song, list, mix };
+  }
+
+  it('come with a mix someone adds: the playlist and its sounds', async () => {
+    const { b, bed, song, list, mix } = await sharedPlaylist();
+    const listed = await mixesOf(b);
+    expect(listed.find((m) => m.id === mix.id)).toMatchObject({
+      access: 'added',
+      playlists: [{ playlistId: list.id, volume: 0.5 }],
+    });
+    expect(listed.find((m) => m.id === list.id)).toMatchObject({ access: 'added', kind: 'playlist' });
+    expect((await getMix(b, list.id)).access).toBe('added');
+    const ids = (await soundsOf(b)).map((s) => s.id);
+    expect(ids).toEqual(expect.arrayContaining([bed.id, song.id]));
+  });
+
+  it('can be put in a scene by who reaches them only through an added mix, and stay there', async () => {
+    const { a, b, mix, list } = await sharedPlaylist();
+    const scene = await createScene(app, b, { name: 'Tavern', mixIds: [list.id] });
+    expect(scene.mixIds).toEqual([list.id]);
+    // Any change of items runs the prune.
+    const other = await publicSound(a, 'Rain');
+    const res = await call(app, a, 'PATCH', `/api/mixes/${mix.id}`, {
+      items: [{ soundId: other.id }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const after = (await call(app, b, 'GET', `/api/scenes/${scene.id}`)).json();
+    expect(after.mixIds).toEqual([list.id]);
+  });
+
+  it('leave other users and their mixes once made private', async () => {
+    const { a, b, song, list, mix } = await sharedPlaylist();
+    // c added the playlist itself, and holds it in a mix of their own.
+    const c = await signUp(app);
+    expect((await call(app, c, 'PUT', `/api/library/mixes/${list.id}`)).statusCode).toBe(204);
+    const own = await createMix(app, c, {
+      name: 'Mine',
+      playlists: [{ playlistId: list.id, volume: 0.7 }],
+    });
+    expect(own.playlists).toEqual([{ playlistId: list.id, volume: 0.7 }]);
+
+    // The public mix lets go of it first here (no longer required: see below).
+    const freed = await call(app, a, 'PATCH', `/api/mixes/${mix.id}`, { playlists: [] });
+    expect(freed.statusCode, freed.body).toBe(200);
+    const res = await call(app, a, 'PATCH', `/api/mixes/${list.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+
+    expect((await mixesOf(b)).some((m) => m.id === list.id)).toBe(false);
+    expect((await soundsOf(b)).some((s) => s.id === song.id)).toBe(false);
+    expect((await mixesOf(c)).some((m) => m.id === list.id)).toBe(false);
+    expect((await getMix(c, own.id)).playlists).toEqual([]);
+    expect((await mixesOf(a)).some((m) => m.id === list.id)).toBe(true);
+  });
+
+  // Unpublishing a playlist the owner's own public mix holds is not refused: it leaves the
+  // mix, which stays public.
+  it('do not stay reachable through a public mix once unpublished', async () => {
+    const { a, b, bed, song, list, mix } = await sharedPlaylist();
+    const res = await call(app, a, 'PATCH', `/api/mixes/${list.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().isPublic).toBe(false);
+    expect(await getMix(a, mix.id)).toMatchObject({ isPublic: true, playlists: [] });
+    expect(soundIdsOf(await getMix(a, mix.id))).toEqual([bed.id]);
+    expect((await getMix(b, mix.id)).playlists).toEqual([]);
+    expect((await mixesOf(b)).some((m) => m.id === list.id)).toBe(false);
+    expect((await soundsOf(b)).some((s) => s.id === song.id)).toBe(false);
+  });
+
+  it('leave every public mix once unpublished, and stay in the owner’s private ones', async () => {
+    const { a, b, list, mix } = await sharedPlaylist();
+    const ownPrivate = await createMix(app, a, {
+      name: 'Cellar',
+      playlists: [{ playlistId: list.id, volume: 0.3 }],
+    });
+    // b reaches the playlist through the added mix and holds it in two mixes of their own.
+    const theirPublic = await createMix(app, b, {
+      name: 'Square',
+      isPublic: true,
+      playlists: [{ playlistId: list.id, volume: 0.6 }],
+    });
+    const theirPrivate = await createMix(app, b, {
+      name: 'Attic',
+      playlists: [{ playlistId: list.id, volume: 0.6 }],
+    });
+
+    const res = await call(app, a, 'PATCH', `/api/mixes/${list.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+
+    expect(await getMix(a, mix.id)).toMatchObject({ isPublic: true, playlists: [] });
+    expect((await getMix(a, ownPrivate.id)).playlists).toEqual([
+      { playlistId: list.id, volume: 0.3 },
+    ]);
+    expect(await getMix(b, theirPublic.id)).toMatchObject({ isPublic: true, playlists: [] });
+    expect((await getMix(b, theirPrivate.id)).playlists).toEqual([]);
+    expect((await getMix(a, list.id)).isPublic).toBe(false);
+  });
+
+  it('leave who added a mix once the mix lets go of them', async () => {
+    const { a, b, song, list, mix } = await sharedPlaylist();
+    const res = await call(app, a, 'PATCH', `/api/mixes/${mix.id}`, { playlists: [] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await mixesOf(b)).some((m) => m.id === list.id)).toBe(false);
+    expect((await soundsOf(b)).some((s) => s.id === song.id)).toBe(false);
   });
 });
 

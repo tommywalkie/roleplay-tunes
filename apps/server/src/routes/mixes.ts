@@ -10,6 +10,7 @@ import {
   type Access,
   type Mix,
   type MixItem,
+  type MixPlaylist,
   type ItemSynonym,
   type MixItemInput,
 } from '@dnd/shared';
@@ -17,13 +18,15 @@ import { assertOwnCategories, setTags, tagsOf, tagsOfMany } from '../tags.js';
 import { taggedBody, taggedResponse } from './tags.js';
 import { requireUser, type UserRow } from '../auth.js';
 import { db } from '../db/index.js';
-import { mixItems, mixVolumes, mixes, scenes, sounds } from '../db/schema.js';
+import { mixItems, mixPlaylists, mixVolumes, mixes, scenes, sounds } from '../db/schema.js';
 import { AppError, forbidden, invalid, parse } from '../errors.js';
 import { illustrationValues, toIllustration } from '../illustrations.js';
 import { effectiveLimits } from '../settings.js';
 import {
   addedMixIds,
   assertAllPublic,
+  assertPublicPlaylists,
+  assertUsablePlaylists,
   assertUsableSounds,
   mixColumns,
   mixVolumesOf,
@@ -54,8 +57,16 @@ const itemResponse = {
     trackEndSec: { type: 'number', nullable: true },
     loopStartSec: { type: 'number', nullable: true },
     loopEndSec: { type: 'number', nullable: true },
-    loopMode: { type: 'string', enum: ['gapless', 'crossfade'], nullable: true },
     crossfadeSec: { type: 'number', nullable: true },
+  },
+} as const;
+
+/** A playlist inside a mix: plays as one more layer of it, at its own volume. */
+const playlistEntry = {
+  type: 'object',
+  properties: {
+    playlistId: { type: 'string' },
+    volume: { type: 'number', minimum: 0, maximum: 1 },
   },
 } as const;
 
@@ -67,11 +78,21 @@ export const mixResponse = {
     name: { type: 'string' },
     description: { type: 'string', nullable: true },
     isPublic: { type: 'boolean' },
+    kind: {
+      type: 'string',
+      enum: ['mix', 'playlist'],
+      description: "'mix': sounds play together. 'playlist': one after another, on top of the mix",
+    },
+    crossfadeSec: {
+      type: 'number',
+      description: 'Playlist only: crossfade between its sounds, in seconds; 0 = back to back',
+    },
     access: { type: 'string', enum: ['owner', 'added', 'available'] },
     addedCount: { type: 'integer', description: 'How many users have it in their library' },
     ownerName: { type: 'string' },
     illustration: { type: 'object', additionalProperties: true },
     items: { type: 'array', items: itemResponse },
+    playlists: { type: 'array', items: playlistEntry },
     sceneIds: { type: 'array', items: { type: 'string' } },
     ...taggedResponse,
     createdAt: { type: 'string', format: 'date-time' },
@@ -92,7 +113,6 @@ const itemBody = {
     trackEndSec: { type: 'number', minimum: 0, nullable: true },
     loopStartSec: { type: 'number', minimum: 0, nullable: true },
     loopEndSec: { type: 'number', minimum: 0, nullable: true },
-    loopMode: { type: 'string', enum: ['gapless', 'crossfade'], nullable: true },
     crossfadeSec: { type: 'number', minimum: 0, maximum: 10, nullable: true },
   },
 } as const;
@@ -112,6 +132,17 @@ const mixBody = {
       },
     },
     items: { type: 'array', items: itemBody },
+    crossfadeSec: {
+      type: 'number',
+      minimum: 0,
+      maximum: 10,
+      description: 'Playlist only: crossfade between its sounds, in seconds; 0 = back to back',
+    },
+    playlists: {
+      type: 'array',
+      items: playlistEntry,
+      description: 'Playlists a mix holds (not a playlist); a public mix holds public ones only',
+    },
     sceneIds: { type: 'array', items: { type: 'string' } },
     ...taggedBody,
   },
@@ -131,8 +162,57 @@ export interface MixView {
   sceneIds: string[];
   /** The viewer's own volumes by sound id, for a mix they did not create. */
   volumes?: Map<string, number>;
+  /** Playlists the mix holds, in order. */
+  playlists?: MixPlaylist[];
   synonyms: ItemSynonym[];
   categoryIds: string[];
+}
+
+/** Playlists held by several mixes, grouped by mix, in order. */
+export function playlistsByMix(mixIds: string[]): Map<string, MixPlaylist[]> {
+  const map = new Map<string, MixPlaylist[]>();
+  if (mixIds.length === 0) return map;
+  const rows = db
+    .select()
+    .from(mixPlaylists)
+    .where(inArray(mixPlaylists.mixId, mixIds))
+    .orderBy(mixPlaylists.position)
+    .all();
+  for (const row of rows) {
+    const entry = { playlistId: row.playlistId, volume: row.volume };
+    const list = map.get(row.mixId);
+    if (list) list.push(entry);
+    else map.set(row.mixId, [entry]);
+  }
+  return map;
+}
+
+/**
+ * Checks the playlists a mix is to hold: only a mix holds playlists, each must be a
+ * playlist the user can use, and a public mix holds public ones only.
+ */
+function checkPlaylists(
+  userId: string,
+  kind: 'mix' | 'playlist',
+  isPublic: boolean,
+  list: MixPlaylist[],
+) {
+  if (list.length === 0) return;
+  if (kind === 'playlist') {
+    throw invalid('Invalid request', { playlists: 'A playlist cannot hold playlists' });
+  }
+  const ids = list.map((p) => p.playlistId);
+  assertUsablePlaylists(userId, ids, 'playlists');
+  if (isPublic) assertPublicPlaylists(ids, 'playlists');
+}
+
+function replacePlaylists(mixId: string, list: MixPlaylist[]) {
+  db.delete(mixPlaylists).where(eq(mixPlaylists.mixId, mixId)).run();
+  if (list.length > 0) {
+    db.insert(mixPlaylists)
+      .values(list.map((p, position) => ({ mixId, position, ...p })))
+      .run();
+  }
 }
 
 /** Fields a user who added the mix from the library may change. */
@@ -151,7 +231,6 @@ function toItem(row: ItemRow, volume: number | undefined): MixItem {
     trackEndSec: row.trackEndSec,
     loopStartSec: row.loopStartSec,
     loopEndSec: row.loopEndSec,
-    loopMode: row.loopMode,
     crossfadeSec: row.crossfadeSec,
   };
 }
@@ -172,7 +251,6 @@ function withOwnerLoops(items: ItemRow[]): ItemRow[] {
       trackEndSec: item.trackEndSec ?? owner.trackEndSec,
       loopStartSec: item.loopStartSec ?? owner.loopStartSec,
       loopEndSec: item.loopEndSec ?? owner.loopEndSec,
-      loopMode: item.loopMode ?? owner.loopMode,
       crossfadeSec: item.crossfadeSec ?? owner.crossfadeSec,
     });
     return { ...item, ...loop };
@@ -186,11 +264,14 @@ export function toMix(row: CountedMix, items: ItemRow[], view: MixView): Mix {
     name: row.name,
     description: row.description,
     isPublic: row.isPublic,
+    kind: row.kind,
+    crossfadeSec: row.kind === 'playlist' ? (row.crossfadeSec ?? 0) : 0,
     access: view.access,
     addedCount: row.addedCount,
     ownerName: view.ownerName,
     illustration: toIllustration(row),
     items: items.map((item) => toItem(item, view.volumes?.get(item.soundId))),
+    playlists: view.playlists ?? [],
     sceneIds: view.sceneIds,
     synonyms: view.synonyms,
     categoryIds: view.categoryIds,
@@ -228,6 +309,7 @@ function mixFor(userId: string, row: CountedMix, access: Access): Mix {
     ownerName: ownerNames([row.ownerId]).get(row.ownerId) ?? '',
     sceneIds: sceneIdsByMix(userId).get(row.id) ?? [],
     volumes: access === 'owner' ? undefined : mixVolumesOf(userId).get(row.id),
+    playlists: playlistsByMix([row.id]).get(row.id),
     ...tagsOf('mix', userId, row.id, row.ownerId),
   });
 }
@@ -264,7 +346,7 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
     const row = bySoundId.get(input.soundId)!;
     // Items left without loop markers follow the user's own settings for an added sound.
     const own = row.ownerId === user.id ? undefined : ownLoops.get(row.id);
-    const sound = own ? { ...row, ...own, loopMode: own.loopMode ?? 'gapless' } : row;
+    const sound = own ? { ...row, ...own } : row;
     const intervalMinSec = input.intervalMinSec ?? sound.intervalMinSec;
     const intervalMaxSec = input.intervalMaxSec ?? sound.intervalMaxSec;
     if (intervalMinSec > intervalMaxSec) {
@@ -310,7 +392,6 @@ function buildItems(user: UserRow, mixId: string, inputs: MixItemInput[]): ItemR
       trackEndSec: input.trackEndSec ?? null,
       loopStartSec: input.loopStartSec ?? null,
       loopEndSec: input.loopEndSec ?? null,
-      loopMode: input.loopMode ?? null,
       crossfadeSec: input.crossfadeSec ?? null,
     };
   });
@@ -341,6 +422,7 @@ export function mixesRoutes(app: FastifyInstance) {
       .orderBy(mixes.name)
       .all();
     const items = itemsByMix(rows.map((r) => r.id));
+    const playlists = playlistsByMix(rows.map((r) => r.id));
     const sceneIds = sceneIdsByMix(user.id);
     const names = ownerNames(rows.map((r) => r.ownerId));
     const volumes = mixVolumesOf(user.id);
@@ -352,6 +434,7 @@ export function mixesRoutes(app: FastifyInstance) {
         ownerName: names.get(row.ownerId) ?? '',
         sceneIds: sceneIds.get(row.id) ?? [],
         volumes: access === 'owner' ? undefined : volumes.get(row.id),
+        playlists: playlists.get(row.id),
         ...tags(row.id),
       });
     });
@@ -378,7 +461,14 @@ export function mixesRoutes(app: FastifyInstance) {
       summary: 'Create mix',
       description:
         'Creates a mix. Its sounds may be the user\'s own or added from the library; a public mix may only hold public sounds.',
-      body: { ...mixBody, required: ['name'] },
+      body: {
+        ...mixBody,
+        properties: {
+          ...mixBody.properties,
+          kind: { type: 'string', enum: ['mix', 'playlist'], description: 'Set once; default mix' },
+        },
+        required: ['name'],
+      },
       response: { 201: mixResponse },
     },
   }, async (request, reply) => {
@@ -387,6 +477,8 @@ export function mixesRoutes(app: FastifyInstance) {
     const id = randomUUID();
     const items = buildItems(user, id, body.items ?? []);
     if (body.isPublic) assertAllPublic(items.map((i) => i.soundId), 'items');
+    const playlists = body.playlists ?? [];
+    checkPlaylists(user.id, body.kind ?? 'mix', body.isPublic ?? false, playlists);
     if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
     if (body.categoryIds) assertOwnCategories(user.id, body.categoryIds);
     const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
@@ -401,6 +493,8 @@ export function mixesRoutes(app: FastifyInstance) {
           name: body.name,
           description: body.description ?? null,
           isPublic: body.isPublic ?? false,
+          kind: body.kind ?? 'mix',
+          crossfadeSec: body.kind === 'playlist' ? (body.crossfadeSec ?? 0) : null,
           ...illustration,
           createdAt: now,
           updatedAt: now,
@@ -408,6 +502,7 @@ export function mixesRoutes(app: FastifyInstance) {
         .returning()
         .get();
       replaceItems(id, items);
+      replacePlaylists(id, playlists);
       if (body.sceneIds) setMixScenes(id, body.sceneIds);
       setTags('mix', user.id, id, body);
       return inserted;
@@ -451,14 +546,24 @@ export function mixesRoutes(app: FastifyInstance) {
 
     const items = body.items ? buildItems(user, current.id, body.items) : undefined;
     const willBePublic = body.isPublic ?? current.isPublic;
+    // Unpublishing a playlist takes it out of every public mix that holds it, the owner's own
+    // included; those mixes stay public (prune). Its private status is never passed on.
     if (willBePublic) {
       assertAllPublic((items ?? itemsOf(current.id)).map((i) => i.soundId), 'items');
     }
+    const playlists = body.playlists;
+    checkPlaylists(
+      user.id,
+      current.kind,
+      willBePublic,
+      playlists ?? playlistsByMix([current.id]).get(current.id) ?? [],
+    );
     if (body.sceneIds) assertOwned(scenes, user.id, body.sceneIds, 'sceneIds');
     const illustration = body.illustration ? illustrationValues(body.illustration, user.id) : undefined;
 
     const row = db.transaction(() => {
       if (items) replaceItems(current.id, items);
+      if (playlists) replacePlaylists(current.id, playlists);
       if (body.sceneIds) setMixScenes(current.id, body.sceneIds);
       setTags('mix', user.id, current.id, body);
       return db
@@ -467,6 +572,9 @@ export function mixesRoutes(app: FastifyInstance) {
           ...(body.name ? { name: body.name } : {}),
           ...(body.description !== undefined ? { description: body.description } : {}),
           ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}),
+          ...(body.crossfadeSec !== undefined && current.kind === 'playlist'
+            ? { crossfadeSec: body.crossfadeSec }
+            : {}),
           ...illustration,
           updatedAt: new Date(),
         })
@@ -474,8 +582,8 @@ export function mixesRoutes(app: FastifyInstance) {
         .returning()
         .get();
     });
-    // Unpublishing, or dropping sounds that others only reached through this mix.
-    if ((current.isPublic && !row.isPublic) || items) prune();
+    // Unpublishing, or dropping sounds or playlists others only reached through this mix.
+    if ((current.isPublic && !row.isPublic) || items || playlists) prune();
     if (illustration && current.imageKey !== row.imageKey) await releaseImages([current.imageKey]);
     // Unpublishing takes the mix out of everyone's library, so what it reports is 0.
     return mixFor(

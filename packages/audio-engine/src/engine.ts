@@ -362,7 +362,13 @@ class Engine implements AudioEngine {
       const carried = reuse
         ? [...old.values()].find(
             (l) =>
-              config.mode.type === 'loop' && l.mode.type === 'loop' && l.soundId === config.soundId,
+              (config.mode.type === 'loop' &&
+                l.mode.type === 'loop' &&
+                l.soundId === config.soundId) ||
+              // The same playlist goes on where it was instead of starting over.
+              (config.mode.type === 'sequence' &&
+                l.mode.type === 'sequence' &&
+                l.id === config.id),
           )
         : undefined;
       if (carried) {
@@ -370,6 +376,13 @@ class Engine implements AudioEngine {
         carried.reassign(config, crossfadeSec);
         this.layers.set(config.id, carried);
         this.setLayerLoad(config.id, this.loadStates.get(carried) ?? 'loading');
+        // A carried playlist goes on with the same sound: keep saying which one.
+        const heard = carried.sequenceIndex;
+        if (heard >= 0) {
+          this.setLayers((layers) =>
+            layers.map((l) => (l.id === config.id ? { ...l, current: heard } : l)),
+          );
+        }
         continue;
       }
       const layer = this.createLayer(config, 'hold');
@@ -473,6 +486,10 @@ class Engine implements AudioEngine {
     }
   }
 
+  skipLayer(layerId: string, delta: number) {
+    this.layers.get(layerId)?.skip(delta);
+  }
+
   removeLayer(layerId: string, opts: { fadeSec?: number } = {}) {
     const layer = this.layers.get(layerId);
     if (!layer) return;
@@ -498,8 +515,21 @@ class Engine implements AudioEngine {
 
   private createLayer(config: LayerConfig, fadeIn?: LayerFadeIn): Layer {
     const { ctx, mixInput } = this.ensureGraph();
-    const layer = new Layer(
-      { ctx, destination: mixInput, rng: this.rng, timers: this.timers },
+    const layer: Layer = new Layer(
+      {
+        ctx,
+        destination: mixInput,
+        rng: this.rng,
+        timers: this.timers,
+        load: (id) => this.loader.load(id),
+        resolve: (id) => this.options.resolveSound(id),
+        onSequenceIndex: (index) => {
+          if (this.layers.get(config.id) !== layer) return;
+          this.setLayers((layers) =>
+            layers.map((l) => (l.id === config.id ? { ...l, current: index } : l)),
+          );
+        },
+      },
       config,
       this.options.resolveSound(config.soundId),
       fadeIn,

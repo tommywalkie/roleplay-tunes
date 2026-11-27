@@ -201,13 +201,11 @@ describe('LibraryPage', () => {
   it('tells how many others added a sound, 0 included, between the owner and Play', async () => {
     renderLibrary({ sounds: [bells, wind, rain, gong, crowd] });
     // Every row carries the badge whatever the count, so 0 says nobody else has it yet.
-    expect(
-      (await rowOf('Harbor bells')).getByRole('button', { name: 'Used by 0 game masters' }),
-    ).toBeInTheDocument();
+    expect((await rowOf('Harbor bells')).getByLabelText('Added by 0 game masters')).toBeInTheDocument();
 
     const row = await rowOf('Tavern crowd');
     const owner = row.getByRole('button', { name: 'By Grace Hopper' });
-    const added = row.getByRole('button', { name: 'Used by 3 game masters' });
+    const added = row.getByLabelText('Added by 3 game masters');
     const play = row.getByRole('button', { name: 'Play Tavern crowd' });
     expect(added).toHaveTextContent('3');
     // It sits between the owner badge and the play button.

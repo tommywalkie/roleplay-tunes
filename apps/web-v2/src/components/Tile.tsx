@@ -94,7 +94,7 @@ export function Tile({
         )}
         <div className="flex items-center gap-1.5 px-3 pb-3 text-[12px] leading-4 text-ink-3 tabular-nums">
           {meta}
-          {/* The owner is never in this count, so any number at all means someone else. */}
+          {/* Any number means someone else has it; at 0 the tile hides the mark. */}
           {addedCount !== undefined && addedCount > 0 && <AddedBadge count={addedCount} />}
         </div>
       </div>

@@ -19,21 +19,11 @@ export const DEFAULT_VOLUME = 0.8;
 
 // Loop points and crossfading
 
-/** How a loop repeats at its end: straight back to the loop start, or blended over itself. */
-export const LOOP_MODES = ['gapless', 'crossfade'] as const;
-
-export const loopModeSchema = z.enum(LOOP_MODES);
-
-export type LoopMode = z.infer<typeof loopModeSchema>;
-
 /** Longest crossfade a loop may ask for, in seconds. */
 export const MAX_CROSSFADE_SEC = 10;
 
 /** A loop shorter than this is never offered a crossfade: it is too short to blend. */
 export const MIN_CROSSFADE_LOOP_SEC = 1;
-
-/** The crossfade used when none is set. */
-export const DEFAULT_CROSSFADE_SEC = 2;
 
 export const crossfadeSecSchema = z.number().min(0).max(MAX_CROSSFADE_SEC);
 
@@ -44,7 +34,6 @@ export interface LoopSettingsInput {
   trackEndSec?: number | null;
   loopStartSec?: number | null;
   loopEndSec?: number | null;
-  loopMode?: LoopMode | null;
   crossfadeSec?: number | null;
 }
 
@@ -54,7 +43,6 @@ export interface LoopSettings {
   trackEndSec: number;
   loopStartSec: number;
   loopEndSec: number;
-  loopMode: LoopMode;
   crossfadeSec: number;
 }
 
@@ -76,10 +64,9 @@ export function resolveLoopSettings(input: LoopSettingsInput): LoopSettings {
     loopStartSec + Math.min(0.1, trackEndSec - loopStartSec),
     trackEndSec,
   );
-  const loopMode = input.loopMode ?? 'gapless';
   const maxCrossfade = Math.min(MAX_CROSSFADE_SEC, (loopEndSec - loopStartSec) / 2);
-  const crossfadeSec = clampNum(input.crossfadeSec ?? DEFAULT_CROSSFADE_SEC, 0, maxCrossfade);
-  return { trackStartSec, trackEndSec, loopStartSec, loopEndSec, loopMode, crossfadeSec };
+  const crossfadeSec = clampNum(input.crossfadeSec ?? 0, 0, maxCrossfade);
+  return { trackStartSec, trackEndSec, loopStartSec, loopEndSec, crossfadeSec };
 }
 
 /**
@@ -369,7 +356,6 @@ export const soundSchema = z.object({
   trackEndSec: z.number().nullable(),
   loopStartSec: z.number().nullable(),
   loopEndSec: z.number().nullable(),
-  loopMode: loopModeSchema,
   crossfadeSec: z.number().nullable(),
   intervalMinSec: z.number(),
   intervalMaxSec: z.number(),
@@ -408,7 +394,6 @@ export const updateSoundSchema = z
     trackEndSec: z.number().min(0).nullable(),
     loopStartSec: z.number().min(0).nullable(),
     loopEndSec: z.number().min(0).nullable(),
-    loopMode: loopModeSchema,
     crossfadeSec: crossfadeSecSchema.nullable(),
     intervalMinSec: intervalSecSchema,
     intervalMaxSec: intervalSecSchema,
@@ -439,7 +424,6 @@ export const mixItemSchema = z.object({
   trackEndSec: z.number().nullable(),
   loopStartSec: z.number().nullable(),
   loopEndSec: z.number().nullable(),
-  loopMode: loopModeSchema.nullable(),
   crossfadeSec: z.number().nullable(),
 });
 export type MixItem = z.infer<typeof mixItemSchema>;
@@ -457,17 +441,39 @@ export const mixItemInputSchema = z
     trackEndSec: z.number().min(0).nullable().optional(),
     loopStartSec: z.number().min(0).nullable().optional(),
     loopEndSec: z.number().min(0).nullable().optional(),
-    loopMode: loopModeSchema.nullable().optional(),
     crossfadeSec: crossfadeSecSchema.nullable().optional(),
   })
   .strict();
 export type MixItemInput = z.infer<typeof mixItemInputSchema>;
+
+/**
+ * What a mix object is. A 'mix' plays its sounds together, as one bed. A 'playlist' plays
+ * them one after another, each from its track start to its track end, starting over after
+ * the last; it plays on top of whatever mix is playing.
+ */
+export const MIX_KINDS = ['mix', 'playlist'] as const;
+
+export const mixKindSchema = z.enum(MIX_KINDS);
+
+export type MixKind = z.infer<typeof mixKindSchema>;
+
+/** A playlist inside a mix: it plays as one more layer of the mix, at its own volume. */
+export const mixPlaylistSchema = z.object({ playlistId: z.string(), volume: volumeSchema });
+export type MixPlaylist = z.infer<typeof mixPlaylistSchema>;
 
 export const mixSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   isPublic: z.boolean(),
+  kind: mixKindSchema,
+  /**
+   * For a playlist: how long each sound blends into the next, the last into the first
+   * included. 0 plays them back to back. Always 0 for a mix.
+   */
+  crossfadeSec: z.number(),
+  /** Playlists the mix holds beside its sounds, in order. Always empty for a playlist. */
+  playlists: z.array(mixPlaylistSchema),
   access: accessSchema,
   /** How many users have it in their library. */
   addedCount: z.number(),
@@ -489,12 +495,22 @@ const mixBody = z
     illustration: illustrationInputSchema,
     /** Order of the array is the order of the items. A sound may appear once per mix. */
     items: z.array(mixItemInputSchema).max(MAX_LIMITS.mixItems),
+    /** A playlist's crossfade between its sounds, in seconds; 0 = back to back. */
+    crossfadeSec: crossfadeSecSchema,
+    /** Playlists the mix holds, replacing every one before. A playlist holds none. */
+    playlists: z
+      .array(z.object({ playlistId: idSchema, volume: volumeSchema }).strict())
+      .max(MAX_LIMITS.mixItems),
     sceneIds: idListSchema,
     ...taggingFields,
   })
   .strict();
 
-export const createMixSchema = mixBody.partial().required({ name: true });
+/** The kind is chosen once, at creation; it never changes afterwards. */
+export const createMixSchema = mixBody
+  .extend({ kind: mixKindSchema.optional() })
+  .partial()
+  .required({ name: true });
 export type CreateMixRequest = z.infer<typeof createMixSchema>;
 
 export const updateMixSchema = mixBody.partial();

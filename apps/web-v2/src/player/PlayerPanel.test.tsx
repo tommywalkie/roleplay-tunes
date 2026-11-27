@@ -17,7 +17,7 @@ const crowdLoop = (() => {
     trackEnd: l.trackEndSec,
     loopStart: l.loopStartSec,
     loopEnd: l.loopEndSec,
-    mode: l.loopMode,
+    mode: l.crossfadeSec > 0 ? 'crossfade' : 'gapless',
     crossfadeSec: l.crossfadeSec,
   };
 })();
@@ -182,8 +182,7 @@ describe('PlayerPanel', () => {
         trackEndSec: 168,
         loopStartSec: 0,
         loopEndSec: 168,
-        loopMode: 'gapless',
-        crossfadeSec: 2,
+        crossfadeSec: 0,
       },
     ]);
   });
@@ -204,9 +203,29 @@ describe('PlayerPanel', () => {
       user: ReturnType<typeof userEvent.setup>,
       panel: ReturnType<typeof setup>['panel'],
     ) => {
-      await user.click(panel.getByRole('button', { name: 'How Tavern crowd repeats' }));
+      await user.click(panel.getByRole('button', { name: 'Options for Tavern crowd' }));
       return within(screen.getByRole('menu'));
     };
+
+    it('opens the menu from a three-dots button, not a play mode icon, for loops and random pauses', async () => {
+      const { panel, user } = setup();
+      await user.click(screen.getByRole('button', { name: /^Tavern crowd/ }));
+      const check = () => {
+        const button = panel.getByRole('button', { name: 'Options for Tavern crowd' });
+        expect(button).toHaveAttribute('aria-haspopup', 'menu');
+        expect(button.querySelector('.lucide-ellipsis')).not.toBeNull();
+        expect(button.querySelector('.lucide-repeat, .lucide-shuffle')).toBeNull();
+        expect(panel.queryByRole('button', { name: /repeats$/ })).not.toBeInTheDocument();
+      };
+      check();
+
+      // Switched to random pauses, the row keeps the same trigger.
+      const menu = await openMenu(user, panel);
+      await user.click(menu.getByRole('menuitem', { name: 'Play with random pauses' }));
+      const dialog = within(screen.getByRole('dialog', { name: 'Random pauses Tavern crowd' }));
+      await user.click(dialog.getByRole('button', { name: 'Play' }));
+      check();
+    });
 
     it('marks the loop as current and sets random pauses in place from the dialog', async () => {
       const { panel, user, spies, engine } = setup();
@@ -245,7 +264,7 @@ describe('PlayerPanel', () => {
     it('shows the current pauses, opens the dialog on them, and switches back to a loop', async () => {
       const { panel, user, spies } = setup();
       await user.click(screen.getByRole('button', { name: /^Tavern evening/ }));
-      const button = panel.getByRole('button', { name: 'How Tavern crowd repeats' });
+      const button = panel.getByRole('button', { name: 'Options for Tavern crowd' });
       expect(button).toHaveAttribute('aria-haspopup', 'menu');
 
       await user.click(button);
@@ -303,9 +322,11 @@ describe('PlayerPanel', () => {
         dialog.getByText(/^Changes apply to this sound as it plays now\. Nothing is saved/),
       ).toBeInTheDocument();
 
-      // One step on the loop start (0.1 s), then crossfade.
+      // One step on the loop start (0.1 s), and a 2 s crossfade.
       fireEvent.keyDown(dialog.getByRole('slider', { name: 'Loop start' }), { key: 'ArrowRight' });
-      await user.click(dialog.getByRole('radio', { name: 'Crossfade' }));
+      fireEvent.change(dialog.getByRole('slider', { name: 'Crossfade length, seconds' }), {
+        target: { value: '2' },
+      });
       spies.updateLayer.mockClear();
       await user.click(dialog.getByRole('button', { name: 'Apply' }));
 
@@ -315,7 +336,7 @@ describe('PlayerPanel', () => {
         mode: {
           type: 'loop',
           randomStart: false,
-          loop: { ...crowdLoop, loopStart: 0.1, mode: 'crossfade' },
+          loop: { ...crowdLoop, loopStart: 0.1, mode: 'crossfade', crossfadeSec: 2 },
         },
       });
       expect(engine.getSnapshot().mix?.layers.map((l) => l.id)).toEqual(['item:i1']);
@@ -389,6 +410,138 @@ describe('PlayerPanel', () => {
 
     expect(isDim(dimBehindPlayer())).toBe(false);
     expect(main.style.overflow).not.toBe('hidden');
+  });
+
+  describe('a playlist row', () => {
+    const drip = makeSound({ id: 'drip', name: 'Drip', defaultMode: 'recurring' });
+    const road = makeMix({
+      id: 'p1',
+      name: 'Road',
+      kind: 'playlist',
+      items: [
+        makeMixItem({ id: 'pi1', soundId: 'crowd', volume: 1 }),
+        makeMixItem({ id: 'pi2', soundId: 'drip', volume: 1 }),
+      ],
+    });
+
+    /** A mix of two loops (crowd, door as a loop), and the same with the playlist inside. */
+    const evening = makeMix({
+      id: 'm1',
+      name: 'Tavern evening',
+      items: [
+        makeMixItem({ id: 'i1', soundId: 'crowd', mode: 'loop' }),
+        makeMixItem({ id: 'i2', soundId: 'door', mode: 'loop' }),
+      ],
+    });
+    const holding = makeMix({
+      id: 'm2',
+      name: 'Long road',
+      items: [
+        makeMixItem({ id: 'j1', soundId: 'crowd', mode: 'loop' }),
+        makeMixItem({ id: 'j2', soundId: 'door', mode: 'loop' }),
+      ],
+      playlists: [{ playlistId: 'p1', volume: 1 }],
+    });
+
+    // The menu reads matchMedia once; jsdom has none.
+    beforeEach(() => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    function setupPlaylist() {
+      const fake = makeFakeEngine();
+      const all = [crowd, door, drip];
+      const mixes = [road, evening, holding];
+      render(
+        <I18nProvider initial="en">
+          <ToastProvider>
+            <PlayerProvider sounds={all} mixes={mixes} engine={fake.engine}>
+              <main className="overflow-y-auto">
+                <ul>
+                  <MixTile mix={road} onEdit={() => {}} />
+                  <MixTile mix={evening} onEdit={() => {}} />
+                  <MixTile mix={holding} onEdit={() => {}} />
+                </ul>
+              </main>
+              <PlayerPanel sounds={all} mixes={mixes} />
+            </PlayerProvider>
+          </ToastProvider>
+        </I18nProvider>,
+      );
+      const panel = within(screen.getByRole('complementary', { name: 'Now playing' }));
+      /** The rows of the player list in display order, by their mute button's name. */
+      const rows = () =>
+        panel
+          .getAllByRole('button', { name: /^Mute / })
+          .map((b) => b.getAttribute('aria-label') ?? b.textContent);
+      return { ...fake, panel, rows, user: userEvent.setup() };
+    }
+
+    it('names the playlist and the sound heard, and skips from its options menu', async () => {
+      const { panel, user, spies, engine } = setupPlaylist();
+      await user.click(screen.getByRole('button', { name: /^Road/ }));
+
+      const row = within(panel.getByRole('list'));
+      expect(row.getByText('Road · Tavern crowd')).toBeInTheDocument();
+      expect(row.queryByRole('button', { name: /repeats$/ })).not.toBeInTheDocument();
+      expect(row.queryByRole('button', { name: /sound of Road$/ })).not.toBeInTheDocument();
+
+      act(() => engine.updateLayer('playlist:p1', { current: 1 } as never));
+      expect(row.getByText('Road · Drip')).toBeInTheDocument();
+
+      const options = row.getByRole('button', { name: 'Options for Road' });
+      expect(options).toHaveAttribute('aria-haspopup', 'menu');
+      expect(options.querySelector('.lucide-ellipsis')).not.toBeNull();
+
+      await user.click(options);
+      // The menu is titled with the playlist's name.
+      let menu = within(screen.getByRole('menu', { name: 'Road' }));
+      expect(menu.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+        'Previous sound',
+        'Next sound',
+      ]);
+      await user.click(menu.getByRole('menuitem', { name: 'Next sound' }));
+      expect(spies.skipLayer).toHaveBeenLastCalledWith('playlist:p1', 1);
+
+      await user.click(row.getByRole('button', { name: 'Options for Road' }));
+      menu = within(screen.getByRole('menu'));
+      await user.click(menu.getByRole('menuitem', { name: 'Previous sound' }));
+      expect(spies.skipLayer).toHaveBeenLastCalledWith('playlist:p1', -1);
+      expect(spies.skipLayer).toHaveBeenCalledTimes(2);
+      expect(row.getByRole('button', { name: 'Mute Road · Drip' })).toBeInTheDocument();
+      expectCoreControls(panel);
+    });
+
+    it('lists a playlist on top before the mix’s loops, though the engine lists it after them', async () => {
+      const { user, engine, rows } = setupPlaylist();
+      await user.click(screen.getByRole('button', { name: /^Tavern evening/ }));
+      await user.click(screen.getByRole('button', { name: /^Road/ }));
+
+      // The engine plays the playlist after the mix's layers.
+      expect(engine.getSnapshot().mix?.layers.map((l) => l.id)).toEqual([
+        'item:i1',
+        'item:i2',
+        'playlist:p1',
+      ]);
+      // The list shows it first, then the loops in their order.
+      expect(rows()).toEqual(['Mute Road · Tavern crowd', 'Mute Tavern crowd', 'Mute Door creak']);
+    });
+
+    it('lists a playlist held inside a mix first too', async () => {
+      const { user, engine, rows } = setupPlaylist();
+      await user.click(screen.getByRole('button', { name: /^Long road/ }));
+
+      const ids = engine.getSnapshot().mix?.layers.map((l) => l.id) ?? [];
+      expect(ids).toContain('in-mix:m2:p1');
+      expect(ids.indexOf('in-mix:m2:p1')).toBeGreaterThan(0);
+      expect(rows()).toEqual(['Mute Road · Tavern crowd', 'Mute Tavern crowd', 'Mute Door creak']);
+    });
   });
 
   it('tells the user when a sound fails to load', () => {

@@ -285,11 +285,12 @@ describe('public mixes', () => {
       400,
       'validation',
     );
-    expectError(
-      await call(app, a, 'PATCH', `/api/sounds/${shared.id}`, { isPublic: false }),
-      409,
-      'conflict',
-    );
+    // Unpublishing a sound the mix holds is not refused: the sound leaves the mix, which
+    // stays public.
+    const unpublished = await call(app, a, 'PATCH', `/api/sounds/${shared.id}`, { isPublic: false });
+    expect(unpublished.statusCode, unpublished.body).toBe(200);
+    const after = (await mixes(a)).find((m) => m.id === mix.id);
+    expect(after).toMatchObject({ isPublic: true, items: [] });
   });
 
   it('bring their sounds to who adds them, with personal volumes', async () => {
@@ -342,6 +343,45 @@ describe('public mixes', () => {
     expectError(await call(app, b, 'DELETE', `/api/library/sounds/${sound.id}`), 409, 'conflict');
     expect((await call(app, b, 'DELETE', `/api/library/mixes/${mix.id}`)).statusCode).toBe(204);
     expect((await call(app, b, 'DELETE', `/api/library/sounds/${sound.id}`)).statusCode).toBe(204);
+  });
+
+  it('keep every entry of a library while an added mix holds the sound, even inside a playlist', async () => {
+    const sound = await publicSound(a, 'Harp');
+    const list = await createMix(app, a, {
+      name: 'Ballads',
+      kind: 'playlist',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+    });
+    // The mix holds the sound only through its playlist, not as an item of its own.
+    const mix = await createMix(app, a, {
+      name: 'Court',
+      isPublic: true,
+      playlists: [{ playlistId: list.id, volume: 1 }],
+    });
+    const c = await signUp(app);
+    await call(app, c, 'PUT', `/api/library/sounds/${sound.id}`);
+    await call(app, c, 'PUT', `/api/library/mixes/${mix.id}`);
+    const own = await createMix(app, c, { name: 'Feast', items: [{ soundId: sound.id }] });
+    const sc = await createScene(app, c, { name: 'Hall', soundIds: [sound.id] });
+
+    expectError(await call(app, c, 'DELETE', `/api/library/sounds/${sound.id}`), 409, 'conflict');
+    // Nothing changed at all.
+    expect((await library(c)).sounds.find((s) => s.id === sound.id)?.access).toBe('added');
+    expect((await mixes(c)).find((m) => m.id === own.id)?.items.map((i) => i.soundId)).toEqual([
+      sound.id,
+    ]);
+    expect((await scene(c, sc.id)).soundIds).toEqual([sound.id]);
+    expect((await mixes(c)).find((m) => m.id === mix.id)?.playlists).toEqual([
+      { playlistId: list.id, volume: 1 },
+    ]);
+
+    // Once the mix is gone, the sound leaves as before, with its uses.
+    expect((await call(app, c, 'DELETE', `/api/library/mixes/${mix.id}`)).statusCode).toBe(204);
+    expect((await call(app, c, 'DELETE', `/api/library/sounds/${sound.id}`)).statusCode).toBe(204);
+    expect((await sounds(c)).some((s) => s.id === sound.id)).toBe(false);
+    expect((await mixes(c)).find((m) => m.id === own.id)?.items).toEqual([]);
+    expect((await scene(c, sc.id)).soundIds).toEqual([]);
   });
 
   it('take their sounds away when removed or made private', async () => {
@@ -412,6 +452,88 @@ describe('public mixes', () => {
     const res = await call(app, a, 'PATCH', `/api/mixes/${mix.id}`, { isPublic: false });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().addedCount).toBe(0);
+  });
+});
+
+describe('unpublishing a sound held by public mixes', () => {
+  it('takes it out of every public mix, the owner’s own included, and leaves them public', async () => {
+    const a = await signUp(app);
+    const b = await signUp(app);
+    const c = await signUp(app);
+    const sound = await publicSound(a, 'Rain');
+    const other = await publicSound(a, 'Wind');
+
+    // a's own mixes: one public, one private.
+    const ownPublic = await createMix(app, a, {
+      name: 'Storm',
+      isPublic: true,
+      items: [{ soundId: other.id }, { soundId: sound.id }],
+    });
+    const ownPrivate = await createMix(app, a, {
+      name: 'Shelter',
+      items: [{ soundId: sound.id }],
+    });
+    // b added the sound and holds it in a public and a private mix of their own.
+    await call(app, b, 'PUT', `/api/library/sounds/${sound.id}`);
+    await call(app, b, 'PUT', `/api/library/sounds/${other.id}`);
+    const theirPublic = await createMix(app, b, {
+      name: 'Downpour',
+      isPublic: true,
+      items: [{ soundId: other.id }, { soundId: sound.id }],
+    });
+    const theirPrivate = await createMix(app, b, {
+      name: 'Drizzle',
+      items: [{ soundId: sound.id }],
+    });
+    // c added a's public mix only.
+    await call(app, c, 'PUT', `/api/library/mixes/${ownPublic.id}`);
+
+    const res = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().isPublic).toBe(false);
+
+    const ofA = await mixes(a);
+    expect(ofA.find((m) => m.id === ownPublic.id)).toMatchObject({
+      isPublic: true,
+      items: [expect.objectContaining({ soundId: other.id })],
+    });
+    expect(ofA.find((m) => m.id === ownPublic.id)?.items).toHaveLength(1);
+    expect(ofA.find((m) => m.id === ownPrivate.id)?.items.map((i) => i.soundId)).toEqual([
+      sound.id,
+    ]);
+
+    const ofB = await mixes(b);
+    expect(ofB.find((m) => m.id === theirPublic.id)?.isPublic).toBe(true);
+    expect(ofB.find((m) => m.id === theirPublic.id)?.items.map((i) => i.soundId)).toEqual([
+      other.id,
+    ]);
+    expect(ofB.find((m) => m.id === theirPrivate.id)?.items).toEqual([]);
+    expect((await sounds(b)).some((s) => s.id === sound.id)).toBe(false);
+
+    const ofC = await mixes(c);
+    expect(ofC.find((m) => m.id === ownPublic.id)?.items.map((i) => i.soundId)).toEqual([
+      other.id,
+    ]);
+    expect((await sounds(c)).some((s) => s.id === sound.id)).toBe(false);
+
+    // Still the owner's, private, and nowhere in the Library.
+    expect((await sounds(a)).find((s) => s.id === sound.id)?.isPublic).toBe(false);
+    expect((await library(b)).sounds.some((s) => s.id === sound.id)).toBe(false);
+  });
+
+  it('takes it out of a public playlist of the owner too, which stays public', async () => {
+    const a = await signUp(app);
+    const sound = await publicSound(a, 'Bard');
+    const list = await createMix(app, a, {
+      name: 'Songs',
+      kind: 'playlist',
+      isPublic: true,
+      items: [{ soundId: sound.id }],
+    });
+    const res = await call(app, a, 'PATCH', `/api/sounds/${sound.id}`, { isPublic: false });
+    expect(res.statusCode, res.body).toBe(200);
+    const after = (await mixes(a)).find((m) => m.id === list.id);
+    expect(after).toMatchObject({ isPublic: true, kind: 'playlist', items: [] });
   });
 });
 
